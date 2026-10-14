@@ -266,7 +266,7 @@ function renderMission() {
     <div class="ncmd">${esc(cmdsLine(lv))}</div>
     ${lv.doc ? `<div class="docw">${lv.doc}</div>` : ''}
     <div id="slots" class="slots"></div>
-    ${missionButtons(lv, rec, lv.hint1 ? 1 : 2)}
+    ${missionButtons(lv, rec, 1)}
     ${SCHEMA_HTML}
     <div class="hint">Щёлкните кресло, пассажира, чемодан или табло — увидите строку. У трапа щелчок по пассажиру покажет посадочный.</div>`;
   bindMissionButtons(lv, rec);

@@ -227,7 +227,7 @@ function renderMission() {
     <ul>${lv.goals.map(g => `<li class="${rec.done ? 'done' : ''}">${esc(g)}</li>`).join('')}</ul>
     <div id="slots" class="slots"></div>
     <div class="ncmd">${esc(ncmd)}</div>
-    ${missionButtons(lv, rec)}
+    ${missionButtons(lv, rec, 3)}
     <div class="hint">Таблицы: <code>passenger</code>, <code>baggage</code>, <code>loyalty</code>, <code>flight</code>. Щёлкните пассажира, чемодан или табличку — увидите строку.</div>`;
   bindMissionButtons(lv, rec);
   renderSlots();
