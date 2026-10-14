@@ -15,6 +15,7 @@ import {report} from '../../common/net.js';
 
 const PTS = {kids: .5, rest: .5, window: .5, scale: .5, atomic: .5, noshow: .5, cascade: .5, setnull: .5, restrict: .5, soft: 1.5, hunt: 1.5, final: 1.5};
 const W = createWorld($('stage'));
+W.setSpeed(3);                                       // в ЛР-14 обход долгий — по умолчанию ×3
 
 // ═══════════════════════════════════════════════════ выполнение ══
 async function run() {
@@ -256,6 +257,11 @@ async function startLevel(i) {
 
 // щелчок по объекту сцены — строка таблицы
 async function pick(p) {
+  if (p.t === 'flight') {                          // табло — вся таблица flight
+    const rs = (await db.query('SELECT flight_no, dest FROM flight ORDER BY flight_no')).rows;
+    W.showCard('flight', '*', `<div class="rc-h">flight · ${rs.length} ${plural(rs.length, 'строка', 'строки', 'строк')}</div>${rs.map(r => `<div><b>${esc(r.flight_no)}</b> <span>${esc(r.dest)}</span></div>`).join('') || '<div><span>таблица пуста</span></div>'}`, 'info');
+    return;
+  }
   const r = (await db.query(`SELECT ${COLS[p.t].join(', ')} FROM ${p.t} WHERE ${TABLES[p.t]} = $1`, [p.k])).rows[0];
   if (!r) return;
   W.showCard(p.t, String(p.k), `<div class="rc-h">${p.t} · строка</div>${COLS[p.t].map(c => `<div><span>${c}</span><b>${esc(fmt(r[c]))}</b></div>`).join('')}`, 'info');

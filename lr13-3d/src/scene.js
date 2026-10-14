@@ -22,8 +22,7 @@ export function createWorld(stage) {
   const binT = rbox(shelfX1(SHELVES) - shelfX0(1), .05, .62, .02, 0xece6d8); at(binT, binB.position.x, BIN_Y + .62, BIN_Z); root.add(binT);
   for (let k = 0; k <= SHELVES; k++) { const dv = rbox(.05, .62, .62, .02, 0xcbc4b3); at(dv, k === SHELVES ? shelfX1(k) : shelfX0(k + 1), BIN_Y + .31, BIN_Z); root.add(dv); }
   for (let k = 1; k <= SHELVES; k++) label(`полка ${k}`, 'tag3', root, (shelfX0(k) + shelfX1(k)) / 2, BIN_Y + .78, BIN_Z + .2);
-  const {board, boardLbl} = E.flightBoard(1.8);
-  board.userData.pick = {t: 'flight', k: '*'};
+  const {board, show: showBoard} = E.flightBoard();
 
   // ════════════════════════════════════════════════ трап и тележка ══
   const BR = {x0: DOOR.x - .7, x1: DOOR.x + 2.3, z0: 3.05, z1: 6.6};
@@ -123,13 +122,13 @@ export function createWorld(stage) {
     if (to.y < -.5) path.push(V(to.x, 0, -.3), V(to.x, -.75, -3.0), to.clone());
     else path.push(V(to.x, 0, Math.sign(to.z) * .3), to.clone());
     await E.walk(g, path);
-    g.rotation.y = 0;
+    await E.turn(g, 0);                                              // лицом по ходу самолёта — и садится
     if (to.y > -.5) E.setPose(g, 'sit');
   }
   async function backToQueue(g, i) {
     const p = g.position, q = qPos(i);
     await E.walk(g, [V(p.x, p.y, Math.sign(p.z || 1) * .3), V(DOOR.x, 0, .3), V(DOOR.x, 0, q.z)]);
-    g.rotation.y = -Math.PI / 2;
+    await E.turn(g, -Math.PI / 2);
   }
   function toQueue(g, doc, i) {
     setPick(g, {t: 'queue', k: doc.id});
@@ -155,7 +154,7 @@ export function createWorld(stage) {
     if (!anim) { g.position.copy(to); g.rotation.y = to.y < -.5 ? Math.PI / 2 : 0; E.setPose(g, to.y < -.5 ? 'stand' : 'sit'); attachTray(P, row.meal, false); return P; }
     g.position.copy(from);
     await boardWalk(P, to);
-    if (to.y < -.5) { g.rotation.y = Math.PI / 2; say(row.id, 'Это не мой самолёт…', 2200); }
+    if (to.y < -.5) { await E.turn(g, Math.PI / 2); say(row.id, 'Это не мой самолёт…', 2200); }
     attachTray(P, row.meal, true);
     return P;
   }
@@ -227,14 +226,12 @@ export function createWorld(stage) {
 
   // ═════════════════════════════════════════════ состояние сцены ══
   let flights = new Map();
-  function boardHtml() {
-    const fs = [...flights.values()].sort((a, b) => String(a.dep_time).localeCompare(String(b.dep_time)));
-    return '<div class="bh">ВЫЛЕТ</div>' + (fs.map(f => `<div class="${f.flight_no === FLIGHT ? 'on' : ''}"><b>${esc(f.flight_no)}</b> ${esc(String(f.dep_time || '').slice(0, 5))} ${esc(f.dest)} <i>${f.gate == null ? '—' : esc(f.gate)}</i></div>`).join('') || '<div class="e">— пусто —</div>');
-  }
+  // строки табло: рейс, время, куда, выход — по времени вылета
+  const boardRows = () => [...flights.values()].sort((a, b) => String(a.dep_time).localeCompare(String(b.dep_time)))
+    .map(f => ({on: f.flight_no === FLIGHT, cells: [f.flight_no, String(f.dep_time || '').slice(0, 5), String(f.dest || '').slice(0, 11), f.gate == null ? '—' : f.gate]}));
   function setBoard(rows, flash) {
     flights = new Map(rows.map(r => [r.flight_no, r]));
-    boardLbl.element.innerHTML = boardHtml();
-    if (flash) boardLbl.element.animate([{transform: 'scale(1.15)'}, {transform: 'none'}], {duration: 380, easing: 'cubic-bezier(.3,1.6,.6,1)'});
+    showBoard(boardRows(), flash);
   }
   const clearMap = (m, from) => { m.forEach(x => { const g = x.g || x; E.dispose(g); from.remove(g); }); m.clear(); };
   function build(state, opt) {

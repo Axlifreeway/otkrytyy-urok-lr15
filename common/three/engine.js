@@ -82,7 +82,8 @@ export function createEngine(stage, o) {
   };
   const rgeo = (w, h, d, r) => {
     const k = [w, h, d, r].map(v => v.toFixed(3)).join(); let g = gcache.get(k);
-    if (!g) { g = new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2 - .001, h / 2 - .001, d / 2 - .001)); gcache.set(k, g); }
+    // скругление одним сегментом (фаска): на вид почти то же, а треугольников втрое меньше
+    if (!g) { g = new RoundedBoxGeometry(w, h, d, 1, Math.min(r, w / 2 - .001, h / 2 - .001, d / 2 - .001)); gcache.set(k, g); }
     return g;
   };
   const rbox = (w, h, d, r, c, opt) => { const m = new THREE.Mesh(rgeo(w, h, d, r), typeof c === 'object' ? c : mat(c, opt)); m.castShadow = true; m.receiveShadow = true; return m; };
@@ -93,8 +94,11 @@ export function createEngine(stage, o) {
     const geos = [];
     list.forEach(m => {
       const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
-      Object.keys(g.attributes).forEach(a => { if (a !== 'position' && a !== 'normal') g.deleteAttribute(a); });
+      // уже склеенный меш несёт цвета в вершинах — их и сохраняем
+      const keepCol = m.material.vertexColors && g.attributes.color;
+      Object.keys(g.attributes).forEach(a => { if (a !== 'position' && a !== 'normal' && !(keepCol && a === 'color')) g.deleteAttribute(a); });
       g.applyMatrix4(rel(m));
+      if (keepCol) { geos.push(g); return; }
       const c = m.material.color || new THREE.Color(0xffffff), e = m.material.emissive, ei = m.material.emissiveIntensity ?? 1;
       const r = Math.min(1, c.r + (e ? e.r * ei : 0)), gg = Math.min(1, c.g + (e ? e.g * ei : 0)), b = Math.min(1, c.b + (e ? e.b * ei : 0));
       const n = g.attributes.position.count, col = new Float32Array(n * 3);
@@ -165,9 +169,41 @@ export function createEngine(stage, o) {
     return geo;
   }
   // табло рейсов на перегородке у носа
-  function flightBoard(labelY) {
-    const board = rbox(.06, .62, 1.3, .03, 0x27292c); at(board, geo.LEN0 + .06, 1.35, .2); root.add(board);
-    return {board, boardLbl: label('', 'board', root, geo.LEN0 + .1, labelY, .2)};
+  // табло вылетов — экран на самой модели: строки рисуются на холсте и натягиваются на плоскость.
+  // show(rows, flash): rows — [{cells: ['ИИ-750', '12:00', 'Сочи', 'A9'], on: наш рейс}]
+  function flightBoard() {
+    // висит у носовой перегородки, развёрнуто к салону — чтобы надписи читались из обычного ракурса
+    const board = new THREE.Group(); board.position.set(geo.LEN0 + .45, 1.42, .1); board.rotation.y = -.75; root.add(board);
+    const frame = rbox(.07, 1.12, 2.4, .04, 0x27292c); frame.userData.keep = true; board.add(frame);
+    const cv = document.createElement('canvas'); cv.width = 960; cv.height = 432;
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.28, 1.02), new THREE.MeshBasicMaterial({map: tex, toneMapped: false}));
+    screen.rotation.y = Math.PI / 2; screen.position.x = .04; screen.userData.keep = true; board.add(screen);
+    setPick(board, {t: 'flight', k: '*'});
+    let last = [];
+    function draw(rows) {
+      const c = cv.getContext('2d'), W = cv.width, H = cv.height;
+      c.fillStyle = '#16181c'; c.fillRect(0, 0, W, H);
+      c.fillStyle = '#9a9488'; c.font = '700 34px "JetBrains Mono", Consolas, monospace'; c.fillText('ВЫЛЕТ · DEPARTURES', 26, 50);
+      c.fillStyle = '#ffc21a'; c.fillRect(26, 66, W - 52, 5);
+      if (!rows.length) { c.fillStyle = '#5c5f66'; c.font = '700 48px "JetBrains Mono", Consolas, monospace'; c.fillText('— пусто —', 26, 150); }
+      rows.slice(0, 5).forEach((r, i) => {
+        const y = 128 + i * 68;
+        if (r.on) { c.fillStyle = 'rgba(255, 194, 26, .18)'; c.fillRect(14, y - 50, W - 28, 64); }
+        c.font = '800 48px "JetBrains Mono", Consolas, monospace';
+        let x = 26;
+        const step = r.cells.length > 2 ? [250, 170, 380] : [260];
+        r.cells.forEach((t, k) => { c.fillStyle = k === 0 ? (r.on ? '#ffffff' : '#ffc21a') : '#e9e6dd'; c.fillText(String(t), x, y); x += step[k] || 200; });
+      });
+      tex.needsUpdate = true;
+    }
+    draw([]);
+    if (document.fonts) document.fonts.ready.then(() => draw(last));     // шрифт мог догрузиться позже
+    const show = (rows, flash) => {
+      last = rows; draw(rows);
+      if (flash) tween(board.scale, {x: 1.12, y: 1.12, z: 1.12}, 140, 'out').then(() => tween(board.scale, {x: 1, y: 1, z: 1}, 260, 'back'));
+    };
+    return {board, show};
   }
 
   // ═══════════════════════════════════════════════════════ пассажир ══
@@ -198,9 +234,10 @@ export function createEngine(stage, o) {
     // поза «сидит» — заранее склеенные согнутые ноги
     legs.forEach(l => { l.hip.rotation.z = -Math.PI / 2; l.knee.rotation.z = Math.PI / 2; });
     g.updateMatrixWorld(true);
-    { const inv = g.matrixWorld.clone().invert(), lm = [];
+    // сидящий человечек — один меш (тело + согнутые ноги): вдвое меньше вызовов отрисовки на салон
+    { const inv = g.matrixWorld.clone().invert(), torso = g.children.find(m => m.isMesh), lm = [torso];
       legs.forEach(l => l.hip.traverse(m => { if (m.isMesh) lm.push(m); }));
-      const sitMesh = bakeMeshes(lm, m => inv.clone().multiply(m.matrixWorld)); g.add(sitMesh); legs.sitMesh = sitMesh; }
+      const sitMesh = bakeMeshes(lm, m => inv.clone().multiply(m.matrixWorld)); g.add(sitMesh); legs.sitMesh = sitMesh; legs.torso = torso; }
     const sc = look.kid ? .66 : 1;
     g.scale.setScalar(sc);
     g.userData = {s: sc, kid: !!look.kid, legs};
@@ -209,10 +246,16 @@ export function createEngine(stage, o) {
   function setPose(g, pose) {
     const L = g.userData.legs; if (!L) return;
     g.userData.pose = pose;
-    L.forEach(l => { l.hip.rotation.z = 0; l.knee.rotation.z = 0; l.hip.visible = pose !== 'sit'; });
+    L.forEach(l => { l.hip.rotation.z = 0; l.knee.rotation.z = 0; l.hip.visible = pose !== 'sit'; l.hip.position.y = .42; });
     if (L.sitMesh) L.sitMesh.visible = pose === 'sit';
+    if (L.torso) { L.torso.visible = pose !== 'sit'; L.torso.position.y = 0; }
   }
   const walkers = new Set();
+  // плавный поворот по кратчайшему пути — а не рывком
+  function turn(g, to, ms = 160) {
+    let d = to - g.rotation.y; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+    return tween(g.rotation, {y: g.rotation.y + d}, ms / Math.min(SPD, 4), 'out');
+  }
   // пройти по точкам пути; скорость шага — с учётом общей скорости показа
   async function walk(g, path, spd = 2.4) {
     const p = g.position;
@@ -220,7 +263,7 @@ export function createEngine(stage, o) {
     for (const q of path) {
       const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz) + Math.abs(q.y - p.y);
       if (d < .01) continue;
-      if (Math.hypot(dx, dz) > .01) g.rotation.y = Math.atan2(dz, -dx);
+      if (Math.hypot(dx, dz) > .01) turn(g, Math.atan2(dz, -dx));
       await tween(p, {x: q.x, y: q.y, z: q.z}, d / spd * 1000 / Math.min(SPD, 4), 'lin');
     }
     walkers.delete(g); setPose(g, 'stand');
@@ -455,7 +498,12 @@ export function createEngine(stage, o) {
     cam.position.copy(tgt).add(CAMDIR.clone().multiplyScalar(60)); cam.lookAt(tgt);
     fit();
     conf.forEach(m => { m.position.addScaledVector(m.userData.v, dt * 2); m.rotation.x += m.userData.r.x * dt; m.rotation.y += m.userData.r.y * dt; });
-    walkers.forEach(g => { const t = now / 1000 * 9; g.userData.legs.forEach((l, i) => { const ph = Math.sin(t + i * Math.PI); l.hip.rotation.z = ph * .45; l.knee.rotation.z = Math.max(0, -ph) * .6; }); });
+    // шаг: ноги в противофазе, колено сгибается на возврате, тело слегка покачивается вверх-вниз
+    walkers.forEach(g => {
+      const L = g.userData.legs, t = now / 1000 * 8.5 * Math.min(Math.max(SPD, 1), 2), bob = Math.abs(Math.sin(t)) * .035;
+      L.forEach((l, i) => { const ph = Math.sin(t + i * Math.PI); l.hip.rotation.z = ph * .5; l.knee.rotation.z = Math.max(0, -ph) * .75; l.hip.position.y = .42 + bob; });
+      if (L.torso) L.torso.position.y = bob;
+    });
     // в покое — реже перерисовываем; тени пересчитываем только когда что-то движется
     nFrame++;
     const moving = tw.length || conf.length || walkers.size || camS.follow || drag || sh || Math.abs(camS.tx + root.position.x * .6 - camS.cx) > .002 || Math.abs(camS.tz - camS.cz) > .002 || Math.abs(zt - camS.cur) > .001;
@@ -474,7 +522,7 @@ export function createEngine(stage, o) {
   return {
     // для сцены лабы
     scene, ground, root, mat, rbox, at, label, setPick, bakeMeshes, bakeGroup, airframe, flightBoard, geo,
-    makePerson, setPose, walk, walkers, attachTray, makeBag, dispose, sweepLabels, resolve, sayAt, robotHome,
+    makePerson, setPose, walk, turn, walkers, attachTray, makeBag, dispose, sweepLabels, resolve, sayAt, robotHome,
     // общий интерфейс мира для main.js
     loadRobot, frame, robotGo, play, aimBeam, beamOff, chip, removeChip, clearChips, fadeNo, showCard, hideCard, clearSay,
     bounce, confetti, takeoff, hooks, camS, robot: robotG, rScreen, HOME,

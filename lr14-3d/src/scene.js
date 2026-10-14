@@ -18,7 +18,7 @@ export function createWorld(stage) {
   for (let k = 0; k <= 4; k++) { const dv = rbox(.05, .62, .62, .02, 0xcbc4b3); at(dv, k === 4 ? seatX(ROWS) + .6 : seatX(2 * k + 1) - .6, BIN_Y + .31, BIN_Z); root.add(dv); }
   const shelfX0 = k => seatX(2 * k - 1) - .6, shelfX1 = k => seatX(2 * k) + .6;
   for (let k = 1; k <= 4; k++) label(`полка ${k}`, 'tag3', root, (shelfX0(k) + shelfX1(k)) / 2, BIN_Y + .78, BIN_Z + .2);
-  const {board, boardLbl} = E.flightBoard(1.75);
+  const {board, show: showBoard} = E.flightBoard();
   // стойка программ лояльности
   const stand = rbox(1.6, .5, .5, .06, 0xdcd6c8); at(stand, LEN0 + 1.1, .25, 2.2); root.add(stand);
   const TIERC = {'золото': 0xe0b03a, 'серебро': 0xc7ced6, 'базовая': 0x7fa486};
@@ -37,7 +37,7 @@ export function createWorld(stage) {
   {
     root.updateMatrixWorld(true);
     const list = [];
-    root.traverse(o => { if (o.isMesh && o !== board && !o.material.transparent) list.push(o); });
+    root.traverse(o => { if (o.isMesh && !o.userData.keep && !o.material.transparent) list.push(o); });
     const merged = E.bakeMeshes(list, o => o.matrixWorld.clone());
     list.forEach(o => o.parent.remove(o));
     root.children.filter(o => o.isGroup && !o.children.length).forEach(o => root.remove(o));
@@ -107,9 +107,8 @@ export function createWorld(stage) {
   // ═════════════════════════════════════════════ состояние сцены ══
   let model = {passenger: new Map(), baggage: new Map(), loyalty: new Map(), flight: new Map()};
   let seedR = rng(1), metaMap = null;
-  function boardHtml() {
-    return [...model.flight.values()].map(f => `<div class="${f.flight_no === FLIGHT ? 'on' : ''}"><b>${esc(f.flight_no)}</b> ${esc(f.dest)}</div>`).join('') || '<div>— пусто —</div>';
-  }
+  const boardRows = () => [...model.flight.values()].map(f => ({on: f.flight_no === FLIGHT, cells: [f.flight_no, String(f.dest || '').slice(0, 14)]}));
+
   const removeAll = m => { m.forEach(x => { E.dispose(x.g); x.g.parent && x.g.parent.remove(x.g); }); m.clear(); };
   function build(state, seed, meta) {
     metaMap = meta || null;
@@ -123,13 +122,16 @@ export function createWorld(stage) {
     ['золото', 'серебро', 'базовая'].forEach((t, i) => {
       const g = new THREE.Group();
       g.add(rbox(.06, .46, .34, .04, TIERC[t], {r: .4, metalness: t === 'базовая' ? 0 : .3}));
+      // невидимая зона нажатия крупнее самой таблички — по ней легко попасть
+      const hit = new THREE.Mesh(new THREE.BoxGeometry(.5, .9, .5), new THREE.MeshBasicMaterial({colorWrite: false, depthWrite: false}));
+      hit.position.y = .1; g.add(hit);
       g.position.set(LEN0 + .55 + i * .55, .76, 2.2);
       E.setPick(g, {t: 'loyalty', k: t});
       plates.set(t, {g, lb: label(t, 'tag3', g, 0, .36, 0), alive: false});
     });
     state.loyalty.forEach(row => { const L = plates.get(row.tier); if (L) { root.add(L.g); L.alive = true; } model.loyalty.set(row.tier, row); });
     state.flight.forEach(row => model.flight.set(row.flight_no, row));
-    boardLbl.element.innerHTML = boardHtml();
+    showBoard(boardRows());
     E.robotHome();
     ghostSeat.visible = false;
     E.sweepLabels();
@@ -178,7 +180,7 @@ export function createWorld(stage) {
     else if (to.y < -.5) path.push(V(to.x, p.y, .3), to.clone());
     else path.push(V(to.x, p.y, Math.sign(to.z) * .3), to.clone());
     await E.walk(g, path);
-    g.rotation.y = leave ? 0 : to.y < -.5 ? Math.PI / 2 : 0;
+    await E.turn(g, leave ? 0 : to.y < -.5 ? Math.PI / 2 : 0);
     E.setPose(g, leave || to.y < -.5 ? 'stand' : 'sit');
   }
   async function applyPassenger(id, nv, anim) {
@@ -257,7 +259,9 @@ export function createWorld(stage) {
     wb.forEach((r, t) => { const B = bags.get(t); if (!B || JSON.stringify(B.row) !== JSON.stringify(r)) jobs.push(applyBag(t, r, anim, state.baggage)); });
     const wl = new Set(state.loyalty.map(r => r.tier));
     plates.forEach((L, t) => { if (L.alive !== wl.has(t)) jobs.push(applyLoyalty(t, wl.has(t) ? {tier: t} : null, anim)); });
-    model.flight = new Map(state.flight.map(r => [r.flight_no, r])); boardLbl.element.innerHTML = boardHtml();
+    const nf = new Map(state.flight.map(r => [r.flight_no, r]));
+    const changed = JSON.stringify([...nf.values()]) !== JSON.stringify([...model.flight.values()]);
+    model.flight = nf; showBoard(boardRows(), anim && changed);
     await Promise.all(jobs);
     // перерасстановка чемоданов на полках
     const slots = bagSlots(state.baggage);

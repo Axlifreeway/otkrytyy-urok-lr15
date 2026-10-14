@@ -34,8 +34,8 @@ export function describe(wrong, max = 4) {
   for (const w of wrong) {
     if (out.length >= max) { out.push(`…и ещё ${wrong.length - max}`); break; }
     const where = `${w.t} ${w.k}`;
-    if (w.c && !w.g) { out.push(`${where}: такой строки нет в задании — проверьте ключ и значения`); continue; }
-    if (!w.c && w.g) { out.push(`${where}: строка пропала, а должна остаться`); continue; }
+    if (w.c && !w.g) { out.push(`${where}: такой строки нет в задании — проверьте ключ и значения.`); continue; }
+    if (!w.c && w.g) { out.push(`${where}: строка пропала, а должна остаться.`); continue; }
     const cols = Object.keys(w.g).filter(c => JSON.stringify(w.c[c]) !== JSON.stringify(w.g[c]));
     out.push(cols.map(c => {
       const a = w.c[c], b = w.g[c];
