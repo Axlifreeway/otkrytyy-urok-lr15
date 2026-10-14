@@ -9,7 +9,7 @@ import {SFX} from '../../common/sfx.js';
 import {judge, describe, keyHint} from '../../common/judge.js';
 import {
   initShell, boot, db, D, L, G, running, unlocked, setRunning, loadSql, state, prepareLevel, cmdBar, hud, errBox, verdict, save, recOf,
-  journal, renderLevels, predict, rollback, success, pushHist, lintFail, levelTag, missionButtons, bindMissionButtons, hold,
+  journal, renderLevels, predict, rollback, success, pushHist, markError, lintFail, levelTag, missionButtons, bindMissionButtons, hold,
 } from '../../common/shell.js';
 import {report} from '../../common/net.js';
 
@@ -67,7 +67,7 @@ async function runOne(q, sql) {
     if (q.kind === 'UPDATE') { const b = q.sets.find(s => !COLS[q.t].includes(s.col)); if (b) throw Object.assign(new Error(`column "${b.col}" of relation "${q.t}" does not exist`), {code: '42703'}); }
   } catch (e) {
     robotErr();
-    $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
+    markError(e); $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
     SFX.err(); journal(sql, 'ошибка'); info.err = e;
     return info;
   }
@@ -116,7 +116,7 @@ async function runOne(q, sql) {
         W.showCard(q.t, k, `<div class="rc-h">${q.t} · ${esc(k)}</div><div class="rc-v err">${esc(failErr.constraint || 'отказ')}</div><div class="rc-t">${esc(explain(failErr))}</div>`, 'err');
         SFX.err(); W.play('jump', true); W.shake();
         hud(done, yes, total);
-        $('result').innerHTML = `<span class="bad">ERROR: ${esc(failErr.message)}</span><div class="ru">Команда не выполнена. Всё, что было изменено до этой строки, отменяется.</div>`;
+        markError(failErr); $('result').innerHTML = `<span class="bad">ERROR: ${esc(failErr.message)}</span><div class="ru">Команда не выполнена. Всё, что было изменено до этой строки, отменяется.</div>`;
         info.err = failErr;
         await Promise.all(jobs);
         await sleep(1500);
@@ -143,7 +143,7 @@ async function runOne(q, sql) {
   W.beamOff(); W.fadeNo();
   // 4. настоящая команда
   let r;
-  try { r = await db.query(q.sql); } catch (e) { $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span>`; info.err = e; await afterRun(q, info, false); return info; }
+  try { r = await db.query(q.sql); } catch (e) { markError(e); $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span>`; info.err = e; await afterRun(q, info, false); return info; }
   const n = q.kind === 'SELECT' ? r.rows.length : r.affectedRows;
   const tag = q.kind === 'SELECT' ? `(${n} ${plural(n, 'строка', 'строки', 'строк')})` : `${q.kind} ${n}`;
   let note = '';

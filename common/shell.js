@@ -7,6 +7,7 @@ import {openDb, loadSql as load} from './db.js';
 import {report, setCtx, clientId, watchAway, guardPaste} from './net.js';
 import {loginScreen, session, mergeP, syncInit, pull, push} from './login.js';
 import {isTeacherCode} from './teacher.js';
+import {attachHighlight} from './sqlhl.js';
 
 export let db = null, D = null, L = [], G = null, running = false;
 export const setRunning = v => { running = v; };
@@ -270,6 +271,22 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
   await cfg.startLevel(i);
 }
 
+// ═════════════════════════════ пульт: подсветка, место ошибки, сообщения над ним ══
+let hl = {mark: () => {}, clear: () => {}};
+// подчеркнуть в коде место ошибки: объект ошибки СУБД или текст сообщения
+export const markError = err => hl.mark(err);
+// вердикт, строка команды робота и всплывашка — всегда прямо над пультом, по его ширине, при любой его высоте
+function placeMessages() {
+  const d = $('deck').getBoundingClientRect(), free = narrow();
+  document.documentElement.style.setProperty('--msg-max', Math.max(120, d.top - 70) + 'px');
+  ['verdict', 'cmd', 'toast'].forEach(id => {
+    const el = $(id); if (!el) return;
+    el.style.bottom = (innerHeight - d.top + 12) + 'px';
+    Object.assign(el.style, free ? {left: '', width: '', right: '', transform: '', maxWidth: ''}
+      : {left: d.left + 'px', width: id === 'cmd' ? '' : d.width + 'px', maxWidth: d.width + 'px', right: 'auto', transform: 'none'});
+  });
+}
+
 // ═══════════════════════════════════════════ история команд, вставка ══
 let paste = {add: () => {}};
 export const allowPaste = t => paste.add(t);
@@ -281,6 +298,7 @@ function histKey(e) {
   if (e.key === 'ArrowDown') { e.preventDefault(); G.hi = Math.min(G.hist.length, (G.hi ?? G.hist.length) + 1); $('sql').value = G.hist[G.hi] || ''; }
 }
 export function lintFail(msg, sql) {
+  hl.mark(msg);
   report('lint', {lv: G.lv + 1, key: L[G.lv].key, sql: sql.slice(0, 600), msg});
   G.P.lints = (G.P.lints || 0) + 1; save();
 }
@@ -295,6 +313,9 @@ export async function boot() {
   $('mission').addEventListener('click', e => { if (narrow() && e.target.closest('h1')) { $('side').classList.toggle('min'); fitScene(); } });
   addEventListener('resize', fitScene);
   $('sql').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runFromUI(); } else histKey(e); });
+  hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
+  new ResizeObserver(placeMessages).observe($('deck'));
+  addEventListener('resize', placeMessages); placeMessages();
   paste = guardPaste($('sql'), () => { if (G && G.demo) return; toast('Вставка из других мест отключена — наберите команду сами. Свои прошлые команды: Ctrl+↑'); if (G) { G.P.pastes = (G.P.pastes || 0) + 1; save(); } });
   watchAway(ms => { if (G && !G.demo) { G.P.away = (G.P.away || 0) + 1; G.P.awayMs = (G.P.awayMs || 0) + ms; save(); } },
     () => G ? {lv: G.lv + 1, key: L[G.lv] && L[G.lv].key, done: doneN(), pts: score().sum, fails: (G.P.lv[(L[G.lv] || {}).key] || {}).fails || 0} : {});

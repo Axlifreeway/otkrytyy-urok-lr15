@@ -9,7 +9,7 @@ import {SFX} from '../../common/sfx.js';
 import {judge, describe, keyHint, fmtv as fmt} from '../../common/judge.js';
 import {
   initShell, boot, db, D, L, G, running, setRunning, unlocked, state, prepareLevel, cmdBar, hud, errBox, verdict, save, recOf,
-  journal, renderLevels, predict, rollback, success, pushHist, allowPaste, lintFail, levelTag, missionButtons, bindMissionButtons, hold,
+  journal, renderLevels, predict, rollback, success, pushHist, markError, allowPaste, lintFail, levelTag, missionButtons, bindMissionButtons, hold,
 } from '../../common/shell.js';
 import {report} from '../../common/net.js';
 
@@ -68,7 +68,7 @@ async function runInsert(q, sql) {
   await db.exec('ROLLBACK');
   if (whole && !/^23/.test(whole.code || '')) {
     robotErr();
-    $('result').innerHTML = `<span class="bad">ERROR: ${esc(whole.message)}</span><div class="ru">${esc(explain(whole))}</div>`;
+    markError(whole); $('result').innerHTML = `<span class="bad">ERROR: ${esc(whole.message)}</span><div class="ru">${esc(explain(whole))}</div>`;
     SFX.err(); journal(sql, 'ERROR ' + (whole.code || ''));
     return fin(q, {err: whole});
   }
@@ -115,7 +115,8 @@ async function runInsert(q, sql) {
       hud(i, i, n, 'строк', 'принято');
       const cyr = Object.values(given).find(x => /^'.*[АВСЕНКМОРТХ].*'$/.test(x || '') && /^'[1-9][АВСЕНКМОРТХA-Z0-9]*'$/.test(x));
       const ruNote = cyr ? ` В ${cyr} русская буква — номера мест и выходов пишутся латиницей (раскладка EN).` : '';
-      $('result').innerHTML = `<span class="bad">ERROR: ${esc(failErr.message)}</span><div class="ru">${esc(explain(failErr) + ruNote)} Команда не выполнена — строки, вставленные до этой, тоже отменяются.</div>`;
+      const bv = given[badCol(failErr, q.t)];               // значение, которое не пропустила СУБД
+      markError(bv && !/^default$/i.test(bv) ? bv : failErr); $('result').innerHTML = `<span class="bad">ERROR: ${esc(failErr.message)}</span><div class="ru">${esc(explain(failErr) + ruNote)} Команда не выполнена — строки, вставленные до этой, тоже отменяются.</div>`;
       await Promise.all(jobs);
       await sleep(1500);
       $('rewind').hidden = false; SFX.rew();
@@ -136,7 +137,7 @@ async function runInsert(q, sql) {
   W.beamOff();
   // 4. настоящая команда
   let r;
-  try { r = await db.query(q.sql); } catch (e) { $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span>`; await W.sync(await state(), true); return fin(q, {err: e}); }
+  try { r = await db.query(q.sql); } catch (e) { markError(e); $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span>`; await W.sync(await state(), true); return fin(q, {err: e}); }
   const tag = `INSERT 0 ${r.affectedRows}`;
   $('result').innerHTML = `<span class="ok">${esc(tag)}</span><div class="ru">${r.affectedRows} ${plural(r.affectedRows, 'строка добавлена', 'строки добавлены', 'строк добавлено')} одной командой.</div>`;
   journal(sql, tag);
@@ -154,7 +155,7 @@ async function runSelect(q, sql) {
     r = await db.query(q.sql);
   } catch (e) {
     robotErr();
-    $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
+    markError(e); $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
     SFX.err(); journal(sql, 'ошибка');
     return fin(q, {err: e});
   }

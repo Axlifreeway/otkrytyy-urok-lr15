@@ -76,3 +76,17 @@ test('sha256 совпадает с node:crypto; код преподавател�
 test('plural', () => {
   assert.deepEqual([1, 2, 5, 11, 21, 22, 112].map(n => plural(n, 'строка', 'строки', 'строк')), ['строка', 'строки', 'строк', 'строк', 'строка', 'строки', 'строк']);
 });
+
+test('подсветка SQL: ключевые слова только при верном написании, место ошибки', async () => {
+  const {highlight, errorSpan} = await import('../common/sqlhl.js');
+  const h = highlight("SELEKT * FROM passenger WHERE meal = 'x' -- c", ['passenger']);
+  assert.match(h, /<span class="k">FROM<\/span>/);
+  assert.doesNotMatch(h, /<span class="k">SELEKT/);
+  assert.match(h, /<span class="t">passenger<\/span>/);
+  assert.match(h, /<span class="s">&#39;x&#39;<\/span>/);
+  assert.match(h, /<span class="c">-- c<\/span>/);
+  const t = 'UPDATE passenger SET meal = 1 WHERE birth_yar > 2';
+  assert.deepEqual(errorSpan(t, {message: 'column "birth_yar" does not exist'}), {from: 36, to: 45});
+  assert.equal(errorSpan(t, {message: 'syntax error at or near "WHERE"'}).from, 30);
+  assert.equal(errorSpan(t, 'Значение A9 без кавычек.'), null);
+});
