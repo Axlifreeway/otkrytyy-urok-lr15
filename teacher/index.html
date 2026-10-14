@@ -58,6 +58,10 @@
   .gcard { margin-bottom: 14px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
   tr.absent td { color: #9a9488; background: #f4f1ea }
   #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
+  #sayBox { margin: 0 16px 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 760px }
+  #sayBox h2 { font-size: 18px } #sayText { font: 500 16px var(--font); padding: 8px 10px; border: 2.5px solid var(--ink); border-radius: 6px; resize: vertical }
+  .sayrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap } .sayrow select { font-size: 14px; padding: 3px 6px; border: 2.5px solid var(--ink); border-radius: 6px }
+  #sayList div { padding: 3px 0; border-top: 1px dashed #d8d0bd }
   /* телефон: шапка переносится, таблицы прокручиваются по горизонтали */
   @media (max-width: 760px) {
     header { flex-wrap: wrap; gap: 6px } header h1 { width: 100%; font-size: 20px } header select { font-size: 16px }
@@ -79,9 +83,18 @@
   <button class="btn" id="today">За сегодня</button>
   <span id="since"></span>
   <span style="flex:1"></span>
+  <button class="btn" id="sayBtn" title="Сообщение появится у студентов: робот на полэкрана">🤖 Робот скажет</button>
   <button class="btn" id="grpBtn">Группы и списки</button>
   <button class="btn" id="projBtn">Проектор</button>
 </header>
+<div id="sayBox" class="panel" hidden>
+  <h2>Робот скажет студентам</h2>
+  <textarea id="sayText" rows="3" maxlength="300" placeholder="Например: «Не забудьте про IS NULL в уровне 2!»"></textarea>
+  <div class="sayrow"><label>Кому <select id="sayGrp"><option value="">всем группам</option></select></label>
+    <label title="Робот выпрыгивает резко, с тряской экрана и звуком"><input type="checkbox" id="sayScream"> внезапно (скример)</label>
+    <button class="btn on" id="sayGo">Отправить</button><span id="sayMsg" class="mu"></span></div>
+  <div id="sayList" class="mu"></div>
+</div>
 <main>
   <div class="top"><div class="panel kpi" id="kpi"></div><div class="panel hist" id="hist"></div></div>
   <table id="tbl"><thead><tr>
@@ -225,6 +238,23 @@ async function showLog(client, quiet) {
   $('dx').onclick = () => { open = null; $('drawer').hidden = true; };
 }
 let started = false;
+// робот скажет: объявление студентам
+async function loadSays() {
+  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.grp ? esc(x.grp) : 'всем'}${x.mode === 'scream' ? ' · внезапно' : ''} — ${esc(x.text)}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
+}
+$('sayBtn').onclick = () => {
+  const on = $('sayBox').hidden; $('sayBox').hidden = !on; $('sayBtn').classList.toggle('on', on);
+  if (on) { $('sayGrp').innerHTML = '<option value="">всем группам</option>' + groupsData.map(g => `<option>${esc(g.name)}</option>`).join(''); $('sayText').focus(); loadSays(); }
+};
+$('sayGo').onclick = async () => {
+  const text = $('sayText').value.trim(); if (!text) { $('sayText').focus(); return; }
+  try {
+    await post('/api/admin/say', {text, grp: $('sayGrp').value, mode: $('sayScream').checked ? 'scream' : 'normal'});
+    $('sayMsg').textContent = 'Отправлено — появится у студентов в течение 4 секунд'; $('sayText').value = ''; loadSays();
+  } catch (e) { $('sayMsg').textContent = 'Ошибка: ' + e.message; }
+};
+$('sayText').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('sayGo').click(); };
+
 function start() {
   $('login').hidden = true; $('app').hidden = false;
   if (started) { tick(); loadGroups(); return; }

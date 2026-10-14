@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS grp (name TEXT PRIMARY KEY, ord INTEGER);
 CREATE TABLE IF NOT EXISTS student (
   id INTEGER PRIMARY KEY, grp TEXT, name TEXT, idx INTEGER, pin TEXT, fails INTEGER DEFAULT 0, lock_until INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS progress (sid INTEGER, lab TEXT, data TEXT, ts INTEGER, PRIMARY KEY (sid, lab));
+CREATE TABLE IF NOT EXISTS say (id INTEGER PRIMARY KEY, ts INTEGER, grp TEXT, text TEXT, mode TEXT);
 '''
 
 
@@ -294,6 +295,27 @@ class Store:
             rows = self.con.execute('SELECT ts, type, data FROM ev WHERE client = ? AND ts >= ? ORDER BY ts', (client, since)).fetchall()
         return [{'ts': r[0], 'type': r[1], 'data': json.loads(r[2] or '{}')} for r in rows if r[1] != 'hb']
 
+    # ── робот говорит: объявления преподавателя ──
+    def add_say(self, grp, text, mode):
+        with self.lock:
+            i = self.con.execute('INSERT INTO say (ts, grp, text, mode) VALUES (?,?,?,?)', (now_ms(), grp, text, mode)).lastrowid
+            self.con.commit()
+        return i
+
+    def says(self, since, grp):
+        """Новые объявления (не старше 2 минут) для группы grp; since < 0 — только номер последнего."""
+        with self.lock:
+            last = self.con.execute('SELECT coalesce(max(id), 0) FROM say').fetchone()[0]
+            if since < 0:
+                return last, []
+            rows = self.con.execute("SELECT id, text, mode FROM say WHERE id > ? AND ts > ? AND (grp = '' OR grp = ?) ORDER BY id",
+                                    (since, now_ms() - 120000, grp or '')).fetchall()
+        return last, [{'id': r[0], 'text': r[1], 'mode': r[2]} for r in rows]
+
+    def recent_says(self):
+        with self.lock:
+            return [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4]} for r in self.con.execute('SELECT id, ts, grp, text, mode FROM say ORDER BY id DESC LIMIT 10')]
+
     # ── прогресс ──
     def progress(self, sid, lab):
         with self.lock:
@@ -473,6 +495,19 @@ class Handler(BaseHTTPRequestHandler):
     def admin_groups(self, q):
         self.send(200, {'groups': self.store.admin_groups(), 'levels': LEVELS})
 
+    def get_says(self, q):
+        sid = self.sid(q)
+        st = self.store.student(sid) if sid else None
+        try:
+            since = int(q.get('since', -1))
+        except ValueError:
+            since = -1
+        last, items = self.store.says(since, st[1] if st else '')
+        self.send(200, {'last': last, 'items': items})
+
+    def admin_says(self, q):
+        self.send(200, {'items': self.store.recent_says()})
+
     def state(self, q):
         now = now_ms()
         since = int(q.get('since') or now - 6 * 3600 * 1000)
@@ -525,6 +560,13 @@ class Handler(BaseHTTPRequestHandler):
         self.store.save_group(name, [clip(x, 60).strip() for x in (e.get('names') or []) if str(x).strip()])
         self.send(200, {'ok': True})
 
+    def admin_say(self, e):
+        text = clip(e.get('text'), 300).strip()
+        if not text:
+            return self.send(400, {'err': 'text'})
+        mode = 'scream' if e.get('mode') == 'scream' else 'normal'
+        self.send(200, {'id': self.store.add_say(clip(e.get('grp'), 20), text, mode)})
+
     def admin_resetpin(self, e):
         self.store.reset_pin(int(e.get('id') or 0))
         self.send(200, {'ok': True})
@@ -558,6 +600,8 @@ GET_ROUTES = {
     '/api/roster': (Handler.get_roster, False),
     '/api/progress': (Handler.get_progress, False),
     '/api/admin/groups': (Handler.admin_groups, True),
+    '/api/say': (Handler.get_says, False),
+    '/api/admin/says': (Handler.admin_says, True),
     '/api/state': (Handler.state, True),
     '/api/log': (Handler.log, True),
 }
@@ -567,6 +611,7 @@ POST_ROUTES = {
     '/api/progress': (Handler.post_progress, False),
     '/api/admin/group': (Handler.admin_group, True),
     '/api/admin/resetpin': (Handler.admin_resetpin, True),
+    '/api/admin/say': (Handler.admin_say, True),
     '/api/admin/delgroup': (Handler.admin_delgroup, True),
 }
 

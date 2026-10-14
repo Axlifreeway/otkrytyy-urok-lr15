@@ -8,6 +8,7 @@ import {report, setCtx, clientId, watchAway, guardPaste} from './net.js';
 import {loginScreen, session, mergeP, syncInit, pull, push} from './login.js';
 import {isTeacherCode} from './teacher.js';
 import {attachHighlight} from './sqlhl.js';
+import {listenRobot, robotSay} from './robotsay.js';
 
 export let db = null, D = null, L = [], G = null, running = false;
 export const setRunning = v => { running = v; };
@@ -346,6 +347,7 @@ export async function boot() {
   $('sql').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runFromUI(); } else histKey(e); });
   hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
   stampScreen = guardScreen();
+  listenRobot(() => G && G.sess && G.sess.token);          // объявления преподавателя
   new ResizeObserver(placeMessages).observe($('deck'));
   addEventListener('resize', placeMessages); placeMessages();
   paste = guardPaste($('sql'), () => { if (G && G.demo) return; toast('Вставка из других мест отключена — наберите команду сами. Свои прошлые команды: Ctrl+↑'); if (G) { G.P.pastes = (G.P.pastes || 0) + 1; save(); } });
@@ -367,7 +369,7 @@ export async function boot() {
     cfg.pick(p);
   };
   // для отладки и автотестов (tests/e2e.mjs)
-  window.LAB = {holdAt: null, get W() { return W; }, run: cfg.run, startLevel: cfg.startLevel, get G() { return G; }, get L() { return L; }, get running() { return running; }, set speed(v) { W.setSpeed(v); }, begin, get D() { return D; }};
+  window.LAB = {robotSay, holdAt: null, get W() { return W; }, run: cfg.run, startLevel: cfg.startLevel, get G() { return G; }, get L() { return L; }, get running() { return running; }, set speed(v) { W.setSpeed(v); }, begin, get D() { return D; }};
   startScreen();
 }
 // робот ждёт, пока преподаватель не отпустит показ (window.LAB.holdAt — номер строки)

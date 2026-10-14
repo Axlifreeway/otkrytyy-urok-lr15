@@ -269,3 +269,32 @@ table.res { border-collapse: collapse; margin: 4px 0; font: 500 12.5px var(--mon
 #veil div { background: var(--paper); border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); border-radius: 8px; padding: 18px 22px; max-width: 420px; font-size: 15px; line-height: 1.45 }
 #veil b { display: block; font-size: 22px; margin-bottom: 6px }
 @media print { #wm, #veil { display: none !important } }
+
+/* робот говорит: объявление преподавателя */
+#robotsay { position: fixed; inset: 0; z-index: 25; background: rgba(34, 37, 43, 0); transition: background .35s; display: flex; align-items: flex-end; justify-content: center; gap: 12px; padding: 0 4vw; pointer-events: auto }
+#robotsay.on { background: rgba(34, 37, 43, .45) }
+.rs-bot { height: 54vh; aspect-ratio: 220 / 260; transform: translateY(105%); transition: transform .45s cubic-bezier(.3, 1.4, .6, 1); flex: none }
+.rs-bot svg { width: 100%; height: 100%; display: block; filter: drop-shadow(10px 10px 0 rgba(34, 37, 43, .35)) }
+#robotsay.on .rs-bot { transform: none; animation: rs-bob 1.6s ease-in-out .5s infinite }
+@keyframes rs-bob { 50% { transform: translateY(-10px) } }
+.rs-bubble { align-self: center; margin-bottom: 18vh; max-width: min(560px, 60vw); background: var(--paper); border: 4px solid var(--ink); box-shadow: 8px 8px 0 var(--ink); border-radius: 14px;
+  padding: 16px 20px; position: relative; opacity: 0; transform: scale(.6); transition: opacity .25s .25s, transform .35s .25s cubic-bezier(.3, 1.6, .6, 1) }
+.rs-bubble::before { content: ''; position: absolute; left: -26px; bottom: 30px; border: 13px solid transparent; border-right: 18px solid var(--ink) }
+#robotsay.on .rs-bubble { opacity: 1; transform: none }
+.rs-bubble p { font: 700 clamp(18px, 2.4vw, 28px)/1.3 var(--font); margin-top: 8px; white-space: pre-wrap }
+.rs-bubble p i { color: var(--sun2); font-style: normal; animation: blink 1s steps(2) infinite }
+.rs-tag { display: inline-block; background: var(--ink); color: var(--sun); font: 700 11px var(--mono); letter-spacing: .14em; padding: 3px 8px; border-radius: 3px }
+.rs-x { position: absolute; right: 10px; top: 10px; border: 2.5px solid var(--ink); background: #fff; border-radius: 5px; font-weight: 800; padding: 0 7px; cursor: pointer }
+/* «внезапно»: робот выпрыгивает крупно, глаза красные, экран трясётся */
+#robotsay.scream.on { background: rgba(140, 20, 10, .55) }
+#robotsay.scream .rs-bot { height: 72vh; transition: transform .16s cubic-bezier(.2, 2, .5, 1) }
+#robotsay.scream .eye { fill: #ff3b2f }
+#robotsay.scream .rs-bubble { border-color: var(--red); box-shadow: 8px 8px 0 var(--red); transition-delay: .08s }
+#robotsay.scream .rs-bubble p { color: var(--red); text-transform: uppercase }
+body.rs-shake { animation: rs-shake .6s linear }
+@keyframes rs-shake { 10%, 50%, 90% { transform: translate(-8px, 4px) } 30%, 70% { transform: translate(8px, -5px) } }
+@keyframes blink { 50% { opacity: 0 } }
+@media (max-width: 760px) and (orientation: portrait) {
+  #robotsay { flex-direction: column-reverse; align-items: center; justify-content: flex-start; padding: 0 12px }
+  .rs-bot { height: 38vh } .rs-bubble { margin: 12vh 0 0; max-width: 100% } .rs-bubble::before { display: none }
+}
