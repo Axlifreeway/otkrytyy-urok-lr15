@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ЛР-16 · Зал выдачи багажа</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="core.css">
+<style id="scss"></style>
+</head>
+<body>
+<script src="world.js"></script>
+<script src="core.js"></script>
+<script>
+'use strict';
+document.getElementById('scss').textContent = WORLD.SVGCSS + `
+  .ent rect.b { fill: var(--white); stroke: var(--rule2) }
+  .ent .t { font-family: var(--mono); font-size: 10.5px; fill: var(--ink) }
+  .ent .s { font-family: var(--mono); font-size: 9px; fill: var(--mute) }
+  .ent.hit rect.b { fill: var(--sign); stroke: var(--ink) }
+  .ent.air rect.b { fill: var(--sign); stroke: var(--ink) } .ent.air .t { font-family: var(--cond); font-weight: 700; font-size: 15px }
+  .ent.air.hit rect.b { fill: var(--ink) } .ent.air.hit .t { fill: var(--sign) } .ent.air.hit .s { fill: var(--graphmu) }
+  .ent.fl rect.b { fill: var(--graph); stroke: var(--graph) } .ent.fl .t { fill: var(--sign) } .ent.fl .s { fill: var(--graphmu) }
+  .ent.fl.hit rect.b { fill: var(--sign) } .ent.fl.hit .t, .ent.fl.hit .s { fill: var(--ink) }
+  .ent.pas rect.b { fill: none; stroke: none } .ent.pas.hit rect.b { fill: var(--sign) }
+  .ent.bag rect.b { fill: #8a6f4c; stroke: var(--ink) } .ent.bag .t { fill: #fff; font-size: 9.5px } .ent.bag .s { fill: #f0e3c8 }
+  .ent.bag.hit rect.b { fill: var(--sign) } .ent.bag.hit .t, .ent.bag.hit .s { fill: var(--ink) }
+  .ent.bag.orphan rect.b { stroke: var(--bad); stroke-width: 2.5; stroke-dasharray: 4 2 }
+  .ent.dim { opacity: .35 }
+  .ent.tgtent rect.b { stroke: var(--blue); stroke-width: 2.2; stroke-dasharray: 4 2 }
+  .ent.extraent rect.b { fill: var(--bad); stroke: var(--bad) } .ent.extraent .t { fill: #fff }
+  .belt2 { fill: var(--graph2) }
+  .node { fill: var(--white); stroke: var(--ink2); stroke-width: 1 }
+  .ln { fill: none; stroke: var(--ink); stroke-width: 1.1; opacity: .75 }
+  .ln.many { stroke-width: .6; opacity: .14 }
+  .ln.null { stroke-dasharray: 3 3; opacity: .9 }
+  .ln.tgt { stroke: var(--blue); stroke-width: 1.6; stroke-dasharray: 5 3; opacity: .85 }
+  .ln.extra { stroke: var(--bad); stroke-width: 1.8; opacity: .9 }
+  .ln.draw { stroke-dasharray: 900; stroke-dashoffset: 900; animation: draw .9s ease-out forwards }
+  @keyframes draw { to { stroke-dashoffset: 0 } }
+  .nulltag { font-family: var(--mono); font-size: 9px; fill: var(--bad); font-weight: 600 }
+  .cnt { font-family: var(--cond); font-size: 15px; font-weight: 600; fill: var(--ink) }
+  .lostf { fill: var(--badl); stroke: var(--bad); stroke-dasharray: 4 2 }`;
+
+// ════════════════════════════════════════════════════════════ данные ══
+const t2 = (h, m) => String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+function data(seed) {
+  const r = W.rng(seed * 7919 + 1603);
+  const al = r.take(WORLD.AIRLINES, 5);
+  const dests = r.take(WORLD.DESTS, 5);
+  const hours = r.take([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21], 5).sort((a, b) => a - b);
+  const nos = new Set();
+  const mkNo = c => { let n; do n = c + '-' + r.int(101, 899); while (nos.has(n)); nos.add(n); return n; };
+  const air = [al[0], al[1], al[1], al[2], al[3]];             // al[4] без рейсов
+  const F = [0, 1, 2, 3, 4].map(i => ({flight_no: mkNo(air[i][0]), airline_code: air[i][0], dest: dests[i],
+    dep_time: t2(hours[i], r.pick([0, 10, 20, 30, 40, 50])), gate: r.pick(WORLD.GATES)}));
+  const P = [];
+  let id = 1;
+  [8, 8, 7, 7, 6].forEach((n, i) => {
+    r.take(WORLD.seatsOf(24, 4), n).forEach(seat => P.push({id: id++, flight_no: F[i].flight_no, seat, full_name: W.person(r),
+      birth_year: r.int(1950, 2014), city: r.pick(W.CITIES)}));
+  });
+  const B = [];
+  const tags = new Set();
+  const mkTag = () => { let t; do t = 'Б' + r.int(1000, 9999); while (tags.has(t)); tags.add(t); return t; };
+  P.forEach(p => { const n = r() < .5 ? 1 : r() < .36 ? 2 : 0; for (let k = 0; k < n; k++) B.push({tag: mkTag(), passenger_id: p.id, owner_name: p.full_name, weight_kg: r.int(3, 28), belt: r.int(1, 3)}); });
+  // ничейные: ошибка ввода номера владельца
+  const orph = r.take(B.filter((b, i, a) => a.findIndex(x => x.passenger_id === b.passenger_id) === i), 3);
+  orph.forEach(b => { b.fix = b.passenger_id; b.passenger_id = b.passenger_id + 100; });
+  // ур. 7: рейс с тяжёлым багажом
+  const F7 = r.pick(F.slice(0, 4));
+  const b7 = B.filter(b => P.find(p => p.id === (b.fix || b.passenger_id)).flight_no === F7.flight_no);
+  r.take(b7, Math.min(2, b7.length)).forEach(b => { if (b.weight_kg <= 20) b.weight_kg = r.int(21, 30); });
+  const belt = r.int(1, 3);
+  const thr = String(F[2].dep_time) > String(F[1].dep_time) ? F[2].dep_time : F[1].dep_time;
+  const ctrl = (() => {                                // самая «населённая» пара авиакомпания × лента
+    let best = null;
+    [al[0], al[1], al[2], al[3]].forEach(a => [1, 2, 3].forEach(bt => {
+      const n = B.filter(b => b.belt === bt && F.find(f => f.flight_no === P.find(p => p.id === (b.fix || b.passenger_id)).flight_no).airline_code === a[0]).length;
+      if (!best || n > best.n || (n === best.n && r() < .5)) best = {a, bt, n};
+    }));
+    return best;
+  })();
+  const declFlight = seed % 2 === 0;                   // у нечётных номеров не объявлена и связь рейс → авиакомпания
+  return {seed, al, F, P, B, orph, F7, belt, thr, X: al[1], F8: F[r.int(0, 4)], ctrl, declFlight};
+}
+
+const SCHEMA = D => `
+CREATE TABLE airline (
+  code char(2)     PRIMARY KEY,
+  name varchar(40) NOT NULL
+);
+CREATE TABLE flight (
+  flight_no    varchar(7)  PRIMARY KEY,
+  airline_code char(2)     NOT NULL${D.declFlight ? ' CONSTRAINT fk_flight_airline REFERENCES airline (code)' : ''},
+  dest         varchar(40) NOT NULL,
+  dep_time     time        NOT NULL,
+  gate         varchar(3)
+);
+CREATE TABLE passenger (
+  id         integer     PRIMARY KEY,
+  flight_no  varchar(7)  NOT NULL CONSTRAINT fk_passenger_flight REFERENCES flight (flight_no),
+  seat       varchar(3)  NOT NULL,
+  full_name  varchar(60) NOT NULL,
+  birth_year integer,
+  city       varchar(40)
+);
+CREATE TABLE baggage (
+  tag          varchar(6)  PRIMARY KEY,
+  passenger_id integer     NOT NULL,
+  owner_name   varchar(60) NOT NULL,  -- надпись на бирке
+  weight_kg    integer     NOT NULL CHECK (weight_kg BETWEEN 1 AND 32),
+  belt         integer     NOT NULL DEFAULT 1
+)`;
+const L = W.lit;
+function base(D) {
+  const rows = (t, cols, list) => `INSERT INTO ${t} (${cols.join(', ')}) VALUES\n` + list.map(o => '(' + cols.map(c => L(o[c])).join(', ') + ')').join(',\n') + ';\n';
+  return SCHEMA(D) + ';\n' + rows('airline', ['code', 'name'], D.al.map(a => ({code: a[0], name: a[1]}))) +
+    rows('flight', ['flight_no', 'airline_code', 'dest', 'dep_time', 'gate'], D.F) +
+    rows('passenger', ['id', 'flight_no', 'seat', 'full_name', 'birth_year', 'city'], D.P) +
+    rows('baggage', ['tag', 'passenger_id', 'owner_name', 'weight_kg', 'belt'], D.B);
+}
+const fixRef = D => D.orph.map(b => `UPDATE baggage SET passenger_id = ${b.fix} WHERE tag = ${L(b.tag)}`)
+  .concat(['ALTER TABLE baggage ADD CONSTRAINT fk_baggage_passenger FOREIGN KEY (passenger_id) REFERENCES passenger (id)'])
+  .concat(D.declFlight ? [] : ['ALTER TABLE flight ADD CONSTRAINT fk_flight_airline FOREIGN KEY (airline_code) REFERENCES airline (code)']);
+const fixed = D => base(D) + fixRef(D).join(';\n') + ';';
+
+// ══════════════════════════════════════════════════ сверка ответа с целью ══
+const KEYS = ['code', 'flight_no', 'id', 'tag'];
+const tuple = (row, keys) => keys.map(k => row[k] === null || row[k] === undefined ? '∅' : String(row[k])).join('|');
+function compareResult(Lv, sel, tres) {
+  const keys = Lv.keys;
+  const miss = keys.filter(k => !sel.fields.includes(k));
+  if (miss.length) return {ok: false, msg: `В ответе нужны столбцы <code>${keys.join('</code>, <code>')}</code> — по ним схема проводит линии. Не хватает: <code>${miss.join('</code>, <code>')}</code>.`};
+  if (Lv.cross) {
+    const ok = sel.rows.length === Lv.cross;
+    return ok ? {ok, note: `${sel.rows.length} строк`} : {ok, msg: `Строк в ответе: ${sel.rows.length}. Нужен ответ, где каждый пассажир соединён с каждым чемоданом.`};
+  }
+  const want = new Set(tres.rows.map(r => tuple(r, keys))), got = new Set(sel.rows.map(r => tuple(r, keys)));
+  const missing = [...want].filter(t => !got.has(t)), extra = [...got].filter(t => !want.has(t));
+  const ok = !missing.length && !extra.length;
+  return ok ? {ok, note: `${sel.rows.length} строк`} : {ok, msg: keys.length > 1 ? `Линий не хватает: ${missing.length}, лишних: ${extra.length}.` : `По столбцу ${keys[0]}: не хватает ${missing.length}, лишних ${extra.length}. Синий пунктир — кого не хватает, красная рамка — лишние.`, marks: {keys, missing, extra}};
+}
+
+// ═══════════════════════════════════════════════════════════ уровни ══
+const esc = W.esc;
+const note = (h, t) => `<div class="doc note"><div class="doc-hd"><span>${h}</span><span>служба багажа</span></div>${t}</div>`;
+
+function relForm(D) {
+  const S = W.api.S;
+  S.form = S.form || {};
+  const rels = [['flight.airline_code', 'airline.code'], ['passenger.flight_no', 'flight.flight_no'], ['baggage.passenger_id', 'passenger.id']];
+  return `<div class="doc"><div class="doc-hd"><span>Паспорт связей (приложение 1)</span><span>по самой базе</span></div>
+    <table><tr><th>ссылка</th><th>на что</th><th>объявлен?</th><th>имя ограничения</th></tr>
+    ${rels.map((x, i) => `<tr><td>${x[0]}</td><td>${x[1]}</td>
+      <td><select data-f="d${i}"><option value="">—</option><option value="1" ${S.form['d' + i] === '1' ? 'selected' : ''}>да</option><option value="0" ${S.form['d' + i] === '0' ? 'selected' : ''}>нет</option></select></td>
+      <td><input data-f="n${i}" value="${esc(S.form['n' + i] || '')}" style="font:12px var(--mono);width:150px" placeholder="если объявлен"></td></tr>`).join('')}</table>
+    <button class="pbtn y" onclick="document.querySelectorAll('[data-f]').forEach(e=>W.api.S.form[e.dataset.f]=e.value);W.api.checkNow()">Сверить с базой</button></div>`;
+}
+
+function levels(D) {
+  const nP = D.P.length, nB = D.B.length;
+  const fl8 = D.F8.flight_no;
+  return [
+    {n: 1, part: 'Связи', title: 'Паспорт связей', lab: 'ч. 1, п. 1', check: 'custom',
+      story: `<p>Прежде чем соединять таблицы, проверьте, какие связи закреплены <b>в самой базе</b>, а не на бумаге.
+        Выполните <code>\\d flight</code>, <code>\\d passenger</code>, <code>\\d baggage</code> и заполните паспорт.</p>`,
+      doc: relForm,
+      verify: async () => {
+        const S = W.api.S, f = S.form || {};
+        const r = await W.db.query(`SELECT conrelid::regclass::text t, conname FROM pg_constraint WHERE contype = 'f'`);
+        const decl = {flight: null, passenger: null, baggage: null};
+        r.rows.forEach(x => { decl[x.t] = x.conname; });
+        const want = [decl.flight, decl.passenger, decl.baggage];
+        const errs = [];
+        want.forEach((c, i) => {
+          if (f['d' + i] !== (c ? '1' : '0')) errs.push(i + 1);
+          else if (c && String(f['n' + i] || '').trim().toLowerCase() !== c) errs.push(i + 1);
+        });
+        if (!Object.keys(f).length) return {ok: false, msg: 'Заполните паспорт и нажмите «Сверить с базой».'};
+        return errs.length ? {ok: false, msg: `Не совпадает со схемой базы в строках: ${errs.join(', ')}. Смотрите раздел «Ограничения» в ответе на <code>\\d</code>.`}
+          : {ok: true, note: want.map(c => c || 'не объявлен').join(', ')};
+      },
+      hint: 'В ответе на \\d baggage ищите строку FOREIGN KEY. Нет её — связь не объявлена.'},
+    {n: 2, part: 'Связи', title: 'Ничейные чемоданы', lab: 'ч. 1, п. 2–3', check: 'custom', carry: true, ref: fixRef(D),
+      story: `<p>Объявите все незакреплённые связи: <code>ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY …</code>.</p>
+        <p>Для багажа СУБД откажет: на ленте есть чемоданы, у которых <code>passenger_id</code> указывает на несуществующего пассажира —
+        на схеме они обведены красным. <b>Не удаляйте их</b>: на бирке (<code>owner_name</code>) написано, чей чемодан, —
+        найдите настоящего владельца и исправьте ссылку. Потом повторите команду.</p>`,
+      verify: async () => {
+        const fk = await W.db.query(`SELECT conrelid::regclass::text t FROM pg_constraint WHERE contype = 'f'`);
+        const has = t => fk.rows.some(x => x.t === t);
+        const ok1 = has('baggage') && has('flight') && has('passenger');
+        const n = await W.db.query(`SELECT count(*)::int n FROM baggage b JOIN passenger p ON p.id = b.passenger_id WHERE p.full_name = b.owner_name`);
+        const tot = await W.db.query('SELECT count(*)::int n FROM baggage');
+        if (tot.rows[0].n !== nB) return {ok: false, msg: `Чемоданов было ${nB}, сейчас ${tot.rows[0].n}. Ничейные нужно было не удалять, а вернуть владельцам. Верните базу.`};
+        if (!ok1) return {ok: false, msg: `Объявлены не все связи: ${['flight', 'passenger', 'baggage'].filter(t => !has(t)).map(t => t).join(', ')}.`};
+        if (n.rows[0].n !== nB) return {ok: false, msg: 'Связь объявлена, но не все чемоданы у своих владельцев: сверьте passenger_id с надписью на бирке.'};
+        return {ok: true, note: 'исправлено строк: ' + D.orph.length};
+      },
+      hint: 'SELECT b.tag, b.owner_name FROM baggage b LEFT JOIN passenger p ON p.id = b.passenger_id WHERE p.id IS NULL; — это ничейные. Затем по имени найдите id владельца и UPDATE baggage SET passenger_id = … WHERE tag = …;'},
+    {n: 3, part: 'Две таблицы', title: 'Чей чемодан', lab: 'ч. 2, п. 4–6', check: 'result', keys: ['id', 'tag'],
+      story: `<p>У ленты № ${D.belt} собираются люди. Проведите линии от каждого чемодана этой ленты к его владельцу.</p>
+        <p>Линия рисуется по строке ответа, где есть <code>id</code> пассажира и <code>tag</code> чемодана. Используйте псевдонимы таблиц.</p>`,
+      ref: [`SELECT p.id, b.tag FROM passenger p JOIN baggage b ON b.passenger_id = p.id WHERE b.belt = ${D.belt}`],
+      hint: 'SELECT p.id, p.full_name, b.tag FROM passenger p JOIN baggage b ON b.passenger_id = p.id WHERE b.belt = …;'},
+    {n: 4, part: 'Две таблицы', title: 'Поздние рейсы', lab: 'ч. 2, п. 4–6', check: 'result', keys: ['id', 'flight_no'],
+      story: `<p>Ночная смена встречает пассажиров рейсов, которые вылетают <b>позже ${String(D.thr).slice(0, 5)}</b>.
+        Линии — от пассажира к его рейсу. Время вылета есть только в таблице рейсов.</p>`,
+      ref: [`SELECT p.id, f.flight_no FROM passenger p JOIN flight f ON f.flight_no = p.flight_no WHERE f.dep_time > ${L(String(D.thr).slice(0, 5))}`],
+      hint: 'Столбец flight_no есть в обеих таблицах — пишите f.flight_no. Условие: f.dep_time > \'чч:мм\'.'},
+    {n: 5, part: 'Две таблицы', title: 'Клубок', lab: 'ч. 2, п. 7', check: 'result', keys: ['id', 'tag'], cross: nP * nB,
+      story: `<p>Выполните соединение пассажиров и багажа <b>без условия соединения</b> — один раз, чтобы увидеть, что получится.</p>
+        <p>Сравните число строк ответа с числом пассажиров (${nP}) и чемоданов (${nB}). Объяснение — в протокол.</p>`,
+      ref: ['SELECT p.id, b.tag FROM passenger p, baggage b'],
+      hint: 'FROM passenger p, baggage b — без ON и без WHERE.'},
+    {n: 6, part: 'Три таблицы', title: 'Рейсы авиакомпании', lab: 'ч. 3, п. 8', check: 'result', keys: ['code', 'flight_no', 'id'],
+      story: `<p>Представитель «${esc(D.X[1])}» просит список своих пассажиров. Линии: авиакомпания → рейс → пассажир.</p>
+        <p>Отбор — по <b>названию</b> авиакомпании, не по коду. Запишите путь соединения: какая таблица с какой и по какому ключу.</p>`,
+      ref: [`SELECT a.code, f.flight_no, p.id FROM airline a JOIN flight f ON f.airline_code = a.code JOIN passenger p ON p.flight_no = f.flight_no WHERE a.name = ${L(D.X[1])}`],
+      hint: 'airline a JOIN flight f ON f.airline_code = a.code JOIN passenger p ON p.flight_no = f.flight_no'},
+    {n: 7, part: 'Три таблицы', title: 'Тяжёлый багаж', lab: 'ч. 3, п. 9–10', check: 'result', keys: ['flight_no', 'id', 'tag'],
+      story: `<p>Контрольный вопрос смены: <b>чьи чемоданы тяжелее 20 кг полетят в ${esc(D.F7.dest)}?</b> Линии: рейс → пассажир → чемодан.</p>
+        <p>Выберите одну строку ответа и запишите в протокол, из каких строк трёх таблиц она собрана.</p>`,
+      ref: [`SELECT f.flight_no, p.id, b.tag FROM flight f JOIN passenger p ON p.flight_no = f.flight_no JOIN baggage b ON b.passenger_id = p.id WHERE b.weight_kg > 20 AND f.dest = ${L(D.F7.dest)}`],
+      hint: 'Три таблицы, два условия соединения и два условия отбора через AND.'},
+    {n: 8, part: 'Без пары', title: 'Без багажа', lab: 'ч. 4, п. 11–13', check: 'result', keys: ['id'],
+      story: `<p>Кто летит налегке? Найдите пассажиров, у которых <b>нет ни одного</b> чемодана. Обычное соединение их не покажет — у них нет пары.</p>
+        <p>Сравните число строк с тем же запросом на обычном <code>JOIN</code> — оба числа в протокол.</p>`,
+      ref: ['SELECT p.id, b.tag FROM passenger p LEFT JOIN baggage b ON b.passenger_id = p.id WHERE b.tag IS NULL'],
+      hint: 'LEFT JOIN оставляет всех пассажиров; у тех, кому пары нет, столбцы багажа пустые: WHERE b.tag IS NULL.'},
+    {n: 9, part: 'Без пары', title: 'Пустая стойка', lab: 'ч. 4, п. 11', check: 'result', keys: ['code'],
+      story: `<p>У одной авиакомпании стойка в терминале есть, а рейсов сегодня нет. Какая это авиакомпания? Нужен столбец <code>code</code>.</p>`,
+      ref: ['SELECT a.code FROM airline a LEFT JOIN flight f ON f.airline_code = a.code WHERE f.flight_no IS NULL'],
+      hint: 'airline a LEFT JOIN flight f … WHERE f.flight_no IS NULL'},
+    {n: 1, bonus: true, part: 'Бонус', title: 'Условие в ON', check: 'result', keys: ['id', 'tag'],
+      story: `<p>Все пассажиры рейса ${esc(fl8)} — и рядом их чемоданы тяжелее 15 кг, если такие есть. Пассажиры без тяжёлого багажа
+        тоже должны остаться в ответе — с пустым <code>tag</code>.</p><p>Подумайте, куда поставить условие на вес: в <code>ON</code> или в <code>WHERE</code>.</p>`,
+      ref: [`SELECT p.id, b.tag FROM passenger p LEFT JOIN baggage b ON b.passenger_id = p.id AND b.weight_kg > 15 WHERE p.flight_no = ${L(fl8)}`],
+      hint: 'Условие на вес в WHERE выбросит пассажиров без пары. В ON оно применяется до соединения.'},
+  ];
+}
+
+function predicts(D) {
+  const nP = D.P.length, nB = D.B.length;
+  const nNo = D.P.filter(p => !D.B.some(b => (b.fix || b.passenger_id) === p.id)).length;
+  return [
+    {title: 'Ничейные', setup: base, type: 'number', unit: 'строк',
+      q: `Всего чемоданов — ${nB}. Внешний ключ у багажа не объявлен. Сколько строк вернёт соединение с пассажирами?`,
+      sql: 'SELECT b.tag, p.full_name\nFROM baggage b\nJOIN passenger p ON p.id = b.passenger_id;',
+      answer: res => res[0].ok ? res[0].rows.length : 0,
+      x: `${nB - D.orph.length}: чемоданы, чей владелец не найден, выпали из ответа молча — ни ошибки, ни предупреждения. Внешний ключ не дал бы им появиться.`},
+    {title: 'Пары', setup: fixed, type: 'number', unit: 'строк',
+      q: `Ничейных больше нет. Пассажиров ${nP}, чемоданов ${nB}. Сколько строк в ответе?`,
+      sql: 'SELECT p.id, b.tag\nFROM passenger p\nJOIN baggage b ON b.passenger_id = p.id;',
+      answer: res => res[0].ok ? res[0].rows.length : 0,
+      x: `${nB}: строка ответа — пара «пассажир + его чемодан». У каждого чемодана ровно один владелец; пассажиры без багажа в ответ не попали, с двумя чемоданами — попали дважды.`},
+    {title: 'Все пассажиры', setup: fixed, type: 'number', unit: 'строк',
+      q: `То же, но LEFT JOIN. Без багажа летят ${nNo} человек. Сколько строк?`,
+      sql: 'SELECT p.id, b.tag\nFROM passenger p\nLEFT JOIN baggage b ON b.passenger_id = p.id;',
+      answer: res => res[0].ok ? res[0].rows.length : 0,
+      x: `${nB + nNo}: все пары плюс по строке на каждого пассажира без пары — с пустым tag.`},
+    {title: 'Без условия', setup: fixed, type: 'number', unit: 'строк',
+      q: `А если условие соединения забыть? Пассажиров ${nP}, чемоданов ${nB}.`,
+      sql: 'SELECT p.id, b.tag\nFROM passenger p, baggage b;',
+      answer: res => res[0].ok ? res[0].rows.length : 0,
+      x: `${nP * nB} = ${nP} × ${nB}: каждый с каждым. Это не ошибка синтаксиса, СУБД выполнит такой запрос молча — проверка одна: число строк.`},
+    {title: 'Чей flight_no?', setup: fixed, type: 'choice',
+      choices: [{k: 'ok', t: 'Выполнится'}, {k: 'name', t: 'Ошибка: неясно, из какой таблицы столбец'}, {k: 'syntax', t: 'Синтаксическая ошибка'}],
+      q: 'Запрос без псевдонимов перед именами столбцов.',
+      sql: 'SELECT id, flight_no, dest\nFROM passenger p\nJOIN flight f ON f.flight_no = p.flight_no;',
+      answer: res => res[0].ok ? 'ok' : res[0].err.type,
+      x: '<code>flight_no</code> есть в обеих таблицах — СУБД не угадывает. Пишите <code>p.flight_no</code> или <code>f.flight_no</code>.'},
+  ];
+}
+
+function control(D) {
+  const c = D.ctrl;
+  return [{title: `Лента ${c.bt}, «${c.a[1]}»`, check: 'result', keys: ['flight_no', 'id', 'tag'], setup: fixed,
+    story: `<p>Представитель «${esc(c.a[1])}» спрашивает: чьи чемоданы его авиакомпании приедут на ленту № ${c.bt}?
+      Нужны линии: рейс → пассажир → чемодан (столбцы <code>flight_no</code>, <code>id</code>, <code>tag</code>). Отбор — по названию авиакомпании.</p>`,
+    ref: [`SELECT f.flight_no, p.id, b.tag FROM airline a JOIN flight f ON f.airline_code = a.code JOIN passenger p ON p.flight_no = f.flight_no JOIN baggage b ON b.passenger_id = p.id WHERE a.name = ${L(c.a[1])} AND b.belt = ${c.bt}`]}];
+}
+
+// ═════════════════════════════════════════════════════════════ сцена ══
+const scene = (() => {
+  let el, api, last = {snap: null, opts: {}}, pos = {}, st = {};
+  const XA = 14, XB = 214, XC = 470, XD = [840, 980, 1120], WD = 120;
+  function init(e, a) { el = e; api = a; }
+  const rowsOf = (snap, t) => snap && snap[t] ? [...snap[t].rows.values()] : [];
+  function layout(snap) {
+    pos = {};
+    const air = rowsOf(snap, 'airline').sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    const fl = rowsOf(snap, 'flight').sort((a, b) => String(a.dep_time).localeCompare(String(b.dep_time)));
+    const pas = rowsOf(snap, 'passenger');
+    const bag = rowsOf(snap, 'baggage');
+    air.forEach((a, i) => pos['a:' + String(a.code).trim()] = {x: XA, y: 40 + i * 54, w: 150, h: 42, l: [XA, 61 + i * 54], r: [XA + 150, 61 + i * 54], row: a});
+    fl.forEach((f, i) => pos['f:' + f.flight_no] = {x: XB, y: 40 + i * 54, w: 170, h: 42, l: [XB, 61 + i * 54], r: [XB + 170, 61 + i * 54], row: f});
+    // пассажиры — группами по рейсам, в порядке табло
+    let y = 34;
+    fl.forEach(f => {
+      pas.filter(p => p.flight_no === f.flight_no).sort((a, b) => a.id - b.id).forEach(p => {
+        pos['p:' + p.id] = {x: XC, y, w: 220, h: 10, l: [XC - 4, y + 5], r: [XC + 224, y + 5], row: p}; y += 10.4;
+      });
+      y += 6;
+    });
+    pas.filter(p => !pos['p:' + p.id]).forEach(p => { pos['p:' + p.id] = {x: XC, y, w: 220, h: 10, l: [XC - 4, y + 5], r: [XC + 224, y + 5], row: p}; y += 10.4; });
+    const by = [[], [], []];
+    bag.sort((a, b) => String(a.tag).localeCompare(String(b.tag))).forEach(b => by[Math.min(2, Math.max(0, (b.belt || 1) - 1))].push(b));
+    by.forEach((list, k) => list.forEach((b, i) => {
+      const cols = list.length > 15 ? 2 : 1, w = cols === 2 ? 56 : WD - 16;
+      const x = XD[k] + 8 + (i % cols) * (w + 4), yy = 40 + Math.floor(i / cols) * (cols === 2 ? 34 : 20);
+      pos['b:' + b.tag] = {x, y: yy, w, h: cols === 2 ? 30 : 17, l: [x, yy + (cols === 2 ? 15 : 8.5)], r: [x + w, yy + 8], row: b, two: cols === 2};
+    }));
+    return {air, fl, pas, bag};
+  }
+  const curve = (a, b) => { const mx = (a[0] + b[0]) / 2; return `M${a[0]} ${a[1]} C${mx} ${a[1]} ${mx} ${b[1]} ${b[0]} ${b[1]}`; };
+  // линии по строкам ответа: цепочка авиакомпания → рейс → пассажир → чемодан
+  function linesFor(rows, fields, cls) {
+    const has = KEYS.filter(k => fields.includes(k));
+    if (has.length < 2 && !(has.length === 1 && rows.some(r => r[has[0]] !== null))) return {svg: '', hit: new Set(), n: 0};
+    const key = {code: v => 'a:' + String(v).trim(), flight_no: v => 'f:' + v, id: v => 'p:' + v, tag: v => 'b:' + v};
+    let svg = '', n = 0;
+    const hit = new Set();
+    const many = rows.length > 250;
+    rows.forEach(r => {
+      const chain = has.map(k => ({k, v: r[k], p: r[k] === null || r[k] === undefined ? null : pos[key[k](r[k])], id: r[k] === null ? null : key[k](r[k])}));
+      chain.forEach(c => { if (c.p) hit.add(c.id); });
+      for (let i = 0; i + 1 < chain.length; i++) {
+        const a = chain[i], b = chain[i + 1];
+        if (a.p && b.p) { svg += `<path class="ln ${cls}${many ? ' many' : ''}" d="${curve(a.p.r, b.p.l)}"/>`; n++; }
+        else if (a.p && !b.p && b.v === null) { svg += `<path class="ln null" d="M${a.p.r[0]} ${a.p.r[1]} l26 0"/><text class="nulltag" x="${a.p.r[0] + 29}" y="${a.p.r[1] + 3}">NULL</text>`; }
+        else if (!a.p && a.v === null && b.p) { svg += `<path class="ln null" d="M${b.p.l[0] - 26} ${b.p.l[1]} l26 0"/><text class="nulltag" x="${b.p.l[0] - 54}" y="${b.p.l[1] + 3}">NULL</text>`; }
+      }
+    });
+    return {svg, hit, n};
+  }
+  // opts: res {rows, fields}, tgt {rows, fields} | marks {keys, missing, extra}
+  function render(snap, D) { st = {}; return draw(snap); }
+  const ents = (rows, keys) => { const k = {code: v => 'a:' + String(v).trim(), flight_no: v => 'f:' + v, id: v => 'p:' + v, tag: v => 'b:' + v}; const o = new Set();
+    rows.forEach(r => keys.forEach(c => { if (k[c] && r[c] !== null && r[c] !== undefined) o.add(k[c](r[c])); })); return o; };
+  function draw(snap) {
+    const opts = st;
+    last = {snap, opts};
+    const {air, fl, pas, bag} = layout(snap);
+    const ids = new Set(pas.map(p => p.id));
+    const L1 = opts.res ? linesFor(opts.res.rows, opts.res.fields, opts.res.rows.length > 120 ? '' : 'draw') : {svg: '', hit: new Set(), n: 0};
+    let tg = '';
+    if (opts.tgt) tg = linesFor(opts.tgt.rows, opts.tgt.fields, 'tgt').svg;
+    if (opts.marks) {
+      const toRows = list => list.map(t => { const v = t.split('|'); const o = {}; opts.marks.keys.forEach((k, i) => o[k] = v[i] === '∅' ? null : (k === 'id' ? +v[i] : v[i])); return o; });
+      tg = linesFor(toRows(opts.marks.missing), opts.marks.keys, 'tgt').svg + linesFor(toRows(opts.marks.extra), opts.marks.keys, 'extra').svg;
+    }
+    const hit = L1.hit;
+    const tgtE = new Set(), extE = new Set();
+    if (opts.tgt && opts.tgt.fields.filter(f => KEYS.includes(f)).length === 1) ents(opts.tgt.rows, opts.tgt.fields).forEach(x => tgtE.add(x));
+    if (opts.marks && opts.marks.keys.length === 1) {
+      const toR = list => list.map(t => ({[opts.marks.keys[0]]: t === '∅' ? null : t}));
+      ents(toR(opts.marks.missing), opts.marks.keys).forEach(x => tgtE.add(x));
+      ents(toR(opts.marks.extra), opts.marks.keys).forEach(x => extE.add(x));
+    }
+    if (opts.res && opts.res.fields.filter(f => KEYS.includes(f)).length === 1) ents(opts.res.rows, opts.res.fields).forEach(x => hit.add(x));
+    const cls = k => (hit.has(k) ? ' hit' : '') + (tgtE.has(k) ? ' tgtent' : '') + (extE.has(k) ? ' extraent' : '');
+    const nb = [0, 1, 2].map(k => bag.filter(b => Math.min(2, Math.max(0, b.belt - 1)) === k).length);
+    let s = `<svg viewBox="0 0 1260 ${Math.max(360, Math.ceil(Object.values(pos).reduce((m, p) => Math.max(m, p.y + p.h), 0)) + 16)}" id="sv">${WORLD.DEFS}
+      <text class="zone-t" x="${XA}" y="18">Авиакомпании</text><text class="zone-s" x="${XB - 14}" y="18" text-anchor="end">airline · ${air.length}</text>
+      <text class="zone-t" x="${XB}" y="18">Табло</text><text class="zone-s" x="${XB + 170}" y="18" text-anchor="end">flight · ${fl.length}</text>
+      <text class="zone-t" x="${XC}" y="18">Пассажиры</text><text class="zone-s" x="${XC + 224}" y="18" text-anchor="end">passenger · ${pas.length}</text>
+      <text class="zone-t" x="${XD[0]}" y="18">Лента выдачи</text><text class="zone-s" x="${XD[2] + WD}" y="18" text-anchor="end">baggage · ${bag.length}</text>`;
+    [0, 1, 2].forEach(k => {
+      s += `<rect class="belt2" x="${XD[k]}" y="30" width="${WD}" height="6"/><text class="zone-s" x="${XD[k] + WD / 2}" y="${Math.max(...[...Object.values(pos)].filter(p => p.row && p.row.tag && Math.min(2, Math.max(0, p.row.belt - 1)) === k).map(p => p.y + p.h), 40) + 14}" text-anchor="middle">лента ${k + 1} · ${nb[k]}</text>`;
+    });
+    s += '<!--LINES-->';
+    air.forEach(a => { const p = pos['a:' + String(a.code).trim()]; const k = 'a:' + String(a.code).trim();
+      s += `<g class="ent air${cls(k)}" data-card="${esc(k)}"><rect class="b" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"/>
+        <text class="t" x="${p.x + 8}" y="${p.y + 19}">${esc(String(a.code).trim())}</text><text class="s" x="${p.x + 8}" y="${p.y + 34}">${esc(a.name)}</text></g>`; });
+    fl.forEach(f => { const p = pos['f:' + f.flight_no]; const k = 'f:' + f.flight_no;
+      s += `<g class="ent fl${cls(k)}" data-card="${esc(k)}"><rect class="b" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"/>
+        <text class="t" x="${p.x + 8}" y="${p.y + 18}">${esc(f.flight_no)}  ${esc(String(f.dep_time).slice(0, 5))}</text><text class="s" x="${p.x + 8}" y="${p.y + 33}">${esc(f.dest)} · ${esc(String(f.airline_code).trim())}</text></g>`; });
+    pas.forEach(q => { const p = pos['p:' + q.id]; const k = 'p:' + q.id;
+      s += `<g class="ent pas${cls(k)}" data-card="${k}"><rect class="b" x="${p.x - 2}" y="${p.y - .5}" width="${p.w + 4}" height="${p.h + .5}"/>
+        <text class="s" x="${p.x}" y="${p.y + 8}">${String(q.id).padStart(2, ' ')}</text><text class="t" style="font-size:9.5px" x="${p.x + 18}" y="${p.y + 8.3}">${esc(q.full_name)}</text>
+        <text class="s" x="${p.x + p.w}" y="${p.y + 8}" text-anchor="end">${esc(q.flight_no)}</text>
+        <circle class="node" cx="${p.l[0]}" cy="${p.l[1]}" r="2"/><circle class="node" cx="${p.r[0]}" cy="${p.r[1]}" r="2"/></g>`; });
+    bag.forEach(b => { const p = pos['b:' + b.tag]; const k = 'b:' + b.tag;
+      s += `<g class="ent bag${cls(k)}${ids.has(b.passenger_id) ? '' : ' orphan'}" data-card="${esc(k)}"><rect class="b" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"/>
+        <text class="t" x="${p.x + 4}" y="${p.y + 11.5}">${esc(b.tag)}</text><text class="s" x="${p.two ? p.x + 4 : p.x + p.w - 4}" y="${p.two ? p.y + 24 : p.y + 11.5}" ${p.two ? '' : 'text-anchor="end"'}>${b.weight_kg} кг${ids.has(b.passenger_id) ? '' : ' · ?'}</text></g>`; });
+    s += '</svg>';
+    s = s.replace('<!--LINES-->', `<g id="lines">${tg}${L1.svg}</g>`);
+    el.innerHTML = s;
+    return L1;
+  }
+  async function animate(prev, next, d, anim) {
+    st = {tgt: st.tgt}; draw(next);
+    const upd = (d.baggage || {upd: []}).upd;
+    upd.forEach(u => { const g = el.querySelector(`[data-card="b:${u.b.tag}"] rect`); if (g) g.classList.add('flash'); });
+    if (anim && upd.length) await api.sleep(700);
+  }
+  function showResult(sel, D, snap) {
+    st.res = sel; st.marks = null;
+    const L1 = draw(snap);
+    const n = sel.rows.length;
+    if (L1.n || L1.hit.size) api.msg(`Строк в ответе: ${n} · линий: ${L1.n}${n > 200 ? ' — каждый с каждым' : ''}`, 'info');
+    else if (n) api.msg(`Строк в ответе: ${n}. Линий нет: в ответе нет столбцов-ключей code, flight_no, id или tag.`, 'info');
+    else api.msg('Ответ пуст: 0 строк.', 'info');
+  }
+  function target(Lv, D, snap) {
+    st.tgt = Lv.check === 'result' && Lv._tres && !Lv.cross ? Object.assign({}, Lv._tres, {fields: Lv.keys}) : null;
+    draw(snap);
+  }
+  function marks(m) { st.marks = m; st.tgt = null; draw(last.snap); }
+  function clearMarks() { st.marks = null; if (last.snap) draw(last.snap); }
+  function clearResult() { st.res = null; if (last.snap) draw(last.snap); }
+  function card(key) {
+    const t = key.slice(0, key.indexOf(':')), v = key.slice(key.indexOf(':') + 1);
+    const p = pos[key];
+    if (!p) return null;
+    const tbl = {a: 'airline', f: 'flight', p: 'passenger', b: 'baggage'}[t];
+    const r = Object.assign({}, p.row);
+    if (r.dep_time) r.dep_time = String(r.dep_time).slice(0, 5);
+    return {title: 'Строка таблицы ' + tbl, row: r};
+  }
+  return {init, render, animate, showResult, target, marks, clearMarks, clearResult, card};
+})();
+
+// ═══════════════════════════════════════════════════════════ брифинг ══
+function brief(D) {
+  const q = s => `<button class="choice" style="font-family:var(--mono);font-size:12.5px;margin-top:4px" data-q="${esc(s)}">${esc(s)}</button>`;
+  return `<div class="peye">Брифинг · свободная работа</div>
+    <div class="ptitle">Зал выдачи багажа</div>
+    <div class="pcap"><p>Самолёты сели. Слева направо — авиакомпании, табло, пассажиры по рейсам и три ленты выдачи.
+      Каждая таблица знает только своё: в строке чемодана нет имени рейса, в строке пассажира — названия авиакомпании.
+      Соединение собирает ответ из нескольких таблиц.</p></div>
+    <h4>Как схема рисует ответ</h4>
+    <ul style="padding-left:18px;font-size:13.5px;color:var(--ink2)">
+      <li>Схема ищет в ответе столбцы-ключи: <code>code</code> — авиакомпания, <code>flight_no</code> — рейс, <code>id</code> — пассажир, <code>tag</code> — чемодан.</li>
+      <li>Каждая строка ответа — линия через те объекты, ключи которых в ней есть. Нет двух ключей — нет линии.</li>
+      <li>Пустое значение (NULL) — пунктирный обрывок с подписью NULL.</li>
+      <li>Чемодан в красной пунктирной рамке — ничейный: его <code>passenger_id</code> не указывает ни на кого.</li>
+      <li>В заданиях синий пунктир — линии, которые должны получиться, красные — лишние.</li></ul>
+    <h4>Попробуйте</h4>
+    ${q('SELECT p.id, b.tag FROM passenger p JOIN baggage b ON b.passenger_id = p.id;')}
+    ${q('SELECT f.flight_no, p.id FROM flight f JOIN passenger p ON p.flight_no = f.flight_no;')}
+    ${q('SELECT a.code, f.flight_no, p.id, b.tag\nFROM airline a\nJOIN flight f ON f.airline_code = a.code\nJOIN passenger p ON p.flight_no = f.flight_no\nJOIN baggage b ON b.passenger_id = p.id;')}
+    ${q('SELECT p.id, b.tag FROM passenger p LEFT JOIN baggage b ON b.passenger_id = p.id;')}
+    ${q('SELECT p.id, b.tag FROM passenger p, baggage b;')}
+    ${q('\\d baggage')}
+    <h4>Схема базы</h4>
+    <div class="doc" style="font-family:var(--mono);font-size:11.5px;white-space:pre;overflow:auto">${esc(SCHEMA(D).trim())}</div>`;
+}
+
+function grading(S) {
+  const P = S.P, d = i => (P.levels[i] || {}).done;
+  return [
+    {t: 'Часть 1: паспорт связей по базе, связи объявлены, ничейные строки исправлены', pts: 2, ok: d(0) && d(1)},
+    {t: 'Часть 2: соединение двух таблиц с псевдонимами, запрос без условия соединения', pts: 2, ok: d(2) && d(3) && d(4)},
+    {t: 'Часть 3: соединение трёх таблиц, контрольный вопрос', pts: 2, ok: d(5) && d(6)},
+    {t: 'Часть 4: левое соединение — строки без пары', pts: 1, ok: d(7) && d(8)},
+    {t: 'Контрольный рейс принят', pts: 2, ok: !!P.control.done},
+    {t: 'Ответы на вопросы: разбор строки ответа, откуда NULL', pts: 1, ok: false, manual: true},
+  ];
+}
+
+const LAB = {
+  no: 16, title: 'Зал выдачи багажа', topic: 'Соединение таблиц', lrTitle: 'Соединение таблиц в запросе',
+  tables: [{name: 'airline', pk: 'code'}, {name: 'flight', pk: 'flight_no'}, {name: 'passenger', pk: 'id'}, {name: 'baggage', pk: 'tag'}],
+  placeholder: 'SELECT p.id, b.tag FROM passenger p JOIN baggage b ON …;',
+  legend: '<span><i style="background:var(--sign)"></i>в ответе</span><span><i style="border:2px dashed var(--blue);background:none"></i>цель</span><span><i style="background:var(--bad)"></i>лишняя линия</span><span><i style="border:2px dashed var(--bad);background:#8a6f4c"></i>ничейный чемодан</span>',
+  data, levels, predicts, control, scene, brief, grading, compareResult,
+  base, sandbox: fixed,
+  badge: (D, seed) => `№${seed} · лента ${D.belt}`,
+  briefMsg: 'Свободная работа. Каждая строка ответа рисует линию между объектами, ключи которых в ней есть.',
+  questions: [
+    'Уровень 2: что мешало объявить внешний ключ у багажа и как вы это исправили (не удаляя строк)?',
+    'Уровень 5: сколько строк получилось без условия соединения? Почему именно столько?',
+    'Уровень 7: возьмите одну строку ответа и назовите, из каких строк трёх исходных таблиц она собрана.',
+    'Уровень 8: сколько строк дало левое соединение и сколько — обычное? Откуда в результате левого соединения берутся пустые значения?',
+  ],
+};
+W.start(LAB);
+</script>
+<script type="module">
+let PGlite;
+try { ({PGlite} = await import('../mvp/vendor/pglite/index.js')); }
+catch (e) { ({PGlite} = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.8/dist/index.js')); }
+await W.boot(PGlite);
+</script>
+</body>
+</html>
