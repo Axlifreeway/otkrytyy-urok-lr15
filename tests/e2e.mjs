@@ -33,13 +33,14 @@ const browser = await chromium.launch({args: ['--use-gl=angle', '--use-angle=swi
 const out = {};
 const fails = [];
 
-async function open(path) {
+async function open(path, init) {
   const page = await browser.newPage({viewport: {width: 1366, height: 768}});
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('request', r => { if (/jsdelivr|unpkg/.test(r.url())) errors.push('PGlite не нашёлся рядом, грузится с CDN: ' + r.url()); });
   page.on('response', r => { if (r.status() >= 400 && !r.url().endsWith('favicon.ico')) errors.push(`http ${r.status()}: ${r.url().replace(BASE, '')}`); });
+  if (init) await page.addInitScript(init.fn, init.arg);
   await page.goto(BASE + path);
   return {page, errors};
 }
@@ -114,6 +115,33 @@ async function lab3d(lab, dir) {
   await page.close();
 }
 
+// тетрадь labs/: смена с номером SEED, каждый уровень — эталонные команды (у кого они есть)
+async function workbook(name, path) {
+  const {page, errors} = await open(path, {fn: seed => { try { localStorage.setItem('air-seed', String(seed)); } catch (e) { /* нет */ } }, arg: SEED});
+  const idle = () => page.waitForFunction(() => W.api.S && !W.api.S.busy && W.db, null, {timeout: 60000});
+  await page.waitForFunction(() => typeof W !== 'undefined' && W.api.S && W.api.S.levels, null, {timeout: 60000});
+  await page.evaluate(() => document.querySelector('[data-tab="shift"]').click());
+  await idle();
+  const n = await page.evaluate(() => W.api.S.levels.length);
+  const res = [];
+  for (let i = 0; i < n; i++) {
+    await page.evaluate(i => document.querySelector(`[data-l="${i}"]`).click(), i);
+    await sleep(200); await idle();
+    const ref = await page.evaluate(i => W.api.S.levels[i].ref || null, i);
+    if (!ref) { res.push({i, skipped: true}); continue; }
+    // правило «сначала SELECT с тем же условием»: перед UPDATE/DELETE — прицельный SELECT
+    await page.evaluate(ref => {
+      const sql = ref.flatMap(q => { const w = /^(update|delete)/i.test(q.trim()) && W.whereOf(q); return w && w.where ? [`SELECT * FROM ${w.table} WHERE ${w.where}`, q] : [q]; });
+      document.getElementById('sql').value = sql.map(q => q + ';').join('\n'); document.getElementById('runBtn').click();
+    }, ref);
+    await sleep(200); await idle();
+    res.push({i, done: await page.evaluate(i => !!(W.api.S.P.levels[i] || {}).done, i), out: await page.evaluate(() => document.getElementById('side').innerText.slice(0, 120))});
+  }
+  out[name] = {levels: res, errors};
+  errors.forEach(e => fails.push(`${name}: ${e}`));
+  await page.close();
+}
+
 async function plain(name, path, ready) {
   const {page, errors} = await open(path);
   try { await page.waitForFunction(ready, null, {timeout: 60000}); } catch (e) { errors.push('не дождались готовности'); }
@@ -126,9 +154,9 @@ const jobs = {
   lr13: () => lab3d('lr13', 'lr13-3d'),
   lr14: () => lab3d('lr14', 'lr14-3d'),
   hub: () => plain('hub', '/labs/index.html', () => document.querySelectorAll('.lc').length > 0),
-  'labs-lr13': () => plain('labs-lr13', '/labs/lr13.html', () => document.body.innerText.length > 200),
-  'labs-lr14': () => plain('labs-lr14', '/labs/lr14.html', () => document.body.innerText.length > 200),
-  'labs-lr16': () => plain('labs-lr16', '/labs/lr16.html', () => document.body.innerText.length > 200),
+  'labs-lr13': () => workbook('labs-lr13', '/labs/lr13.html'),
+  'labs-lr14': () => workbook('labs-lr14', '/labs/lr14.html'),
+  'labs-lr16': () => workbook('labs-lr16', '/labs/lr16.html'),
   mvp: () => plain('mvp', '/mvp/index.html', () => document.body.innerText.length > 200),
   teacher: () => plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),
 };
@@ -140,6 +168,6 @@ try {
 }
 mkdirSync(join(ROOT, 'tests/out'), {recursive: true});
 writeFileSync(join(ROOT, 'tests/out/e2e.json'), JSON.stringify(out, null, 1));
-for (const [lab, o] of Object.entries(out)) if (o.levels) console.log(lab, o.levels.map(l => `${l.key}:${l.skipped ? 'skip' : l.done ? 'ok' : 'FAIL'}`).join(' '));
+for (const [lab, o] of Object.entries(out)) if (o.levels) console.log(lab, o.levels.map(l => `${l.key ?? l.i + 1}:${l.skipped ? 'skip' : l.done ? 'ok' : 'нет'}`).join(' '));
 if (fails.length) { console.log('\nПроблемы:\n' + fails.join('\n')); process.exit(1); }
 console.log('\nВсё прошло.');

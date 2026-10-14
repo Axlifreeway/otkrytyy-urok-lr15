@@ -139,8 +139,7 @@ const W = (() => {
     if (code === '42P01') return {type: 'name', ru: 'Такой таблицы нет — проверьте имя.'};
     if (code === '42703') return {type: 'name', ru: 'Такого столбца нет — проверьте имя (и не забыты ли кавычки вокруг текста).'};
     if (code === '42702') return {type: 'name', ru: 'Столбец с таким именем есть в нескольких таблицах запроса — укажите, из какой: p.id, f.flight_no.'};
-    if (code === '42P10' || code === '42P18' || code === '42601') return {type: 'syntax', ru: 'Синтаксическая ошибка — смотрите на слово, названное в сообщении, и на то, что перед ним.'};
-    if (code === '42601' || /syntax error/.test(e.message)) return {type: 'syntax', ru: 'Синтаксическая ошибка — смотрите на слово, названное в сообщении, и на то, что перед ним.'};
+    if (code === '42P10' || code === '42P18' || code === '42601' || /syntax error/.test(e.message)) return {type: 'syntax', ru: 'Синтаксическая ошибка — смотрите на слово, названное в сообщении, и на то, что перед ним.'};
     if (code === '25P02') return {type: 'tx', ru: 'Транзакция прервана ошибкой: до ROLLBACK команды не выполняются.'};
     if (code === '21000') return {type: 'other', ru: 'Подзапрос вернул больше одной строки там, где ждали одно значение.'};
     return {type: 'other', ru: ''};
@@ -157,6 +156,10 @@ const W = (() => {
     pending.splice(0).forEach(f => f());
   }
   const ready = () => db ? Promise.resolve() : new Promise(r => pending.push(r));
+  // база одна на страницу: подготовка уровня и выполнение команд идут строго по очереди,
+  // иначе быстрые щелчки по вкладкам запускают две загрузки сразу («relation … already exists»)
+  let queue = Promise.resolve();
+  const exclusive = fn => { const r = queue.then(fn); queue = r.catch(() => {}); return r; };
 
   async function loadBaseline(sql) {
     try { await db.query('ROLLBACK'); } catch (e) { /* нет транзакции */ }
@@ -419,14 +422,16 @@ const W = (() => {
     if (tab === 'control') return openControl();
   }
 
-  async function base(sql) {
+  const base = sql => exclusive(() => base0(sql));
+  async function base0(sql) {
     S.busy = true;
     msg('Готовлю базу…');
-    await loadBaseline(sql);
-    S.lastSelect = null;
-    S.snap = await snapshot(LAB.tables);
-    LAB.scene.render(S.snap, S.D);
-    S.busy = false;
+    try {
+      await loadBaseline(sql);
+      S.lastSelect = null;
+      S.snap = await snapshot(LAB.tables);
+      LAB.scene.render(S.snap, S.D);
+    } finally { S.busy = false; }
   }
 
   // ── брифинг: свободная работа на полной базе
@@ -531,16 +536,18 @@ const W = (() => {
     S.list = S.levels; S.ctrl = false;
     const L = S.levels[i];
     const baseSql = levelBaseline(i, S.levels);
-    S.busy = true;
-    await prepareTarget(L, baseSql);
-    await base(baseSql);
+    await exclusive(async () => {
+      S.busy = true;
+      try { await prepareTarget(L, baseSql); } finally { S.busy = false; }
+      await base0(baseSql);
+    });
     S.L = L; S.fails = 0; S.stamps = new Set(); S.levelStart = Date.now(); S.pasted = 0;
     $('console').innerHTML = '';
     $('edHd').innerHTML = `пульт · <b>${esc(L.title)}</b>`;
     if (!keepEditor) $('sql').value = (S.P.levels[i] || {}).sql || '';
     renderSide();
     showTargetMarks();
-    msg(L.done ? '' : (L.msg || 'Цель показана на схеме. Выполните команды — проверка идёт после каждого запуска.'));
+    msg(L.msg || 'Цель показана на схеме. Выполните команды — проверка идёт после каждого запуска.');
     if ((S.P.levels[i] || {}).done) msg('Уровень уже пройден — можно повторить.', 'ok');
   }
   function showTargetMarks() {
@@ -583,9 +590,11 @@ const W = (() => {
     S.list = S.controls; S.ctrl = true;
     const C = S.controls[0];
     const baseSql = C.setup ? C.setup(S.D) : LAB.sandbox(S.D);
-    S.busy = true;
-    await prepareTarget(C, baseSql);
-    await base(baseSql);
+    await exclusive(async () => {
+      S.busy = true;
+      try { await prepareTarget(C, baseSql); } finally { S.busy = false; }
+      await base0(baseSql);
+    });
     S.L = C; S.levelStart = S.levelStart || Date.now(); S.pasted = 0;
     $('console').innerHTML = '';
     $('edHd').innerHTML = 'пульт · <b>контрольный рейс</b> · без подсказок';
@@ -606,7 +615,7 @@ const W = (() => {
   }
   async function submitControl() {
     const rec = S.P.control;
-    if (rec.done || rec.attempts >= 2) return;
+    if (S.busy || rec.done || rec.attempts >= 2) return;      // не сдавать, пока команда ещё выполняется
     const r = await checkLevel(S.L, S.lastRun || []);
     rec.attempts = (rec.attempts || 0) + 1;
     rec.sql = $('sql').value; rec.at = new Date().toISOString();
@@ -635,7 +644,8 @@ const W = (() => {
     return null;
   }
 
-  async function execute(text, opt) {
+  const execute = (text, opt) => exclusive(() => execute0(text, opt));
+  async function execute0(text, opt) {
     const prev = S.snap;
     // запомнить последний SELECT с условием — сразу после каждой команды
     const res = await run(text, {guard: opt.guard ? guard : null, after: r => {

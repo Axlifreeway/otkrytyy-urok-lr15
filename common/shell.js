@@ -70,7 +70,7 @@ export function verdict(ok, text, extra = '', next = false, quiet = false) {
   $('verdict').innerHTML = `<div class="${cls}">${head}${esc(text)}${extra}
     ${next && G.lv + 1 < L.length ? '<button class="nextBtn" id="nextBtn">Следующий уровень →</button>' : ''}
 </div>`;
-  if ($('nextBtn')) $('nextBtn').onclick = () => { SFX.unlock(); cfg.startLevel(G.lv + 1); };
+  if ($('nextBtn')) $('nextBtn').onclick = () => { if (running) return; SFX.unlock(); cfg.startLevel(G.lv + 1); };
 }
 
 // ═══════════════════════════════════════════════════ прогресс, баллы ══
