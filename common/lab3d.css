@@ -262,3 +262,10 @@ table.res { border-collapse: collapse; margin: 4px 0; font: 500 12.5px var(--mon
 #verdict { max-height: var(--msg-max, 40vh); overflow-y: auto }
 @media (max-width: 760px) and (orientation: portrait) { .sqlwrap { grid-row: auto; grid-column: 1 / -1 } .sqlhl { font-size: 16px; padding: 6px 9px } }
 @media (max-height: 520px) and (orientation: landscape) { .sqlhl { font-size: 15px; padding: 5px 8px } }
+
+/* снимки экрана: водяной знак и шторка, пока окно не активно */
+#wm { position: fixed; inset: 0; z-index: 7; pointer-events: none; opacity: .07; background-repeat: repeat }
+#veil { position: fixed; inset: 0; z-index: 30; background: #dcd6c9; display: flex; align-items: center; justify-content: center }
+#veil div { background: var(--paper); border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); border-radius: 8px; padding: 18px 22px; max-width: 420px; font-size: 15px; line-height: 1.45 }
+#veil b { display: block; font-size: 22px; margin-bottom: 6px }
+@media print { #wm, #veil { display: none !important } }

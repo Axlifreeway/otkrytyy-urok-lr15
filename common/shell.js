@@ -196,7 +196,7 @@ function protocol() {
   <div class="pr-meta"><span>Студент</span><span><input id="fio" value="${esc(P.fio || [G.fio, G.grp].filter(Boolean).join(', '))}" placeholder="Фамилия И. О., группа"></span>
     <span>Вариант</span><span>№ ${G.seed} · рейс ${esc(cfg.flight())}</span>
     <span>Сдано</span><span>${new Date().toLocaleString('ru-RU')} · пройдено ${done} из ${L.length}${done < L.length ? ' (досрочно)' : ''}</span>
-    <span>Запусков</span><span>${P.journal.length} · ошибок записи команд: ${P.lints || 0} · уходов со вкладки: ${P.away || 0}${awayMin ? ` (≈${awayMin} мин)` : ''} · заблокировано вставок: ${P.pastes || 0}</span></div>
+    <span>Запусков</span><span>${P.journal.length} · ошибок записи команд: ${P.lints || 0} · уходов со вкладки: ${P.away || 0}${awayMin ? ` (≈${awayMin} мин)` : ''} · заблокировано вставок: ${P.pastes || 0}${P.shots ? ` · снимков экрана: ${P.shots}` : ''}</span></div>
   <h3>Уровни</h3><table><tr><th>Уровень</th><th>Команды</th><th>Ответ СУБД</th><th>Промахов</th><th>Баллы</th></tr>
   ${sc.rows.map(({l, pts, ok}) => { const r = P.lv[l.key] || {}; return `<tr><td>${esc(l.title)}<div class="pr-mu">${esc(l.lab)}</div></td><td><pre>${ok ? esc(r.sql) : 'не пройден'}</pre></td><td><pre>${esc(r.note || r.tag || '')}</pre></td><td>${ok ? r.fails || 0 : ''}</td><td>${ok ? comma(pts) : '0'} / ${comma(pts)}</td></tr>`; }).join('')}</table>
   <h3>Прогнозы</h3><table><tr><th>Вопрос</th><th>Ответ</th><th>На деле</th></tr>${Object.values(P.pred).map(p => `<tr><td>${esc(p.q)}</td><td>${esc(p.label)}</td><td>${p.right ? '✓' : esc(p.alabel)}</td></tr>`).join('')}</table>
@@ -263,6 +263,7 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
   G = {seed, demo, fio, grp, lkey, sess, P: P || {lv: {}, pred: {}, journal: [], answers: {}, fio: '', cur: 0}, lv: null, slots: {}, hist: []};
   setCtx({lab: cfg.lab, fio, grp, seed, client: sess && sess.sid ? 's' + sess.sid : clientId(), demo, token: sess && sess.token || ''});
   report('hello', {done: doneN(), pts: score().sum});
+  stampScreen();
   if (server || P) save();
   // продолжить с первого непройденного открытого уровня
   let i = demo ? 0 : G.P.cur || 0;
@@ -286,6 +287,36 @@ function placeMessages() {
       : {left: d.left + 'px', width: id === 'cmd' ? '' : d.width + 'px', maxWidth: d.width + 'px', right: 'auto', transform: 'none'});
   });
 }
+
+// ═════════════════════════════════════════════ снимки экрана ══
+// Запретить снимок экрана браузер не может. Поэтому: водяной знак с ФИО (любой снимок подписан),
+// шторка, пока окно не активно (инструменты снимка забирают фокус), Print Screen — перетирает буфер и попадает в протокол.
+function guardScreen() {
+  const veil = document.createElement('div'), wm = document.createElement('div');
+  veil.id = 'veil'; veil.hidden = true; veil.innerHTML = '<div><b>Лабораторная скрыта</b>Вернитесь в окно лабораторной — работа продолжится с того же места.</div>';
+  wm.id = 'wm'; wm.hidden = true;
+  document.body.append(wm, veil);
+  const on = () => G && !G.demo;
+  const hide = v => { veil.hidden = !(v && on()); };
+  addEventListener('blur', () => hide(true));
+  addEventListener('focus', () => hide(false));
+  document.addEventListener('visibilitychange', () => hide(document.hidden));
+  addEventListener('keyup', e => {
+    if (e.key !== 'PrintScreen' || !on()) return;
+    try { navigator.clipboard && navigator.clipboard.writeText('Снимки экрана лабораторной не допускаются.'); } catch (x) { /* нет доступа к буферу */ }
+    hide(true); setTimeout(() => hide(!document.hasFocus()), 1500);
+    G.P.shots = (G.P.shots || 0) + 1; save();
+    report('shot', {lv: G.lv + 1});
+    toast('Снимок экрана записан в протокол.');
+  });
+  return () => {                                          // показать водяной знак вошедшего студента
+    const who = [G.fio, G.grp, new Date().toLocaleDateString('ru-RU')].filter(Boolean).join(' · ');
+    wm.hidden = !on() || !G.fio;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='420' height='180'><text x='10' y='110' transform='rotate(-18 210 90)' font-family='Rubik,Arial' font-size='18' font-weight='700' fill='%2322252b'>${esc(who).replace(/#/g, '%23')}</text></svg>`;
+    wm.style.backgroundImage = `url("data:image/svg+xml;utf8,${svg}")`;
+  };
+}
+let stampScreen = () => {};
 
 // ═══════════════════════════════════════════ история команд, вставка ══
 let paste = {add: () => {}};
@@ -314,6 +345,7 @@ export async function boot() {
   addEventListener('resize', fitScene);
   $('sql').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runFromUI(); } else histKey(e); });
   hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
+  stampScreen = guardScreen();
   new ResizeObserver(placeMessages).observe($('deck'));
   addEventListener('resize', placeMessages); placeMessages();
   paste = guardPaste($('sql'), () => { if (G && G.demo) return; toast('Вставка из других мест отключена — наберите команду сами. Свои прошлые команды: Ctrl+↑'); if (G) { G.P.pastes = (G.P.pastes || 0) + 1; save(); } });

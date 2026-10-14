@@ -133,7 +133,7 @@ function renderGroups() {
       <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
     <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th></tr>
     ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
-      <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}</td>
+      <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
       ${['lr13', 'lr14'].map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
   $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const g = groupsData.find(x => x.name === b.dataset.edit); $('gName').value = g.name; $('gList').value = g.students.filter(s => s.idx).map(s => s.name).join('\n'); });
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
@@ -179,7 +179,7 @@ function render() {
       <td>${p.lvErrors ? `<span class="tag ${p.lvErrors >= 3 ? 'warn' : ''}">${p.lvErrors}</span>` : '0'} <span style="color:var(--mute);font-size:12px">всего ${p.errors + p.lints}</span></td>
       <td><div class="err" title="${esc(p.lastErr)}">${p.lastErr ? esc(ruErr(p.lastErr)) : ''}</div>${p.lastErrTs ? `<div style="font-size:11.5px;color:var(--mute)">${mins(now - p.lastErrTs)} назад</div>` : ''}</td>
       <td>${mins(p.onLevel)}</td>
-      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''}</td>
+      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''} ${p.shots ? `<span class="tag warn">снимков экрана ${p.shots}</span>` : ''}</td>
       <td>${p.submit ? `<span class="tag ok">${String(p.submit.pts).replace('.', ',')} б. · ${p.submit.done} ур.</span>` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="10" style="padding:20px;color:var(--mute)">Пока никого. Студенты появятся, как только откроют лабу и введут фамилию.</td></tr>';
   if (g) {
@@ -207,7 +207,7 @@ async function showLog(client, quiet) {
   const q = new URLSearchParams({client}); q.set('since', since || new Date().setHours(0, 0, 0, 0));
   const r = await api('/api/log?' + q);
   const names = NAMES[p.lab] || [];
-  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', rollback: 'не совпало — откат', done: 'уровень пройден', paste: 'вставка заблокирована', away: 'ушёл со вкладки', submit: 'сдал'};
+  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', rollback: 'не совпало — откат', done: 'уровень пройден', paste: 'вставка заблокирована', shot: 'нажат Print Screen', away: 'ушёл со вкладки', submit: 'сдал'};
   const keep = $('drawer').scrollTop;
   $('drawer').hidden = false;
   $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button><h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · № ${p.seed ?? ''} · ${esc((p.lab || '').toUpperCase())}</span></h2>

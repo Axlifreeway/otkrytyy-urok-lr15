@@ -1,7 +1,7 @@
 // Общий модуль лабораторных: события в панель преподавателя, учёт уходов со вкладки, защита пульта от вставки.
 const API = '/api/ev';
 const ctx = {lab: '', fio: '', grp: '', seed: null, client: '', demo: false, token: ''};   // token — кто это, сервер узнаёт по нему
-let enabled = /^https?:$/.test(location.protocol), miss404 = 0;
+let enabled = typeof location !== 'undefined' && /^https?:$/.test(location.protocol), miss404 = 0;
 
 export function clientId() {
   try {

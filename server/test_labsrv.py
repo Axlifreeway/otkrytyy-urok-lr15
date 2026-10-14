@@ -63,6 +63,38 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.call('/api/login', {'id': 'abc', 'pin': '1234'})[0], 404)
         self.assertEqual(self.call('/api/login', {'id': 1, 'pin': '12'})[0], 400)
 
+    def test_one_device_cannot_claim_many_accounts(self):
+        ids = self.group(['Иванов Иван', 'Петрова Анна', 'Сидоров Пётр'])
+        claim = lambda sid, dev: self.call('/api/login', {'id': sid, 'pin': '1111', 'dev': dev})
+        self.assertEqual(claim(ids['Иванов И.'], 'pc1')[0], 200)
+        self.assertEqual(claim(ids['Иванов И.'], 'pc1')[0], 200)                 # свой аккаунт — сколько угодно
+        st, r = claim(ids['Петрова А.'], 'pc1')
+        self.assertEqual(st, 403)
+        self.assertIn('Иванов И.', r['err'])
+        self.assertEqual(claim(ids['Петрова А.'], 'pc2')[0], 200)               # с другого компьютера — можно
+        g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
+        self.assertEqual({s['name']: s['sameDev'] for s in g['students']}['Иванов Иван'], [])
+
+    def test_shared_device_is_flagged(self):
+        ids = self.group(['Иванов Иван', 'Петрова Анна'])
+        srv = self.srv.RequestHandlerClass.store
+        self.call('/api/login', {'id': ids['Иванов И.'], 'pin': '1111', 'dev': 'pc9'})
+        srv.claims.clear()                                                       # прошло полчаса
+        self.call('/api/login', {'id': ids['Петрова А.'], 'pin': '2222', 'dev': 'pc9'})
+        g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
+        self.assertEqual({s['name']: s['sameDev'] for s in g['students']}['Иванов Иван'], ['Петрова Анна'])
+
+    def test_wrong_pins_limited_per_device(self):
+        ids = self.group(['Иванов Иван', 'Петрова Анна', 'Сидоров Пётр'])
+        for name in ids:
+            self.call('/api/login', {'id': ids[name], 'pin': '1111', 'dev': 'own-' + name})
+        codes = []
+        for i in range(labsrv.FAILS_PER_DEVICE + 1):
+            sid = list(ids.values())[i % 3]                                     # перебор по разным аккаунтам
+            codes.append(self.call('/api/login', {'id': sid, 'pin': '9999', 'dev': 'bad'})[0])
+        self.assertEqual(codes[-1], 429)
+        self.assertEqual(self.call('/api/login', {'id': ids['Иванов И.'], 'pin': '1111', 'dev': 'good'})[0], 200)
+
     def test_pin_lockout(self):
         sid = self.group()['Петрова А.']
         self.login(sid)

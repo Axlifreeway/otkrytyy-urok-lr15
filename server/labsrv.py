@@ -29,11 +29,17 @@ PORT = int(os.environ.get('LABS_PORT', '8090'))
 DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs.db'))
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
-TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb'}
+TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot'}
 LEVELS = {'lr13': 12, 'lr14': 12}           # число уровней в лабе — для панели преподавателя
 MAX_BODY = 400000
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
 PIN_TRIES = 8
+# защита от «захвата» чужих аккаунтов: первый вход задаёт PIN, поэтому с одного устройства
+# впервые войти можно только в один аккаунт за CLAIM_WINDOW; неверные PIN считаются и по устройству, и по IP
+CLAIM_WINDOW_MS = 30 * 60000
+FAIL_WINDOW_MS = 10 * 60000
+FAILS_PER_DEVICE = 10
+FAILS_PER_IP = 60                           # вся группа может сидеть за одним IP колледжа
 PIN_LOCK_MS = 600000
 
 SCHEMA = '''
@@ -96,7 +102,7 @@ def merge(a, b):
 def _person(ts, client, lab, fio, grp, seed):
     return {'client': client, 'lab': lab, 'fio': fio, 'grp': grp, 'seed': seed, 'first': ts, 'last': ts,
             'lv': 1, 'lvSince': ts, 'done': [], 'pts': 0, 'runs': 0, 'errors': 0, 'lints': 0, 'lvErrors': 0,
-            'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'submit': None,
+            'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'shots': 0, 'submit': None,
             'hidden': False, 'stars': {}, 'doneN': 0}
 
 
@@ -144,6 +150,8 @@ def summarize(rows, now):
             p['pts'] = max(p['pts'], d.get('pts') or 0)
         elif typ == 'paste':
             p['pastes'] += 1
+        elif typ == 'shot':                    # нажат Print Screen
+            p['shots'] += 1
         elif typ == 'away':
             p['away'] += 1
             p['awayMs'] += int(d.get('ms') or 0)
@@ -183,7 +191,11 @@ class Store:
         self.con = sqlite3.connect(path, check_same_thread=False)
         self.con.execute('PRAGMA journal_mode=WAL')
         self.con.executescript(SCHEMA)
+        if 'pin_dev' not in [r[1] for r in self.con.execute('PRAGMA table_info(student)')]:
+            self.con.execute('ALTER TABLE student ADD COLUMN pin_dev TEXT')     # с какого устройства задан PIN
         self.con.commit()
+        self.claims = {}                    # устройство → (время, номер студента) последнего первого входа
+        self.fails = {}                     # 'd:устройство' / 'i:IP' → времена неверных PIN
 
     # ── токены и PIN ──
     def pin_hash(self, sid, pin):
@@ -222,10 +234,17 @@ class Store:
             rows = self.con.execute('SELECT id, name, pin IS NOT NULL FROM student WHERE grp = ? AND idx > 0 ORDER BY name', (grp,)).fetchall()
         return [{'id': r[0], 'name': short(r[1]), 'pin': bool(r[2])} for r in rows]
 
-    def login(self, sid, pin):
-        """→ (код ответа, тело)."""
+    def _recent_fails(self, key, now):
+        ts = [t for t in self.fails.get(key, []) if now - t < FAIL_WINDOW_MS]
+        self.fails[key] = ts
+        return len(ts)
+
+    def login(self, sid, pin, dev='', ip=''):
+        """→ (код ответа, тело). dev — номер устройства (браузера), ip — адрес."""
         now = now_ms()
         with self.lock:
+            if (dev and self._recent_fails('d:' + dev, now) >= FAILS_PER_DEVICE) or (ip and self._recent_fails('i:' + ip, now) >= FAILS_PER_IP):
+                return 429, {'err': 'С этого компьютера слишком много неверных PIN. Подождите 10 минут или подойдите к преподавателю.'}
             r = self.con.execute('SELECT s.id, s.grp, s.name, s.idx, s.pin, s.fails, s.lock_until, g.ord FROM student s JOIN grp g ON g.name = s.grp WHERE s.id = ?', (sid,)).fetchone()
             if not r or not r[3]:
                 return 404, {'err': 'Нет такого студента в списке группы'}
@@ -234,8 +253,16 @@ class Store:
                 return 429, {'err': f'Слишком много неверных PIN. Подождите {max(1, (lock_until - now) // 60000)} мин или попросите преподавателя сбросить PIN.'}
             first = not ph
             if first:
-                self.con.execute('UPDATE student SET pin = ?, fails = 0 WHERE id = ?', (self.pin_hash(sid, pin), sid))
+                prev = self.claims.get(dev) if dev else None
+                if prev and prev[1] != sid and now - prev[0] < CLAIM_WINDOW_MS:
+                    other = self.con.execute('SELECT name FROM student WHERE id = ?', (prev[1],)).fetchone()
+                    return 403, {'err': f'С этого компьютера недавно уже вошли как {short(other[0]) if other else "другой студент"}. '
+                                        'Войти впервые в ещё один аккаунт можно через 30 минут. Ошиблись в выборе — подойдите к преподавателю.'}
+                self.claims[dev] = (now, sid)
+                self.con.execute('UPDATE student SET pin = ?, fails = 0, pin_dev = ? WHERE id = ?', (self.pin_hash(sid, pin), dev or None, sid))
             elif not hmac.compare_digest(ph, self.pin_hash(sid, pin)):
+                for k in (['d:' + dev] if dev else []) + (['i:' + ip] if ip else []):
+                    self.fails.setdefault(k, []).append(now)
                 fails = (fails or 0) + 1
                 locked = fails >= PIN_TRIES
                 self.con.execute('UPDATE student SET fails = ?, lock_until = ? WHERE id = ?', (0 if locked else fails, now + PIN_LOCK_MS if locked else 0, sid))
@@ -290,8 +317,15 @@ class Store:
                 done.setdefault(sid, {})[lab] = sum(1 for r in (d.get('lv') or {}).values() if r.get('done'))
             out = []
             for name, o in self.con.execute('SELECT name, ord FROM grp ORDER BY ord').fetchall():
-                st = [{'id': sid, 'name': n, 'idx': idx, 'pin': bool(pin), 'seed': o * 100 + idx, 'labs': done.get(sid, {})}
-                      for sid, n, idx, pin in self.con.execute('SELECT id, name, idx, pin IS NOT NULL FROM student WHERE grp = ? ORDER BY idx', (name,))]
+                st = [{'id': sid, 'name': n, 'idx': idx, 'pin': bool(pin), 'seed': o * 100 + idx, 'labs': done.get(sid, {}), 'dev': dev}
+                      for sid, n, idx, pin, dev in self.con.execute('SELECT id, name, idx, pin IS NOT NULL, pin_dev FROM student WHERE grp = ? ORDER BY idx', (name,))]
+                # несколько аккаунтов, заведённых с одного устройства, — подозрительно
+                by = {}
+                for x in st:
+                    if x['dev']:
+                        by.setdefault(x['dev'], []).append(x['name'])
+                for x in st:
+                    x['sameDev'] = [n for n in by.get(x.pop('dev') or '', []) if n != x['name']]
                 out.append({'name': name, 'students': st})
         return out
 
@@ -475,7 +509,7 @@ class Handler(BaseHTTPRequestHandler):
             sid = int(e.get('id') or 0)
         except (TypeError, ValueError):
             sid = 0
-        self.send(*self.store.login(sid, pin))
+        self.send(*self.store.login(sid, pin, clip(e.get('dev'), 40), self.ip()))
 
     def post_progress(self, e):
         sid = self.sid(e)

@@ -2,6 +2,7 @@
 // Если сервера нет (файл открыт с диска) — старый вход: ФИО, группа, номер в журнале.
 import {esc, ls} from './util.js';
 import {isTeacherCode} from './teacher.js';
+import {clientId} from './net.js';
 async function api(path, body, headers = {}) {
   const r = await fetch(path, body ? {method: 'POST', headers: {'Content-Type': 'application/json', ...headers}, body: JSON.stringify(body)} : {headers});
   const j = await r.json().catch(() => ({}));
@@ -60,7 +61,7 @@ export async function loginScreen(m, {head, onGo, legacy}) {
     if (!$('lgS').value) { $('lgErr').textContent = 'Выберите себя в списке.'; return; }
     if (!/^\d{4}$/.test($('lgP').value)) { $('lgErr').textContent = 'PIN — ровно 4 цифры.'; $('lgP').focus(); return; }
     try {
-      const r = await api('/api/login', {id: +$('lgS').value, pin: $('lgP').value});
+      const r = await api('/api/login', {id: +$('lgS').value, pin: $('lgP').value, dev: clientId()});
       const s = {token: r.token, sid: r.sid, fio: r.fio, grp: r.grp, seed: r.seed};
       session.set(s); ls('air-grp', r.grp);
       m.hidden = true; onGo(s);
