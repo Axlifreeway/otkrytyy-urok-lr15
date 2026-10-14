@@ -150,6 +150,35 @@ async function plain(name, path, ready) {
   await page.close();
 }
 
+// вход по группе и PIN → прогресс на сервере → студент в панели преподавателя
+async function serverFlow() {
+  const post = (path, body) => fetch(BASE + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(r => r.json());
+  await post('/api/admin/group', {key: KEY, name: 'E2E-1', names: ['Тестов Тест', 'Проверкина Анна']});
+  const {page, errors} = await open('/lr14-3d/index.html');
+  await page.waitForFunction(() => document.getElementById('lgS') && document.getElementById('lgS').options.length > 1, null, {timeout: 60000});
+  await page.selectOption('#lgS', {label: 'Тестов Т.'});
+  await page.fill('#lgP', '4321');
+  await page.click('#lgGo');
+  await page.waitForFunction(() => window.LAB && window.LAB.G && window.LAB.G.lv === 0 && !window.LAB.running, null, {timeout: 60000});
+  const seed = await page.evaluate(() => window.LAB.G.seed);
+  await page.evaluate(() => { window.LAB.speed = 99; document.getElementById('sql').value = window.LAB.L[0].ref[0]; return window.LAB.run(); });
+  await page.waitForFunction(() => !window.LAB.running && (window.LAB.G.P.lv.kids || {}).done, null, {timeout: 60000});
+  await sleep(2500);                                         // прогресс уходит с задержкой
+  const st = await fetch(BASE + '/api/state?lab=lr14', {headers: {'X-Labs-Key': KEY}}).then(r => r.json());
+  const p = st.people.find(x => x.fio === 'Тестов Тест');
+  const groups = await fetch(BASE + '/api/admin/groups', {headers: {'X-Labs-Key': KEY}}).then(r => r.json());
+  const saved = groups.groups[0].students.find(x => x.name === 'Тестов Тест').labs.lr14;
+  const ok = p && p.grp === 'E2E-1' && p.seed === seed && p.done.includes('kids') && saved === 1;
+  if (!ok) fails.push(`server-flow: студент не дошёл до панели как надо: ${JSON.stringify({p: p && {fio: p.fio, grp: p.grp, seed: p.seed, done: p.done}, seed, saved})}`);
+  // без входа события не принимаются, раз есть списки групп
+  const anon = await fetch(BASE + '/api/ev', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'run', client: 'x', fio: 'Чужой'})});
+  if (anon.status !== 403) fails.push('server-flow: событие без входа принято');
+  out['server-flow'] = {ok, errors};
+  errors.forEach(e => fails.push(`server-flow: ${e}`));
+  await page.close();
+  await post('/api/admin/delgroup', {key: KEY, name: 'E2E-1'});
+}
+
 const jobs = {
   lr13: () => lab3d('lr13', 'lr13-3d'),
   lr14: () => lab3d('lr14', 'lr14-3d'),
@@ -158,6 +187,7 @@ const jobs = {
   'labs-lr14': () => workbook('labs-lr14', '/labs/lr14.html'),
   'labs-lr16': () => workbook('labs-lr16', '/labs/lr16.html'),
   mvp: () => plain('mvp', '/mvp/index.html', () => document.body.innerText.length > 200),
+  'server-flow': serverFlow,
   teacher: () => plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),
 };
 try {
