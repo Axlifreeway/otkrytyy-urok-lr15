@@ -379,15 +379,21 @@ export function createEngine(stage, o) {
   }
 
   // ═════════════════════════════════════════════════ камера и цикл ══
-  let lastW = 0, lastH = 0, lastZ = 0;
+  let lastW = 0, lastH = 0, lastZ = 0, ins = null;
   function fit(force) {
     const Wd = stage.clientWidth, H = stage.clientHeight;
     if (force || Wd !== lastW || H !== lastH) { renderer.setSize(Wd, H); labels.setSize(Wd, H); lastW = Wd; lastH = H; lastZ = 0; }
     if (Math.abs(camS.cur - lastZ) > 1e-4) {
-      const aspect = Wd / H, h = o.viewH / camS.cur;
-      cam.left = -h * aspect; cam.right = h * aspect; cam.top = h; cam.bottom = -h; cam.updateProjectionMatrix(); lastZ = camS.cur;
+      // на телефоне сцену закрывают панели: кадр строится по свободной части экрана (ins — отступы в пикселях),
+      // а если она узкая — камера отодвигается, чтобы салон помещался по ширине
+      const vw = Math.max(80, Wd - (ins ? ins.left + ins.right : 0)), vh = Math.max(80, H - (ins ? ins.top + ins.bottom : 0));
+      const hv = o.viewH / camS.cur * Math.min(2.2, Math.max(1, 1.25 / (vw / vh))), h = hv * H / vh, aspect = Wd / H;
+      cam.left = -h * aspect; cam.right = h * aspect; cam.top = h; cam.bottom = -h;
+      if (ins) cam.setViewOffset(Wd, H, (ins.right - ins.left) / 2, (ins.bottom - ins.top) / 2, Wd, H); else cam.clearViewOffset();
+      cam.updateProjectionMatrix(); lastZ = camS.cur;
     }
   }
+  function setInsets(v) { ins = v; lastZ = 0; }
   window.addEventListener('resize', () => fit(true));
   // качество графики: «высокое» — тени и чёткость, «низкое» — для слабых ПК; автоматически понижается при низком FPS
   const Q = {level: 'high', auto: true, fps: 0};
@@ -405,9 +411,22 @@ export function createEngine(stage, o) {
   }
   // перетаскивание — сдвиг камеры, колесо — масштаб, щелчок — выбор объекта
   let drag = null;
-  renderer.domElement.addEventListener('pointerdown', e => { drag = {x: e.clientX, y: e.clientY, tx: camS.tx, tz: camS.tz, m: false}; });
-  window.addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 4) drag.m = true; const k = .018 / camS.cur; camS.tx = drag.tx - (dx * .7 + dy * .9) * k; camS.tz = drag.tz + (dx * .7 - dy * .9) * k; camS.follow = false; });
-  window.addEventListener('pointerup', e => { if (drag && !drag.m && hooks.pick) pickAt(e); drag = null; });
+  // два пальца — масштаб (щипок)
+  const touches = new Map();
+  let pinch = null;
+  const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+  renderer.domElement.addEventListener('pointerdown', e => {
+    touches.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (touches.size === 2) { pinch = {d: spread(), zoom: camS.zoom}; drag = null; return; }
+    drag = {x: e.clientX, y: e.clientY, tx: camS.tx, tz: camS.tz, m: false};
+  });
+  window.addEventListener('pointermove', e => {
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (pinch && touches.size === 2) { camS.zoom = Math.max(.5, Math.min(2.6, pinch.zoom * spread() / pinch.d)); camS.follow = false; return; }
+    if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 4) drag.m = true; const k = .018 / camS.cur; camS.tx = drag.tx - (dx * .7 + dy * .9) * k; camS.tz = drag.tz + (dx * .7 - dy * .9) * k; camS.follow = false; });
+  const lift = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+  window.addEventListener('pointerup', e => { lift(e); if (drag && !drag.m && hooks.pick) pickAt(e); drag = null; });
+  window.addEventListener('pointercancel', e => { lift(e); drag = null; });
   renderer.domElement.addEventListener('wheel', e => { e.preventDefault(); camS.zoom = Math.max(.5, Math.min(2.6, camS.zoom * Math.pow(1.0015, -e.deltaY))); }, {passive: false});
   const ray = new THREE.Raycaster();
   function pickAt(e) {
@@ -466,6 +485,6 @@ export function createEngine(stage, o) {
     clearConfetti: () => { conf.splice(0).forEach(m => scene.remove(m)); },
     home: () => { camS.tx = o.home.tx; camS.tz = o.home.tz; camS.zoom = 1; camS.follow = false; },
     resetRoot: () => { root.position.set(0, 0, 0); root.rotation.set(0, 0, 0); },
-    setQuality, get quality() { return Q.level; }, get fps() { return Q.fps; }, info: () => renderer.info.render,
+    setQuality, setInsets, get quality() { return Q.level; }, get fps() { return Q.fps; }, info: () => renderer.info.render,
   };
 }

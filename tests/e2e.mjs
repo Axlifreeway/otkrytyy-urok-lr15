@@ -179,6 +179,41 @@ async function serverFlow() {
   await post('/api/admin/delgroup', {key: KEY, name: 'E2E-1'});
 }
 
+// телефон (iPhone 13, стоя и боком): страница не шире экрана, панели 3D-лабы не налезают друг на друга
+async function mobile() {
+  const {devices} = (() => { try { return require('playwright'); } catch (e) { return require(join(process.execPath, '../../lib/node_modules/playwright')); } })();
+  const errors = [];
+  for (const dev of ['iPhone 13', 'iPhone 13 landscape']) {
+    const ctx = await browser.newContext({...devices[dev]});
+    await ctx.addInitScript(seed => { try { localStorage.setItem('air-seed', String(seed)); } catch (e) { /* нет */ } }, SEED);
+    for (const path of ['/', '/labs/lr13.html', '/labs/lr14.html', '/labs/lr16.html', '/teacher/?key=' + KEY]) {
+      const page = await ctx.newPage();
+      await page.goto(BASE + path); await sleep(2500);
+      const w = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+      if (w[0] > w[1] + 1) errors.push(`${dev} ${path}: страница шире экрана (${w[0]} > ${w[1]})`);
+      await page.close();
+    }
+    for (const lab of ['lr13-3d', 'lr14-3d']) {
+      const page = await ctx.newPage();
+      page.on('pageerror', e => errors.push(`${dev} ${lab}: ${e.message}`));
+      await page.goto(`${BASE}/${lab}/index.html`);
+      await page.waitForFunction(() => window.LAB && document.getElementById('loading').hidden, null, {timeout: 60000});
+      await page.evaluate(() => { document.getElementById('modal').hidden = true; return window.LAB.begin(7, true); });
+      await page.waitForFunction(() => !window.LAB.running);
+      await page.evaluate(() => document.getElementById('side').classList.add('min'));
+      const r = await page.evaluate(() => { const s = document.getElementById('side').getBoundingClientRect(), d = document.getElementById('deck').getBoundingClientRect(), t = document.getElementById('topR').getBoundingClientRect();
+        return {side: [s.left, s.top, s.right, s.bottom], deck: [d.left, d.top, d.right, d.bottom], top: [t.left, t.top, t.right, t.bottom], w: innerWidth, h: innerHeight}; });
+      const hit = (a, b) => a[0] < b[2] - 1 && b[0] < a[2] - 1 && a[1] < b[3] - 1 && b[1] < a[3] - 1;
+      if (hit(r.side, r.deck)) errors.push(`${dev} ${lab}: задание налезает на пульт`);
+      if (hit(r.side, r.top)) errors.push(`${dev} ${lab}: задание налезает на кнопки`);
+      if (r.deck[2] > r.w + 1 || r.deck[3] > r.h + 1) errors.push(`${dev} ${lab}: пульт выходит за экран`);
+      await page.close();
+    }
+    await ctx.close();
+  }
+  out.mobile = {errors}; errors.forEach(e => fails.push(`mobile: ${e}`));
+}
+
 const jobs = {
   lr13: () => lab3d('lr13', 'lr13-3d'),
   lr14: () => lab3d('lr14', 'lr14-3d'),
@@ -195,6 +230,7 @@ const jobs = {
   'labs-lr14': () => workbook('labs-lr14', '/labs/lr14.html'),
   'labs-lr16': () => workbook('labs-lr16', '/labs/lr16.html'),
   mvp: () => plain('mvp', '/mvp/index.html', () => document.body.innerText.length > 200),
+  mobile,
   'server-flow': serverFlow,
   teacher: () => plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),
 };

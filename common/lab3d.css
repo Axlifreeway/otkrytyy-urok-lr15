@@ -185,3 +185,66 @@ table.res { border-collapse: collapse; margin: 4px 0; font: 500 12.5px var(--mon
 .pr-q { margin-top: 8px } .pr-q textarea { width: 100%; min-height: 44px; font: inherit; border: 1px solid #b9b2a0; padding: 4px 6px }
 @media print { body > *:not(#proto) { display: none !important } #proto { position: static; padding: 0 } .pr-bar { display: none } html, body { overflow: visible; height: auto; background: #fff } }
 @media (max-width: 1150px) { #mission { width: 290px } #mission h1 { font-size: 21px } }
+
+/* ═════════════════ телефон: сверху кнопки и уровни, под ними задание (сворачивается), внизу пульт ═════════════════ */
+#mission h1 { cursor: default }
+@media (max-width: 760px) and (orientation: portrait) {
+  #sql::placeholder { font-size: 13px }
+  #stage canvas { touch-action: none }
+  #topR { left: 8px; right: 8px; top: 8px; gap: 5px; overflow-x: auto; scrollbar-width: none; padding: 0 4px 4px 0 }
+  #topR::-webkit-scrollbar { display: none }
+  #topR .btn { font-size: 12.5px; padding: 4px 8px; border-width: 2.5px; box-shadow: 2px 2px 0 var(--ink); white-space: nowrap; flex: none }
+  #side { left: 8px; right: 8px; top: 50px; width: auto; max-height: 46vh; max-height: 46dvh; gap: 6px }
+  #side #levels { flex-wrap: nowrap; overflow-x: auto; padding: 5px 6px 13px; gap: 4px; scrollbar-width: none }
+  #side #levels::-webkit-scrollbar { display: none }
+  #side .lvb { flex: none; width: 30px; height: 30px; font-size: 13px }
+  #side #mission { padding: 10px 12px; box-shadow: 4px 4px 0 var(--ink) }
+  #mission h1 { font-size: 19px; cursor: pointer; padding-right: 26px; position: relative }
+  #mission h1::after { content: '▴'; position: absolute; right: 0; top: 0; font-size: 18px; color: #6b6e75 }
+  #mission p { font-size: 14px } #mission ul { font-size: 13.5px }
+  /* свёрнутое задание: только заголовок уровня */
+  #side.min #mission > :not(h1):not(.tag) { display: none }
+  #side.min #mission h1 { margin-bottom: 0 }
+  #side.min #mission h1::after { content: '▾' }
+  #deck { left: 8px; right: 8px; bottom: 8px; width: auto; transform: none; padding: 8px; grid-template-columns: auto auto 1fr; gap: 6px; align-items: center }
+  #sql { grid-row: auto; grid-column: 1 / -1; height: 66px; font-size: 16px; padding: 6px 9px; resize: none }
+  #runBtn { font-size: 16px; padding: 7px 14px }
+  .spd { font-size: 0 } .spd button { font-size: 12px; padding: 3px 6px }
+  #rsDeck { justify-self: end; font-size: 12px; padding: 4px 7px }
+  #result { grid-column: 1 / -1; max-height: 16vh; font-size: 13px }
+  #verdict, #cmd, #toast { left: 8px; right: 8px; width: auto; max-width: none; transform: none; bottom: 182px }
+  #verdict { max-height: 40vh; overflow-y: auto }
+  .v-ok b, .v-bad b { font-size: 18px } .v-ok, .v-bad, .v-mid { font-size: 14px; padding: 8px 11px }
+  #cmd { padding: 6px 10px } #cmd .w { font-size: 14px } #cmd .k { font-size: 12px }
+  #cnt { top: auto; bottom: 182px; right: 8px; font-size: 13px; padding: 5px 10px } #cnt b { font-size: 16px }
+  #rewind::after { font-size: 26px; padding: 4px 14px }
+  .rcard { font-size: 13px; min-width: 160px; padding: 5px 9px } .rcard div > b { font-size: 13px } .rc-x { font-size: 13px; white-space: normal } .rc-v { font-size: 15px }
+  .say span { font-size: 11.5px }
+  #modal { align-items: flex-start; overflow-y: auto; padding: 12px 0 }
+  .dlg { padding: 14px 16px } .dlg h2 { font-size: 24px } .dlg p { font-size: 14.5px }
+  .lg { grid-template-columns: 1fr } #lgTeach { grid-template-columns: 1fr 80px auto }
+  .dlg-id { flex-direction: column } .dlg-id input:nth-child(2) { flex: none }
+  .end-row { flex-wrap: wrap } .end-row div { flex: 1 1 45%; border-bottom: 2px solid var(--ink) } .end-row b { font-size: 21px }
+  #proto { padding: 12px } .pr-meta { grid-template-columns: 1fr } .pr-meta input { width: 100% }
+  .pr-doc table { display: block; overflow-x: auto }
+}
+/* телефон боком: задание слева узкой колонкой, пульт справа внизу */
+@media (max-height: 520px) and (orientation: landscape) {
+  #sql::placeholder { font-size: 12.5px }
+  #stage canvas { touch-action: none }
+  #topR { top: 6px; right: 6px; gap: 5px } #topR .btn { font-size: 12px; padding: 3px 8px; border-width: 2.5px; box-shadow: 2px 2px 0 var(--ink) }
+  #side { left: 6px; top: 6px; width: 280px; max-height: calc(100vh - 12px); max-height: calc(100dvh - 12px); gap: 5px }
+  #side #levels { flex-wrap: nowrap; overflow-x: auto; padding: 4px 6px 12px; gap: 3px }
+  #side .lvb { flex: none; width: 26px; height: 26px; font-size: 12px }
+  #side #mission { padding: 8px 10px } #mission h1 { font-size: 17px; cursor: pointer; padding-right: 22px; position: relative }
+  #mission h1::after { content: '▴'; position: absolute; right: 0; top: 0; font-size: 16px; color: #6b6e75 }
+  #mission p { font-size: 13px } #mission ul { font-size: 12.5px }
+  #side.min #mission > :not(h1):not(.tag) { display: none } #side.min #mission h1::after { content: '▾' }
+  #deck { left: 294px; right: 6px; bottom: 6px; width: auto; transform: none; padding: 6px; gap: 5px 8px }
+  #sql { height: 58px; font-size: 15px; padding: 5px 8px; resize: none } #runBtn { font-size: 15px; padding: 0 12px }
+  #result { max-height: 14vh; font-size: 12.5px }
+  #verdict, #cmd, #toast { left: 294px; right: 6px; width: auto; max-width: none; transform: none; bottom: 150px }
+  #verdict { max-height: 46vh; overflow-y: auto }
+  #cnt { top: 44px; right: 6px; font-size: 13px; padding: 4px 10px }
+  #modal { align-items: flex-start; overflow-y: auto; padding: 8px 0 }
+}

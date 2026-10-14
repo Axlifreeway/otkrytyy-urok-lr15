@@ -58,6 +58,14 @@
   .gcard { margin-bottom: 14px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
   tr.absent td { color: #9a9488; background: #f4f1ea }
   #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
+  /* телефон: шапка переносится, таблицы прокручиваются по горизонтали */
+  @media (max-width: 760px) {
+    header { flex-wrap: wrap; gap: 6px } header h1 { width: 100%; font-size: 20px } header select { font-size: 16px }
+    main { padding-left: 8px; padding-right: 8px } .top { grid-template-columns: 1fr } .kpi { flex-wrap: wrap } .kpi div { flex: 1 1 40% }
+    #tbl, #gCards table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch }
+    #groups { grid-template-columns: 1fr; padding: 0 8px 24px } .gcard { min-width: 0 } .gform input, .gform textarea { font-size: 16px }
+    #drawer { width: 100vw }
+  }
 </style>
 </head>
 <body>

@@ -194,3 +194,21 @@ body.big .console { font-size: 15px }
 }
 .choice:disabled { opacity: 1; cursor: default; color: var(--mute) }
 .choice.right, .choice.wrong, .choice.pick { color: var(--ink) }
+
+/* ── телефон: вкладки — одной прокручиваемой строкой, таблицы — с прокруткой ── */
+@media (max-width: 760px) {
+  .hdr-in { padding: 0 8px }
+  .hdr-no { font-size: 22px; min-width: 48px }
+  .hdr-tt { padding: 5px 10px; border-right: none; flex: 1; min-width: 0 } .hdr-ttl { font-size: 17px }
+  .tabs { order: 3; width: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none } .tabs::-webkit-scrollbar { display: none }
+  .tab { flex: none; font-size: 13px; padding: 0 10px; min-height: 40px }
+  .hdr-r { gap: 6px; padding: 4px 0 }
+  .wrap { padding: 8px 8px 32px }
+  textarea.sql { font-size: 16px }
+  .rt, .proto table { display: block; overflow-x: auto }
+  .legend { margin-left: 0 }
+  .grid { grid-template-columns: minmax(0, 1fr) } .grid > * { min-width: 0 }
+  .doc { overflow-x: auto }
+  .panel pre, .console pre, .sqlbox-hd { white-space: pre-wrap; overflow-wrap: anywhere }
+  .sqlbox-hd span:last-child { display: none }
+}

@@ -26,7 +26,21 @@ const isErr = j => /^ERROR|ошибка/.test(j.o);
    protoTitle, questions  протокол
    onRollback(prefill)    сброс своего состояния уровня после отката
    run, startLevel, pick  функции лабы                                                    */
-export function initShell(c) { cfg = c; W = c.world; }
+export function initShell(c) {
+  cfg = c; W = c.world;
+  // на телефоне новое задание показывается развёрнутым
+  const start = c.startLevel;
+  c.startLevel = async i => { $('side').classList.remove('min'); const r = await start(i); fitScene(); return r; };
+}
+// телефон: задание сворачивается до заголовка, чтобы было видно сцену
+const narrow = () => matchMedia('(max-width: 760px) and (orientation: portrait), (max-height: 520px) and (orientation: landscape)').matches;
+// свободная от панелей часть экрана — туда камера и ставит самолёт
+function fitScene() {
+  if (!narrow()) { W.setInsets(null); return; }
+  const side = $('side').getBoundingClientRect(), deck = $('deck').getBoundingClientRect(), wide = side.height > innerHeight * .6;
+  W.setInsets(wide ? {top: 0, bottom: innerHeight - deck.top, left: side.right, right: 0} : {top: side.bottom, bottom: innerHeight - deck.top, left: 0, right: 0});
+}
+const runFromUI = () => { if (narrow()) { $('side').classList.add('min'); fitScene(); } cfg.run(); };
 
 // ═══════════════════════════════════════════════════════════ база ══
 export const loadSql = sql => load(db, sql);
@@ -277,8 +291,10 @@ export async function boot() {
   await W.loadRobot();
   db = await openDb();
   $('loading').hidden = true;
-  $('runBtn').onclick = cfg.run;
-  $('sql').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); cfg.run(); } else histKey(e); });
+  $('runBtn').onclick = runFromUI;
+  $('mission').addEventListener('click', e => { if (narrow() && e.target.closest('h1')) { $('side').classList.toggle('min'); fitScene(); } });
+  addEventListener('resize', fitScene);
+  $('sql').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runFromUI(); } else histKey(e); });
   paste = guardPaste($('sql'), () => { if (G && G.demo) return; toast('Вставка из других мест отключена — наберите команду сами. Свои прошлые команды: Ctrl+↑'); if (G) { G.P.pastes = (G.P.pastes || 0) + 1; save(); } });
   watchAway(ms => { if (G && !G.demo) { G.P.away = (G.P.away || 0) + 1; G.P.awayMs = (G.P.awayMs || 0) + ms; save(); } },
     () => G ? {lv: G.lv + 1, key: L[G.lv] && L[G.lv].key, done: doneN(), pts: score().sum, fails: (G.P.lv[(L[G.lv] || {}).key] || {}).fails || 0} : {});
