@@ -19,6 +19,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const KEY = 'e2e-key';
 const SEED = +(process.env.SEED || 7);
 const only = process.argv.slice(2);
+const SHOTS = process.env.SHOTS || '';           // папка для снимков сцены (необязательно)
+if (SHOTS) mkdirSync(SHOTS, {recursive: true});
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const srv = spawn('python3', [join(ROOT, 'server/labsrv.py')], {
@@ -72,6 +74,13 @@ async function lab3d(lab, dir) {
     const lv = await page.evaluate(i => { const l = window.LAB.L[i]; return {key: l.key, ref: l.ref, prefill: l.prefill, needCount: l.needCount, check: l.check}; }, i);
     await page.evaluate(i => window.LAB.startLevel(i), i);
     await page.waitForFunction(() => !window.LAB.running);
+    if (SHOTS) {                                   // снимок сцены в начале уровня — для сравнения до/после правок
+      await page.evaluate(() => { document.getElementById('sql').blur(); const W = window.LAB.W; W.setQuality('low'); W.home(); });
+      await sleep(400);
+      await page.evaluate(() => { const c = window.LAB.W.camS; Object.assign(c, {cx: c.tx, cz: c.tz, cy: 0, cur: c.zoom}); });
+      await sleep(600);
+      await page.locator('#stage').screenshot({path: join(SHOTS, `${lab}-${String(i + 1).padStart(2, '0')}.png`)});
+    }
     const D = await page.evaluate(async lab => {
       const db = await window.__pg, q = async s => (await db.query(s)).rows;
       if (lab === 'lr14') return {FLIGHT: (await q('SELECT flight_no FROM passenger LIMIT 1'))[0].flight_no,
