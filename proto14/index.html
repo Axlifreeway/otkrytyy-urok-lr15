@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ЛР-14 · Бортпитание</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #22252b; --sun: #ffc21a; --sun2: #f0a800; --teal: #2f6f73; --red: #d2483c; --green: #3f9a5a; --paper: #fffaf0;
+    --font: 'Rubik', 'Segoe UI', Arial, sans-serif; --mono: 'JetBrains Mono', Consolas, monospace; }
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+  html, body { height: 100%; overflow: hidden; font-family: var(--font); color: var(--ink);
+    background: radial-gradient(ellipse at 30% 10%, #fdf3df 0%, #e6e2d6 45%, #c9d3d8 100%) }
+  [hidden] { display: none !important }
+  button { font-family: var(--font); cursor: pointer }
+  #stage { position: fixed; inset: 0 }
+  #stage canvas { display: block }
+  .labels { position: absolute; inset: 0; pointer-events: none }
+
+  /* панели: плотная обводка и сдвинутая тень — как в казуальных играх */
+  .panel { background: var(--paper); border: 3px solid var(--ink); box-shadow: 5px 5px 0 var(--ink); border-radius: 6px }
+
+  #mission { position: fixed; left: 18px; top: 18px; width: 340px; padding: 14px 16px 14px; z-index: 3 }
+  #mission .tag { display: inline-block; background: var(--ink); color: var(--sun); font-weight: 700; font-size: 12px; letter-spacing: .12em; padding: 3px 8px; border-radius: 3px }
+  #mission h1 { font-size: 26px; font-weight: 800; margin: 6px 0 4px; line-height: 1.05 }
+  #mission p { font-size: 15px; line-height: 1.4 }
+  #mission ul { list-style: none; margin-top: 8px; font-size: 14px }
+  #mission li { padding: 3px 0 3px 26px; position: relative }
+  #mission li::before { content: ''; position: absolute; left: 0; top: 5px; width: 16px; height: 16px; border: 2.5px solid var(--ink); border-radius: 4px; background: #fff }
+  #mission li.done::before { background: var(--green); box-shadow: inset 0 0 0 3px #fff }
+  #mission .hint { margin-top: 10px; font-size: 12.5px; color: #5c5f66; border-top: 2px dashed #d8d0bd; padding-top: 8px }
+  #mission code { font-family: var(--mono); font-size: 12px; background: #f1e8d2; padding: 0 4px; border-radius: 3px }
+
+  #topR { position: fixed; right: 18px; top: 18px; display: flex; gap: 8px; z-index: 3 }
+  .btn { background: #fff; border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); border-radius: 6px; font-weight: 700; font-size: 14px; padding: 7px 12px; color: var(--ink) }
+  .btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink) }
+  .btn.off { text-decoration: line-through; opacity: .6 }
+  #cnt { position: fixed; right: 18px; top: 74px; z-index: 3; padding: 8px 14px; font-size: 15px }
+  #cnt b { font-size: 20px; font-weight: 800 }
+
+  /* пульт */
+  #deck { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(980px, calc(100vw - 36px)); z-index: 4; padding: 10px; display: grid; grid-template-columns: 1fr auto; gap: 10px }
+  #sql { grid-row: span 2; width: 100%; height: 86px; resize: none; border: 3px solid var(--ink); border-radius: 5px; background: #23262c; color: #f6f1e3; font: 500 17px/1.45 var(--mono); padding: 8px 12px; outline: none; caret-color: var(--sun) }
+  #runBtn { background: var(--sun); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); border-radius: 6px; font-weight: 800; font-size: 19px; padding: 0 22px; letter-spacing: .04em }
+  #runBtn:hover { background: var(--sun2) }
+  #runBtn:disabled { opacity: .5 }
+  .spd { display: flex; gap: 4px; align-items: center; font-size: 12px; font-weight: 600 }
+  .spd button { border: 2.5px solid var(--ink); background: #fff; border-radius: 5px; font-weight: 700; font-size: 13px; padding: 3px 8px }
+  .spd button.on { background: var(--ink); color: var(--sun) }
+  #result { grid-column: span 2; font: 600 14px var(--mono); min-height: 18px }
+  #result .ok { color: var(--green) } #result .bad { color: var(--red) }
+  #result .ru { font: 500 13.5px var(--font); color: #4a4d55; margin-top: 2px }
+  #cmd { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 3; padding: 8px 16px; background: var(--ink); color: #fff; display: flex; flex-direction: column; align-items: center; max-width: 560px; text-align: center }
+  #cmd .k { font: 700 15px var(--mono); color: var(--sun) } #cmd .w { font: 600 17px var(--mono) }
+  #verdict { position: fixed; left: 50%; transform: translateX(-50%); bottom: 168px; z-index: 4; width: min(640px, calc(100vw - 36px)) }
+  .v-ok, .v-bad { border: 3px solid var(--ink); box-shadow: 5px 5px 0 var(--ink); border-radius: 6px; padding: 10px 14px; font-size: 15px; background: #e9f6ec; animation: pop .35s cubic-bezier(.3,1.6,.6,1) }
+  .v-bad { background: #fbe5e2 }
+  .v-ok b, .v-bad b { display: block; font-size: 22px; font-weight: 800 }
+  @keyframes pop { from { transform: scale(.7) } }
+
+  /* подписи в сцене */
+  .rscreen { background: var(--ink); color: #fff; border-radius: 6px; padding: 5px 10px; text-align: center; transform: translateY(-6px); white-space: nowrap; box-shadow: 0 3px 0 rgba(0,0,0,.25) }
+  .rscreen b { display: block; color: var(--sun); font: 700 13px var(--mono) }
+  .rscreen span { font: 500 12px var(--mono) }
+  .rscreen::after { content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -7px; border: 7px solid transparent; border-top-color: var(--ink); border-bottom: 0 }
+  .chip { font: 800 15px var(--font); min-width: 28px; height: 28px; padding: 0 7px; border-radius: 14px; border: 2.5px solid var(--ink); display: flex; align-items: center; justify-content: center; box-shadow: 2px 2px 0 var(--ink) }
+  .chip.yes { background: var(--green); color: #fff } .chip.no { background: var(--red); min-width: 12px; width: 12px; height: 12px; padding: 0; border-width: 2px; box-shadow: none } .chip.unk { background: #c9c3b3; color: var(--ink) }
+  .chip.miss { background: #2d6fb5; color: #fff; font-size: 13px; border-radius: 6px } .chip.extra { background: var(--red); color: #fff; font-size: 13px; border-radius: 6px }
+  .rcard { background: #fff; border: 3px solid var(--ink); border-radius: 6px; box-shadow: 4px 4px 0 var(--ink); padding: 7px 12px; font-size: 15px; min-width: 200px; animation: pop .25s cubic-bezier(.3,1.6,.6,1) }
+  .rcard .rc-h { font: 700 11px var(--mono); color: #6b6e75; letter-spacing: .04em; margin-bottom: 3px }
+  .rcard div > span { color: #6b6e75; font-family: var(--mono); font-size: 13px; margin-right: 8px }
+  .rcard div > b { font-family: var(--mono); font-size: 15px }
+  .rc-x { font: 700 17px var(--mono); margin-top: 4px; white-space: nowrap }
+  .rc-v { margin-top: 5px; text-align: center; font: 800 19px var(--font); border-radius: 4px; padding: 2px 6px; color: #fff }
+  .rc-v.yes { background: var(--green) } .rc-v.no { background: var(--red) } .rc-v.unk { background: #8e887a } .rc-v.err { background: var(--red) }
+  .rc-t { font-size: 12px; margin-top: 4px; max-width: 220px; white-space: normal }
+  .rcard.info { min-width: 220px }
+
+  #rewind { position: fixed; inset: 0; z-index: 5; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(34,37,43,.08) 0 3px, transparent 3px 7px) }
+  #rewind::after { content: '◀◀ ROLLBACK'; position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font: 800 44px var(--font); color: #fff; background: var(--red); border: 4px solid var(--ink); padding: 4px 22px; border-radius: 8px; box-shadow: 6px 6px 0 var(--ink) }
+  #loading { position: fixed; inset: 0; z-index: 9; display: flex; align-items: center; justify-content: center; font: 700 22px var(--font); background: rgba(255,250,240,.85) }
+  @media (max-width: 1100px) { #mission { width: 290px } #mission h1 { font-size: 22px } }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="mission" class="panel">
+  <span class="tag">ЛР-14 · UPDATE</span>
+  <h1>Бортпитание</h1>
+  <p>Кейтеринг привёз детские подносы. Назначьте их одной командой.</p>
+  <ul><li>Всем, кто родился в <b>2012 году и позже</b>, — <code>meal = 'детское'</code></li><li>Взрослых не трогать</li></ul>
+  <div class="hint">Таблица <code>passenger</code>: id, seat, full_name, birth_year, fare_class, meal.<br>
+    Щёлкните пассажира — увидите его строку. Сначала можно прицелиться: <code>SELECT … WHERE …</code></div>
+</div>
+<div id="topR"><button class="btn" id="homeBtn">Обзор</button><button class="btn" id="sndBtn">Звук</button><button class="btn" id="resetBtn">Сброс</button></div>
+<div id="cnt" class="panel"></div>
+<div id="verdict"></div>
+<div id="cmd" class="panel" hidden></div>
+<div id="deck" class="panel">
+  <textarea id="sql" spellcheck="false" placeholder="UPDATE passenger SET meal = '…' WHERE …;"></textarea>
+  <button id="runBtn">▶ ПУСК</button>
+  <div class="spd">скорость <button data-spd="1" class="on">×1</button><button data-spd="3">×3</button><button data-spd="99">⏭</button></div>
+  <div id="result"></div>
+</div>
+<div id="rewind" hidden></div>
+<div id="loading">Готовлю самолёт…</div>
+<script type="module">
+// PostgreSQL в браузере: сначала локальная копия, иначе CDN
+window.__pg = (async () => {
+  let PGlite;
+  try { ({PGlite} = await import('../mvp/vendor/pglite/index.js')); }
+  catch (e) { ({PGlite} = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.8/dist/index.js')); }
+  const db = new PGlite(); await db.query('select 1'); return db;
+})();
+</script>
+<script src="game.js"></script>
+</body>
+</html>

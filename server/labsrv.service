@@ -1,0 +1,13 @@
+[Unit]
+Description=Сервер событий лабораторных (панель преподавателя)
+After=network.target
+
+[Service]
+Environment=LABS_KEY=ЗАМЕНИТЕ-НА-СВОЙ-КЛЮЧ
+Environment=LABS_DB=/opt/labsrv/labs.db
+ExecStart=/usr/bin/python3 /opt/labsrv/labsrv.py
+User=www-data
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

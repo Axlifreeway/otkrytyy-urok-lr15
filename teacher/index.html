@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Пульт преподавателя</title>
+<link rel="icon" href="data:,">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #22252b; --sun: #ffc21a; --teal: #2f6f73; --red: #d2483c; --green: #3f9a5a; --paper: #fffaf0; --mute: #6b6e75;
+    --font: 'Rubik', 'Segoe UI', Arial, sans-serif; --mono: 'JetBrains Mono', Consolas, monospace; }
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+  body { font-family: var(--font); color: var(--ink); background: #e6e1d5; min-height: 100vh; font-size: 14px }
+  [hidden] { display: none !important }
+  button, select, input { font-family: var(--font) }
+  .panel { background: var(--paper); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); border-radius: 6px }
+  .btn { background: #fff; border: 2.5px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); border-radius: 6px; font-weight: 700; font-size: 13px; padding: 5px 11px; cursor: pointer }
+  .btn.on { background: var(--ink); color: var(--sun) }
+  header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px }
+  header h1 { font-size: 20px; font-weight: 800; margin-right: 8px }
+  header select { font-size: 14px; padding: 4px 8px; border: 2.5px solid var(--ink); border-radius: 6px; background: #fff }
+  #since { color: var(--mute); font-size: 12.5px }
+  main { padding: 0 16px 24px }
+  .top { display: grid; grid-template-columns: auto 1fr; gap: 12px; margin-bottom: 12px }
+  .kpi { display: flex; gap: 0 } .kpi div { padding: 8px 14px; border-right: 2px solid var(--ink) } .kpi div:last-child { border: 0 }
+  .kpi b { display: block; font-size: 26px; font-weight: 800 } .kpi span { font-size: 12px; color: var(--mute) }
+  .hist { padding: 8px 12px; display: flex; gap: 4px; align-items: flex-end; min-height: 74px; overflow-x: auto }
+  .hist .c { flex: 1; min-width: 34px; text-align: center; font-size: 12px }
+  .hist .bar { background: var(--teal); border: 2px solid var(--ink); border-radius: 3px 3px 0 0; margin: 0 auto; width: 70%; min-height: 3px }
+  .hist .bar.err { background: var(--red) } .hist small { color: var(--mute) }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 3px solid var(--ink) }
+  th { background: var(--ink); color: var(--sun); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; text-align: left; padding: 6px 8px; position: sticky; top: 0; cursor: pointer; white-space: nowrap }
+  td { padding: 6px 8px; border-top: 1px solid #e3dccb; vertical-align: top }
+  tr.row { cursor: pointer } tr.row:hover td { background: #fff8e0 }
+  tr.stuck td { background: #fde8e4 } tr.stuck td:first-child { box-shadow: inset 5px 0 0 var(--red) }
+  tr.idle td { color: #9a9488 }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink); margin-right: 6px; vertical-align: -1px }
+  .dot.on { background: var(--green) } .dot.off { background: #c9c3b3 } .dot.hid { background: var(--sun) }
+  .lvl { display: flex; gap: 2px } .lvl i { width: 13px; height: 16px; border: 1.5px solid var(--ink); border-radius: 2px; background: #fff }
+  .lvl i.d { background: var(--green) } .lvl i.c { background: var(--sun) }
+  .err { font: 500 12px var(--mono); color: var(--red); max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .why { font-size: 12px; color: var(--red); font-weight: 600 }
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--ink); color: var(--sun) }
+  .tag.ok { background: var(--green); color: #fff } .tag.warn { background: var(--red); color: #fff }
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 96vw); background: var(--paper); border-left: 3px solid var(--ink); box-shadow: -6px 0 0 rgba(0,0,0,.12); z-index: 5; overflow: auto; padding: 16px }
+  #drawer h2 { font-size: 20px } #drawer .ev { border-top: 1px solid #e3dccb; padding: 6px 0; font-size: 13px }
+  #drawer pre { font: 500 12.5px var(--mono); white-space: pre-wrap; background: #23262c; color: #f6f1e3; padding: 6px 8px; border-radius: 4px; margin-top: 3px }
+  #drawer .bad { color: var(--red) } #drawer .ok { color: var(--green) } #drawer .t { color: var(--mute); font: 500 12px var(--mono); margin-right: 6px }
+  #login { max-width: 420px; margin: 80px auto; padding: 20px } #login input { width: 100%; font: 600 18px var(--mono); padding: 8px; border: 3px solid var(--ink); border-radius: 6px; margin: 10px 0 }
+  /* проектор: только прогресс, без ошибок */
+  body.proj { background: #22252b } body.proj header, body.proj .top, body.proj #tbl { display: none }
+  #proj { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; padding: 18px }
+  #proj .card { background: var(--paper); border: 3px solid var(--ink); border-radius: 8px; padding: 10px 14px; box-shadow: 4px 4px 0 #000 }
+  #proj .card b { font-size: 22px } #proj .card .lvl i { width: 22px; height: 26px } #proj .card .s { color: #c99700; font-size: 18px; margin-top: 4px }
+  #groups { padding: 0 16px 24px; display: grid; grid-template-columns: 380px 1fr; gap: 14px; align-items: start }
+  .gform { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px } .gform h2 { font-size: 18px } .mu { color: var(--mute); font-size: 12.5px }
+  .gform input, .gform textarea { width: 100%; font: 500 14px var(--font); padding: 6px 8px; border: 2.5px solid var(--ink); border-radius: 5px }
+  .gcard { margin-bottom: 14px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
+  tr.absent td { color: #9a9488; background: #f4f1ea }
+  #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
+</style>
+</head>
+<body>
+<div id="login" class="panel" hidden><h2>Пульт преподавателя</h2><p>Ключ доступа (LABS_KEY с сервера):</p><input id="keyIn" type="password"><button class="btn" id="keyGo">Войти</button><p id="keyErr" style="color:var(--red);margin-top:8px"></p></div>
+<div id="app" hidden>
+<header>
+  <h1>Пульт преподавателя</h1>
+  <select id="labSel"><option value="">все ЛР</option><option value="lr13">ЛР-13 INSERT</option><option value="lr14">ЛР-14 UPDATE/DELETE</option></select>
+  <select id="grpSel"><option value="">все группы</option></select>
+  <button class="btn" id="newPair" title="Показывать только события с этого момента">Новая пара</button>
+  <button class="btn" id="today">За сегодня</button>
+  <span id="since"></span>
+  <span style="flex:1"></span>
+  <button class="btn" id="grpBtn">Группы и списки</button>
+  <button class="btn" id="projBtn">Проектор</button>
+</header>
+<main>
+  <div class="top"><div class="panel kpi" id="kpi"></div><div class="panel hist" id="hist"></div></div>
+  <table id="tbl"><thead><tr>
+    <th data-s="name">Студент</th><th data-s="grp">Гр.</th><th>№</th><th data-s="lv">Уровень</th><th data-s="pts">Баллы</th>
+    <th data-s="errs">Ошибок на ур.</th><th>Последняя ошибка</th><th data-s="time">На уровне</th><th>Уходы / вставки</th><th>Сдал</th></tr></thead><tbody id="rows"></tbody></table>
+</main>
+<div id="groups" hidden>
+  <div class="panel gform"><h2>Список группы</h2>
+    <p class="mu">Одна строка — один студент: «Фамилия Имя». Порядок строк задаёт варианты. Если группа уже есть, список обновится: PIN и прогресс тех, кто остался в списке, сохранятся.</p>
+    <label>Группа <input id="gName" placeholder="например 2.1"></label>
+    <textarea id="gList" rows="10" placeholder="Иванов Иван&#10;Петрова Анна&#10;…"></textarea>
+    <div><button class="btn on" id="gSave">Сохранить список</button> <span id="gMsg" class="mu"></span></div></div>
+  <div id="gCards"></div>
+</div>
+<div id="proj" hidden></div>
+<button class="btn" id="projX" hidden>✕ Закрыть проектор</button>
+</div>
+<div id="drawer" hidden></div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const NAMES = {
+  lr13: ['Рейс на табло', 'Ещё два рейса', 'Бизнес-класс', 'Эконом по умолчанию', 'Первый пассажир', 'Семья', 'Багаж', 'Сначала кресло', 'Ошибка в списке', 'Охота на ограничения', 'Багаж по фамилиям', 'Последние на борт'],
+  lr14: ['Детское питание', 'Остальным — стандарт', 'К окну', 'Весы врали', 'Не пролезло', 'Неявка', 'Снят с рейса', 'Программа закрыта', 'Неудаляемый рейс', 'Возврат билетов', 'Охота на ограничения', 'Последний рейс'],
+};
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+let KEY = new URLSearchParams(location.search).get('key') || store('labs-key') || '';
+let since = +store('labs-since') || 0, sortBy = 'problems', data = null, open = null, groupsData = [];
+const mins = ms => ms < 60000 ? Math.round(ms / 1000) + ' с' : Math.floor(ms / 60000) + ' мин';
+const ruErr = t => { const ls = String(t).split('\n').map(x => x.trim()).filter(Boolean); const code = (/constraint "([^"]+)"/.exec(t) || [])[1]; const ru = ls.find(l => !/^ERROR/.test(l)) || ls[0] || ''; return (code ? code + ': ' : '') + ru; };
+const short = f => { const w = String(f || '').split(/\s+/); return w[0] + (w[1] ? ' ' + w[1][0] + '.' : ''); };
+
+async function api(path) {
+  const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY));
+  if (r.status === 403) throw new Error('key');
+  return r.json();
+}
+async function post(path, body) {
+  const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, key: KEY})});
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.err || r.status); return j;
+}
+async function loadGroups() { try { groupsData = (await api('/api/admin/groups')).groups || []; } catch (e) { groupsData = []; } renderGroups(); }
+function renderGroups() {
+  $('gCards').innerHTML = groupsData.map(g => `<div class="panel gcard" style="padding:10px 12px"><h3>${esc(g.name)} <span class="mu">${g.students.filter(s => s.idx).length} студ.</span>
+      <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
+    <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th></tr>
+    ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
+      <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}</td>
+      <td>${s.labs.lr13 != null ? s.labs.lr13 + '/12' : '—'}</td><td>${s.labs.lr14 != null ? s.labs.lr14 + '/12' : '—'}</td></tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
+  $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const g = groupsData.find(x => x.name === b.dataset.edit); $('gName').value = g.name; $('gList').value = g.students.filter(s => s.idx).map(s => s.name).join('\n'); });
+  $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
+  $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { await post('/api/admin/resetpin', {id: +b.dataset.pin}); loadGroups(); });
+}
+async function tick() {
+  try {
+    const q = new URLSearchParams({lab: $('labSel').value}); if (since) q.set('since', since); else q.set('since', new Date().setHours(0, 0, 0, 0));
+    data = await api('/api/state?' + q);
+    render();
+    if (open) showLog(open, true);
+  } catch (e) { if (e.message === 'key') { $('app').hidden = true; $('login').hidden = false; $('keyErr').textContent = 'Ключ не подошёл'; } }
+}
+function render() {
+  const now = data.now, g = $('grpSel').value;
+  const groups = [...new Set(data.people.map(p => p.grp).filter(Boolean).concat(groupsData.map(x => x.name)))].sort();
+  const cur = $('grpSel').value;
+  $('grpSel').innerHTML = '<option value="">все группы</option>' + groups.map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
+  let ps = data.people.filter(p => !g || p.grp === g);
+  $('since').textContent = 'с ' + new Date(data.since).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}) + (since ? ' (новая пара)' : ' (сегодня)');
+  const online = ps.filter(p => p.idle < 60000).length, stuck = ps.filter(p => p.stuck.length).length, sub = ps.filter(p => p.submit).length;
+  $('kpi').innerHTML = `<div><b>${ps.length}</b><span>студентов</span></div><div><b>${online}</b><span>активны сейчас</span></div><div><b style="color:var(--red)">${stuck}</b><span>застряли</span></div><div><b>${sub}</b><span>сдали</span></div>`;
+  // где сейчас группа и сколько ошибок на каждом уровне
+  const lab = $('labSel').value || (ps[0] && ps[0].lab) || 'lr13', N = (NAMES[lab] || []).length || 12;
+  const at = Array(N).fill(0), errs = Array(N).fill(0);
+  ps.filter(p => !lab || p.lab === lab).forEach(p => { if (p.lv >= 1 && p.lv <= N) { at[p.lv - 1]++; errs[p.lv - 1] += p.lvErrors; } });
+  const mx = Math.max(1, ...at);
+  $('hist').innerHTML = at.map((n, i) => `<div class="c" title="${esc((NAMES[lab] || [])[i] || '')}"><small>${n || ''}</small><div class="bar ${errs[i] >= 6 ? 'err' : ''}" style="height:${4 + n / mx * 46}px"></div>${i + 1}</div>`).join('');
+  // сортировка
+  const key = {name: p => p.fio, grp: p => p.grp + p.fio, lv: p => -(p.doneN * 100 + p.lv), pts: p => -p.pts, errs: p => -p.lvErrors, time: p => -p.onLevel,
+    problems: p => (p.stuck.length ? 0 : 1) + ':' + String(1e9 - p.onLevel).padStart(10, '0')}[sortBy];
+  ps.sort((a, b) => { const x = key(a), y = key(b); return x < y ? -1 : x > y ? 1 : 0; });
+  $('rows').innerHTML = ps.map(p => {
+    const N2 = p.total || 12;
+    const names = NAMES[p.lab] || [];
+    const cells = Array.from({length: N2}, (_, i) => `<i class="${i + 1 === p.lv && !p.submit ? 'c' : i < p.doneN ? 'd' : ''}" title="${i + 1}. ${esc(names[i] || '')}"></i>`).join('');
+    const st = p.idle > 180000 ? 'off' : p.hidden ? 'hid' : 'on';
+    return `<tr class="row ${p.stuck.length ? 'stuck' : ''} ${p.idle > 600000 ? 'idle' : ''}" data-c="${esc(p.client)}">
+      <td><span class="dot ${st}" title="${st === 'hid' ? 'вкладка не активна' : st === 'off' ? 'нет действий ' + mins(p.idle) : 'активен'}"></span><b>${esc(p.fio || '—')}</b>${p.stuck.length ? `<div class="why">${esc(p.stuck.join(' · '))}</div>` : ''}</td>
+      <td>${esc(p.grp)}</td><td>${p.seed ?? ''}</td>
+      <td><div class="lvl">${cells}</div><div style="font-size:12px;margin-top:2px">${p.lv}. ${esc(names[p.lv - 1] || '')} <span style="color:var(--mute)">${esc((p.lab || '').toUpperCase())}</span></div></td>
+      <td><b>${String(p.pts).replace('.', ',')}</b>/9</td>
+      <td>${p.lvErrors ? `<span class="tag ${p.lvErrors >= 3 ? 'warn' : ''}">${p.lvErrors}</span>` : '0'} <span style="color:var(--mute);font-size:12px">всего ${p.errors + p.lints}</span></td>
+      <td><div class="err" title="${esc(p.lastErr)}">${p.lastErr ? esc(ruErr(p.lastErr)) : ''}</div>${p.lastErrTs ? `<div style="font-size:11.5px;color:var(--mute)">${mins(now - p.lastErrTs)} назад</div>` : ''}</td>
+      <td>${mins(p.onLevel)}</td>
+      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''}</td>
+      <td>${p.submit ? `<span class="tag ok">${String(p.submit.pts).replace('.', ',')} б. · ${p.submit.done} ур.</span>` : ''}</td></tr>`;
+  }).join('') || '<tr><td colspan="10" style="padding:20px;color:var(--mute)">Пока никого. Студенты появятся, как только откроют лабу и введут фамилию.</td></tr>';
+  if (g) {
+    const gr = groupsData.find(x => x.name === g);
+    const seen = new Set(ps.map(p => p.client));
+    const miss = gr ? gr.students.filter(s => s.idx && !seen.has('s' + s.id)) : [];
+    $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span>${esc(s.name)}</td><td>${esc(g)}</td><td>${s.seed}</td><td colspan="7">не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/12').join(', ') : ''}</td></tr>`).join(''));
+  }
+  $('rows').querySelectorAll('tr.row').forEach(tr => tr.onclick = () => showLog(tr.dataset.c));
+  if (document.body.classList.contains('proj')) renderProj(ps);
+}
+function renderProj(ps) {
+  const list = ps.slice().sort((a, b) => b.doneN - a.doneN || b.pts - a.pts || a.onLevel - b.onLevel);
+  $('proj').innerHTML = list.map((p, i) => {
+    const names = NAMES[p.lab] || [], N2 = p.total || 12;
+    const stars = Object.values(p.stars || {}).reduce((s, x) => s + (x || 0), 0);
+    return `<div class="card ${i === 0 && p.doneN ? 'top1' : ''}"><b>${esc(short(p.fio))}</b> <span style="color:var(--mute)">${esc(p.grp)}</span>
+      <div class="lvl" style="margin-top:6px">${Array.from({length: N2}, (_, k) => `<i class="${k < p.doneN ? 'd' : p.lv === k + 1 ? 'c' : ''}"></i>`).join('')}</div>
+      <div class="s">★ ${stars} <span style="color:var(--ink);font-size:14px">${p.doneN}/${N2} · ${esc(names[p.lv - 1] || '')}</span></div></div>`;
+  }).join('');
+}
+async function showLog(client, quiet) {
+  open = client;
+  const p = data.people.find(x => x.client === client); if (!p) return;
+  const q = new URLSearchParams({client}); q.set('since', since || new Date().setHours(0, 0, 0, 0));
+  const r = await api('/api/log?' + q);
+  const names = NAMES[p.lab] || [];
+  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', done: 'уровень пройден', paste: 'вставка заблокирована', away: 'ушёл со вкладки', submit: 'сдал'};
+  const keep = $('drawer').scrollTop;
+  $('drawer').hidden = false;
+  $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button><h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · № ${p.seed ?? ''} · ${esc((p.lab || '').toUpperCase())}</span></h2>
+    <p style="margin:6px 0 10px">Сейчас: уровень ${p.lv} «${esc(names[p.lv - 1] || '')}», ${mins(p.onLevel)}; пройдено ${p.doneN}, баллов ${String(p.pts).replace('.', ',')}</p>
+    ${r.events.slice().reverse().map(e => {
+      const d = e.data || {}, t = new Date(e.ts).toLocaleTimeString('ru-RU');
+      if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${esc(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
+      if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">${esc(d.msg)}</b><pre>${esc(d.sql)}</pre></div>`;
+      if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">вставка заблокирована</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
+      if (e.type === 'away') return `<div class="ev"><span class="t">${t}</span>ушёл со вкладки на ${mins(d.ms)}</div>`;
+      return `<div class="ev"><span class="t">${t}</span>${T[e.type] || e.type}${d.lv ? ' ' + d.lv + (names[d.lv - 1] ? ' «' + esc(names[d.lv - 1]) + '»' : '') : ''}${d.reset ? ' (сброс)' : ''}${e.type === 'done' ? ' · ' + '★'.repeat(d.stars || 0) : ''}${e.type === 'submit' ? ` · ${d.pts} б., ${d.done} ур.` : ''}</div>`;
+    }).join('')}`;
+  if (quiet) $('drawer').scrollTop = keep;
+  $('dx').onclick = () => { open = null; $('drawer').hidden = true; };
+}
+function start() {
+  $('login').hidden = true; $('app').hidden = false;
+  tick(); setInterval(tick, 3000); loadGroups(); setInterval(loadGroups, 20000);
+}
+$('grpBtn').onclick = () => { const on = $('groups').hidden; $('groups').hidden = !on; document.querySelector('main').hidden = on; $('grpBtn').classList.toggle('on', on); if (on) loadGroups(); };
+$('gSave').onclick = async () => {
+  const name = $('gName').value.trim(), names = $('gList').value.split('\n').map(x => x.trim()).filter(Boolean);
+  if (!name || !names.length) { $('gMsg').textContent = 'Нужны название группы и хотя бы одна фамилия'; return; }
+  try { await post('/api/admin/group', {name, names}); $('gMsg').textContent = 'Сохранено'; loadGroups(); } catch (e) { $('gMsg').textContent = 'Ошибка: ' + e.message; }
+};
+$('keyGo').onclick = () => { KEY = $('keyIn').value.trim(); store('labs-key', KEY); $('keyErr').textContent = ''; start(); };
+$('keyIn').onkeydown = e => { if (e.key === 'Enter') $('keyGo').click(); };
+$('labSel').onchange = tick; $('grpSel').onchange = render;
+$('newPair').onclick = () => { since = Date.now(); store('labs-since', since); tick(); };
+$('today').onclick = () => { since = 0; store('labs-since', 0); tick(); };
+document.querySelectorAll('th[data-s]').forEach(th => th.onclick = () => { sortBy = sortBy === th.dataset.s ? 'problems' : th.dataset.s; render(); });
+$('projBtn').onclick = () => { document.body.classList.add('proj'); $('proj').hidden = false; $('projX').hidden = false; render(); };
+$('projX').onclick = () => { document.body.classList.remove('proj'); $('proj').hidden = true; $('projX').hidden = true; };
+if (KEY) start(); else $('login').hidden = false;
+</script>
+</body>
+</html>

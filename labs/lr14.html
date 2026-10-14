@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ЛР-14 · Диспетчер на перроне</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="core.css">
+<style id="scss"></style>
+</head>
+<body>
+<script src="world.js"></script>
+<script src="core.js"></script>
+<script>
+'use strict';
+document.getElementById('scss').textContent = WORLD.SVGCSS + `
+  .ly-gold { fill: #d9a514 } .ly-silver { fill: #b9c0c8 } .ly-base { fill: #7c9a82 }
+  .meal { font-family: var(--cond); font-size: 10px; font-weight: 700; fill: var(--sign); pointer-events: none }
+  .bagm { fill: #a07a4c; stroke: var(--white); stroke-width: .6; pointer-events: none }
+  .bagm.hit { fill: var(--sign); stroke: var(--ink) } .bagm.wrong { fill: #e0561b }
+  .seat.aim { fill: var(--sign); stroke: var(--ink); stroke-width: 2 }
+  .seat.mark-wrong { stroke: #e0561b; stroke-width: 3.5 } .seat.mark-extra { fill: var(--bad); stroke: var(--bad) }
+  .seat.tseat { fill: none; stroke: var(--blue); stroke-width: 2; stroke-dasharray: 3 2 }
+  .gcard { fill: var(--white); stroke: var(--rule2) }
+  .gcard.main { stroke: var(--ink); stroke-width: 1.5 }
+  .gh { font-family: var(--mono); font-size: 11.5px; fill: var(--ink) } .gh b { font-weight: 600 }
+  .gs { font-family: var(--mono); font-size: 10px; fill: var(--mute) }
+  .mini { fill: var(--ink2) } .mini.inactive { fill: none; stroke: var(--ink2); stroke-dasharray: 2 1 }
+  .mini.aim { fill: var(--sign); stroke: var(--ink) } .mini.mark-wrong { fill: #e0561b } .mini.mark-extra { fill: var(--bad) }
+  .lytile { fill: var(--white); stroke: var(--ink) } .lyt { font-family: var(--cond); font-size: 12px; font-weight: 600; fill: var(--ink) }
+  .lytile.mark-extra { fill: var(--badl); stroke: var(--bad); stroke-width: 2 }
+  .exit { fill: #2b6a3c } .exit-t { font-family: var(--cond); font-size: 11px; font-weight: 700; fill: #fff; letter-spacing: .08em }
+  .floatl { font-family: var(--mono); font-size: 10.5px; fill: var(--ink); paint-order: stroke; stroke: var(--sign); stroke-width: 3px; pointer-events: none }
+  .over { font-family: var(--mono); font-size: 10.5px; fill: var(--bad) }`;
+
+// ════════════════════════════════════════════════════════════ данные ══
+const ROWS = 24, BIZ = 4;
+const SEATS = WORLD.seatsOf(ROWS, BIZ);
+const ECON = SEATS.filter(s => parseInt(s, 10) > BIZ);
+const TIERS = [['золото', 15], ['серебро', 10], ['базовая', 5]];
+const t2 = (h, m) => String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+
+function data(seed) {
+  const r = W.rng(seed * 7919 + 1402);
+  const al = r.take(WORLD.AIRLINES, 4);
+  const dests = r.take(WORLD.DESTS, 4);
+  const hours = r.take([6, 8, 9, 10, 11, 13, 14, 15, 17, 18, 19, 20, 21], 4).sort((a, b) => a - b);
+  const gates = r.take(WORLD.GATES, 4);
+  const nos = new Set();
+  const mkNo = c => { let n; do n = c + '-' + r.int(101, 899); while (nos.has(n)); nos.add(n); return n; };
+  const air = [al[0], al[1], al[1], al[2]];
+  const F = [0, 1, 2, 3].map(i => ({flight_no: mkNo(air[i][0]), airline_code: air[i][0], dest: dests[i],
+    dep_time: t2(hours[i], r.pick([0, 10, 20, 30, 40, 50])), gate: gates[i]}));
+  const P = [];
+  let id = 1;
+  const add = (fn, seat) => {
+    const row = parseInt(seat, 10);
+    const old = r() < .12;
+    P.push({id: id++, flight_no: fn, seat, full_name: W.person(r), birth_year: old ? r.int(1940, 1959) : r.int(1962, 2016),
+      city: r.pick(W.CITIES.concat(['Ишим', 'Тобольск', 'Ялуторовск'])), fare_class: row <= BIZ ? 'бизнес' : 'эконом',
+      loyalty_tier: r.pick(['золото', 'серебро', 'серебро', 'базовая', 'базовая', 'базовая', null, null, null]), meal: null, active: true});
+  };
+  SEATS.forEach(s => { if (r() < .7) add(F[0].flight_no, s); });
+  const s1 = r.take(ECON, 14);
+  s1.forEach(s => add(F[1].flight_no, s));
+  r.take(ECON.filter(s => !s1.includes(s)), 8).forEach(s => add(F[2].flight_no, s));
+  r.take(SEATS, 10).forEach(s => add(F[3].flight_no, s));
+  // багаж
+  const B = [];
+  const tags = new Set();
+  const mkTag = () => { let t; do t = 'Б' + r.int(1000, 9999); while (tags.has(t)); tags.add(t); return t; };
+  P.forEach(p => { const n = r() < .55 ? 1 : r() < .3 ? 2 : 0; for (let k = 0; k < n; k++) B.push({tag: mkTag(), passenger_id: p.id, weight_kg: r.int(3, 28), belt: r.int(1, 3)}); });
+  const f0 = P.filter(p => p.flight_no === F[0].flight_no);
+  const bagsOf = p => B.filter(b => b.passenger_id === p.id);
+  // ур. 6: пассажир с двумя чемоданами
+  const Q = r.pick(f0.filter(p => p.fare_class === 'эконом'));
+  while (bagsOf(Q).length < 2) B.push({tag: mkTag(), passenger_id: Q.id, weight_kg: r.int(5, 20), belt: r.int(1, 3)});
+  // ур. 5: неявка — без багажа
+  const noShow = r.pick(f0.filter(p => p !== Q && !bagsOf(p).length));
+  // ур. 1: пересадка к окну в своём ряду (или в соседнем)
+  const occ = new Set(f0.map(p => p.seat));
+  const freeWin = ECON.filter(s => /[AF]$/.test(s) && !occ.has(s));
+  if (!freeWin.length) { const s = ECON.find(x => /[AF]$/.test(x)); const v = f0.find(p => p.seat === s); P.splice(P.indexOf(v), 1); B.splice(0, B.length, ...B.filter(b => b.passenger_id !== v.id)); occ.delete(s); freeWin.push(s); }
+  const win = r.pick(freeWin);
+  const mover = r.pick(f0.filter(p => p.fare_class === 'эконом' && !/[AF]$/.test(p.seat) && p !== Q && p !== noShow && P.includes(p)));
+  // ур. 3: лента без риска перевеса; бонус и предсказание: лента с чемоданом 31 кг
+  const belts = r.take([1, 2, 3], 2);
+  const b3 = belts[0], bM = belts[1];
+  B.forEach(b => { if (b.belt === b3 && b.weight_kg > 30) b.weight_kg = 30; if (b.belt === bM && b.weight_kg > 29) b.weight_kg = 29; });
+  const heavy = r.pick(B.filter(b => b.belt === bM && b.passenger_id !== Q.id));
+  heavy.weight_kg = 31;
+  // ур. 9: город с 3–6 пассажирами рейса
+  const cnt = {}; f0.forEach(p => { if (P.includes(p)) cnt[p.city] = (cnt[p.city] || 0) + 1; });
+  const cities = Object.keys(cnt).filter(c => cnt[c] >= 3 && cnt[c] <= 7 && c !== 'Тюмень');
+  const soft = cities.length ? r.pick(cities) : Object.keys(cnt).sort((a, b) => Math.abs(cnt[a] - 4) - Math.abs(cnt[b] - 4))[0];
+  // контрольный рейс
+  const f0b = P.filter(p => p.flight_no === F[0].flight_no);
+  const occ2 = new Set(f0b.map(p => p.seat));
+  const cA = r.pick(f0b.filter(p => p !== mover && p !== Q && p !== noShow && p.fare_class === 'эконом'));
+  const cSeat = r.pick(ECON.filter(s => !occ2.has(s) && s !== win));
+  const cC = r.pick(f0b.filter(p => p !== cA && p !== Q && p !== noShow && p !== mover && bagsOf(p).length));
+  const cBelt = r.pick([1, 2, 3].filter(x => x !== bM));
+  B.forEach(b => { if (b.belt === cBelt && b.weight_kg > 31) b.weight_kg = 31; });
+  return {seed, al, F, P, B, Q, noShow, mover, win, b3, bM, heavy, soft, cA, cSeat, cC, cBelt};
+}
+
+const SCHEMA = `
+CREATE TABLE airline (
+  code char(2) PRIMARY KEY,
+  name varchar(40) NOT NULL
+);
+CREATE TABLE loyalty (
+  tier     varchar(10) PRIMARY KEY,
+  discount integer     NOT NULL
+);
+CREATE TABLE flight (
+  flight_no    varchar(7)  PRIMARY KEY,
+  airline_code char(2)     NOT NULL CONSTRAINT fk_flight_airline
+               REFERENCES airline (code) ON DELETE RESTRICT,
+  dest         varchar(40) NOT NULL,
+  dep_time     time        NOT NULL,
+  gate         varchar(3)
+);
+CREATE TABLE passenger (
+  id           integer     PRIMARY KEY,
+  flight_no    varchar(7)  NOT NULL CONSTRAINT fk_passenger_flight
+               REFERENCES flight (flight_no) ON DELETE RESTRICT,
+  seat         varchar(3)  NOT NULL,
+  full_name    varchar(60) NOT NULL,
+  birth_year   integer     CONSTRAINT ck_passenger_birth CHECK (birth_year BETWEEN 1920 AND 2026),
+  city         varchar(40),
+  fare_class   varchar(10) NOT NULL CONSTRAINT ck_passenger_fare CHECK (fare_class IN ('бизнес', 'эконом')),
+  loyalty_tier varchar(10) CONSTRAINT fk_passenger_loyalty
+               REFERENCES loyalty (tier) ON DELETE SET NULL,
+  meal         varchar(20),
+  active       boolean     NOT NULL DEFAULT true,
+  CONSTRAINT uq_passenger_seat UNIQUE (flight_no, seat)
+);
+CREATE TABLE baggage (
+  tag          varchar(6) PRIMARY KEY,
+  passenger_id integer    NOT NULL CONSTRAINT fk_baggage_passenger
+               REFERENCES passenger (id) ON DELETE CASCADE,
+  weight_kg    integer    NOT NULL CONSTRAINT ck_baggage_weight CHECK (weight_kg BETWEEN 1 AND 32),
+  belt         integer    NOT NULL DEFAULT 1
+)`;
+const L = W.lit;
+function base(D) {
+  const rows = (t, cols, list) => list.length ? `INSERT INTO ${t} (${cols.join(', ')}) VALUES\n` + list.map(o => '(' + cols.map(c => L(o[c])).join(', ') + ')').join(',\n') + ';\n' : '';
+  return SCHEMA + ';\n' +
+    rows('airline', ['code', 'name'], D.al.map(a => ({code: a[0], name: a[1]}))) +
+    rows('loyalty', ['tier', 'discount'], TIERS.map(t => ({tier: t[0], discount: t[1]}))) +
+    rows('flight', ['flight_no', 'airline_code', 'dest', 'dep_time', 'gate'], D.F) +
+    rows('passenger', ['id', 'flight_no', 'seat', 'full_name', 'birth_year', 'city', 'fare_class', 'loyalty_tier', 'meal', 'active'], D.P) +
+    rows('baggage', ['tag', 'passenger_id', 'weight_kg', 'belt'], D.B);
+}
+
+// ═════════════════════════════════════════════════════════ документы ══
+const esc = W.esc;
+const note = (h, t) => `<div class="doc note"><div class="doc-hd"><span>${h}</span><span>диспетчерская</span></div>${t}</div>`;
+const pname = (D, p) => `${esc(p.full_name)} (№${p.id}, место ${esc(p.seat)})`;
+
+const FK = [
+  {k: 'only', t: 'Удалится только эта строка'},
+  {k: 'cascade', t: 'Удалится вместе со всеми строками, которые на неё ссылаются'},
+  {k: 'setnull', t: 'Удалится, а у ссылавшихся строк ссылка станет NULL'},
+  {k: 'restrict', t: 'Отказ: на эту строку ссылаются'},
+];
+const atomic = [
+  {k: 'all', t: 'Изменятся все чемоданы ленты'},
+  {k: 'some', t: 'Изменятся все, кроме тех, что станут тяжелее 32 кг'},
+  {k: 'none', t: 'Не изменится ни один: отказ'},
+];
+
+function levels(D) {
+  const F0 = D.F[0].flight_no, F1 = D.F[1].flight_no, F2 = D.F[2].flight_no;
+  const nF2 = D.P.filter(p => p.flight_no === F2).length;
+  const stamps = (S, k) => { if (S[k + 'k'] !== S.levelStart) { S[k + 'k'] = S.levelStart; S[k] = {}; } return S[k]; };
+  return [
+    {n: 1, part: 'Изменение', title: 'Пересадка', lab: 'ч. 1, п. 1–3', check: 'state', tables: ['passenger'],
+      story: `<p>Пассажир просит пересадить его к окну. Место свободно — пунктир на схеме.</p>
+        <p>Пульт не выполнит <code>UPDATE</code> с условием, пока вы не выполните <code>SELECT</code> <b>с тем же условием</b>:
+        так видно, кого заденет команда. Число строк SELECT и ответ UPDATE сравниваются автоматически.</p>`,
+      doc: D => note('Записка от бортпроводника', `${pname(D, D.mover)} просит место у окна ${esc(D.win)}. Место свободно.`),
+      ref: [`UPDATE passenger SET seat = ${L(D.win)} WHERE id = ${D.mover.id}`],
+      hint: 'Одну строку надёжнее всего найти по первичному ключу: WHERE id = …. Сначала SELECT * FROM passenger WHERE id = …; потом UPDATE с тем же WHERE.'},
+    {n: 2, part: 'Изменение', title: 'Рейс отменён', lab: 'ч. 1, п. 1–3', check: 'state', tables: ['passenger'],
+      story: `<p>Рейс ${esc(F2)} отменён. Всех его пассажиров переводят на рейс ${esc(F1)} — места те же, они свободны.</p>
+        <p>Перед командой запишите для себя, сколько строк вернул SELECT.</p>`,
+      doc: D => note('Распоряжение', `Рейс ${esc(F2)} (${esc(D.F[2].dest)}) отменён. Пассажиров пересадить на ${esc(F1)}.`),
+      ref: [`UPDATE passenger SET flight_no = ${L(F1)} WHERE flight_no = ${L(F2)}`],
+      hint: `Условие отбора — рейс, с которого пересаживают: WHERE flight_no = '${F2}'. На карточке рейса видно, сколько их: ${nF2}.`},
+    {n: 3, part: 'Изменение', title: 'Весы врали', lab: 'ч. 1, п. 1', check: 'state', tables: ['baggage'],
+      story: `<p>Весы на ленте ${D.b3} занижали вес на 2 кг. Исправьте вес <b>всех</b> чемоданов этой ленты.</p>
+        <p>Новый вес считается от текущего — пусть его посчитает СУБД, а не вы.</p>`,
+      doc: D => note('Акт метролога', `Лента № ${D.b3}: показания весов занижены на 2 кг. Вес всех чемоданов ленты увеличить на 2 кг.`),
+      ref: [`UPDATE baggage SET weight_kg = weight_kg + 2 WHERE belt = ${D.b3}`],
+      hint: 'SET weight_kg = weight_kg + 2 — справа текущее значение каждой строки.'},
+    {n: 4, part: 'Изменение', title: 'Бортпитание', lab: 'ч. 1, п. 1 — пустой столбец', check: 'state', tables: ['passenger'],
+      story: `<p>Столбец <code>meal</code> пока пуст у всех. Заполните его: в бизнесе — <b>ресторан</b>, в экономе — <b>стандарт</b>.
+        Это два изменения, и перед каждым — свой SELECT.</p>`,
+      doc: D => note('Заказ кейтеринга', 'Бизнес: «ресторан». Эконом: «стандарт». Для всех рейсов.'),
+      ref: [`UPDATE passenger SET meal = 'ресторан' WHERE fare_class = 'бизнес'`, `UPDATE passenger SET meal = 'стандарт' WHERE fare_class = 'эконом'`],
+      hint: 'Два UPDATE с разными WHERE по столбцу fare_class. Можно одним запуском: SELECT…; UPDATE…; SELECT…; UPDATE…;'},
+    {n: 5, part: 'Удаление', title: 'Неявка', lab: 'ч. 2, п. 5', check: 'state', tables: ['passenger', 'baggage'],
+      story: `<p>Пассажир не явился на посадку. Багажа у него нет — удалите только его строку, условием, которое отбирает ровно её.</p>`,
+      doc: D => note('Посадка закончена', `Не явился: ${pname(D, D.noShow)}.`),
+      ref: [`DELETE FROM passenger WHERE id = ${D.noShow.id}`],
+      hint: 'DELETE FROM passenger WHERE id = …; и до него SELECT с тем же WHERE.'},
+    {n: 6, part: 'Удаление', title: 'Снят с рейса', lab: 'ч. 2, п. 6', check: 'state', tables: ['passenger', 'baggage'],
+      story: `<p>Пассажира снимают с рейса — его багаж тоже должен покинуть борт. У него два чемодана.</p>
+        <p>Удалите <b>только пассажира</b> и посмотрите, что СУБД сделает с багажом. Правило — в описании внешнего ключа: <code>\\d baggage</code>.</p>`,
+      doc: D => note('Служба безопасности', `Снять с рейса ${esc(F0)}: ${pname(D, D.Q)}. Багаж — с борта.`),
+      ref: [`DELETE FROM passenger WHERE id = ${D.Q.id}`],
+      also: res => res.some(r => r.ok && r.kind === 'DELETE' && /from\s+baggage/i.test(r.sql)) ? 'Строки совпали, но багаж вы удалили сами. Верните базу и удалите только пассажира — посмотрите, что сделает СУБД.' : true,
+      hint: 'DELETE FROM passenger WHERE id = …; — и больше ничего. Чемоданы исчезнут сами: правило ON DELETE CASCADE.'},
+    {n: 7, part: 'Удаление', title: 'Программа закрыта', lab: 'ч. 2, п. 6', check: 'state', tables: ['loyalty', 'passenger'],
+      story: `<p>Программа лояльности <b>«серебро»</b> закрывается. Удалите её из справочника <code>loyalty</code>.</p>
+        <p>Посмотрите на серебряные полоски на креслах: что СУБД сделала с картами пассажиров?</p>`,
+      doc: D => note('Приказ коммерческого отдела', 'Программу «серебро» закрыть с сегодняшнего дня.'),
+      ref: [`DELETE FROM loyalty WHERE tier = 'серебро'`],
+      hint: 'DELETE FROM loyalty WHERE tier = \'серебро\'; Пассажиров менять не нужно — это сделает правило ON DELETE SET NULL.'},
+    {n: 8, part: 'Удаление', title: 'Рейс не удаляется', lab: 'ч. 2, п. 6', check: 'custom',
+      story: `<p>Новый сотрудник хочет «почистить» табло: удалить рейс ${esc(F1)}. Попробуйте — и прочитайте отказ.</p>
+        <p>Уровень засчитывается за отказ СУБД по внешнему ключу при удалении рейса.</p>`,
+      verify: res => {
+        const r = res.find(x => !x.ok && x.err && x.err.type === 'fk' && x.kind === 'DELETE' && /from\s+flight/i.test(x.sql));
+        return r ? {ok: true, note: r.err.constraint || 'fk'} : {ok: false, msg: 'Нужен отказ СУБД при DELETE FROM flight … — из-за ссылок пассажиров.'};
+      },
+      hint: `DELETE FROM flight WHERE flight_no = '${F1}'; — на рейс ссылаются пассажиры, правило RESTRICT.`},
+    {n: 9, part: 'Удаление', title: 'Не удалять, а погасить', lab: 'ч. 2, п. 7', check: 'state', tables: ['passenger'],
+      story: `<p>Пассажиры рейса ${esc(F0)} из города ${esc(D.soft)} сдали билеты. Историю продаж терять нельзя — <b>не удаляйте</b>
+        их, а пометьте недействующими: столбец <code>active</code>.</p>`,
+      doc: D => note('Возврат билетов', `Рейс ${esc(F0)}: все пассажиры из города ${esc(D.soft)} сдали билеты.`),
+      ref: [`UPDATE passenger SET active = false WHERE flight_no = ${L(F0)} AND city = ${L(D.soft)}`],
+      hint: 'Два условия через AND: рейс и город. active = false — без кавычек.'},
+    {n: 10, part: 'Три отказа', title: 'Три отказа', lab: 'ч. 3, п. 8–9', check: 'custom',
+      story: `<p>Выполните три <b>изменения</b> (UPDATE), каждое из которых нарушает своё ограничение:</p>
+        <p>— уникальность (двое на одном месте одного рейса);<br>— проверку CHECK;<br>— ссылочную целостность.</p>`,
+      verify: (res, S) => {
+        const st = stamps(S, 'st10');
+        res.forEach(r => { if (!r.ok && r.err && r.kind === 'UPDATE' && ['unique', 'check', 'fk'].includes(r.err.type)) st[r.err.type] = r.err.constraint || r.err.type; });
+        const slot = (k, t) => `<div style="border:2px ${st[k] ? 'solid var(--bad)' : 'dashed var(--rule2)'};padding:6px 8px;flex:1;min-width:120px;color:${st[k] ? 'var(--bad)' : 'var(--mute)'};font-family:var(--cond);text-transform:uppercase;font-weight:600;font-size:13px">${t}<div style="font:11px var(--mono);text-transform:none">${st[k] ? esc(st[k]) : 'нет штампа'}</div></div>`;
+        const html = `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${slot('unique', 'уникальность')}${slot('check', 'check')}${slot('fk', 'ссылка')}</div>`;
+        const ok = st.unique && st.check && st.fk;
+        return ok ? {ok: true, extra: html, note: Object.values(st).join(', ')} : {ok: false, html};
+      },
+      hint: 'Пересадите пассажира на занятое место его же рейса; поставьте чемодану 40 кг; переведите пассажира на рейс, которого нет.'},
+    {n: 1, bonus: true, part: 'Бонус', title: 'Не пролезло', check: 'state', tables: ['baggage'],
+      story: `<p>Лента ${D.bM}: всем чемоданам нужно добавить 3 кг, <b>кроме</b> тех, что станут тяжелее предела в 32 кг —
+        их оформят отдельно. Сначала попробуйте добавить 3 кг всем — и прочитайте отказ.</p>`,
+      ref: [`UPDATE baggage SET weight_kg = weight_kg + 3 WHERE belt = ${D.bM} AND weight_kg <= 29`],
+      hint: 'Команда выполняется целиком или никак: один чемодан на 31 кг остановил все. Добавьте второе условие через AND.'},
+    {n: 2, bonus: true, part: 'Бонус', title: 'Принято, но так нельзя', check: 'custom',
+      story: `<p>Выполните изменение, которое СУБД <b>примет</b>, хотя в нашем самолёте так быть не может (ряды 1–${ROWS}; бизнес — ряды 1–${BIZ}, буквы A, C, D, F).
+        Потом ответьте в протоколе: какого ограничения не хватает?</p>`,
+      verify: async () => {
+        const r = await W.db.query('SELECT id, seat, fare_class FROM passenger');
+        const bad = r.rows.filter(p => !SEATS.includes(p.seat) || (parseInt(p.seat, 10) <= BIZ) !== (p.fare_class === 'бизнес'));
+        return bad.length ? {ok: true, note: bad.slice(0, 3).map(p => `№${p.id}: ${p.seat}, ${p.fare_class}`).join('; ')} : {ok: false, msg: 'Пока все сидят на настоящих местах своего класса.'};
+      }},
+  ];
+}
+
+function predicts(D) {
+  const F1 = D.F[1].flight_no;
+  const n1 = D.P.filter(p => p.flight_no === F1).length;
+  return [
+    {title: 'Сколько заденет', type: 'number', unit: 'строк изменится',
+      q: `Сколько строк изменит команда? Подсказка — на карточке рейса ${esc(F1)} справа.`,
+      sql: `UPDATE passenger SET meal = 'стандарт'\nWHERE flight_no = '${F1}';`,
+      answer: res => res[0].ok ? res[0].affected : 0,
+      x: `UPDATE ${n1}: условие отобрало всех пассажиров рейса. СУБД называет число затронутых строк — его и сверяют с SELECT.`},
+    {title: 'Удалить рейс', type: 'choice', choices: FK,
+      q: `На рейс ${esc(F1)} зарегистрированы пассажиры. Что сделает СУБД?`,
+      sql: `DELETE FROM flight WHERE flight_no = '${F1}';`,
+      answer: res => res[0].ok ? 'only' : 'restrict',
+      x: 'Внешний ключ <code>fk_passenger_flight … ON DELETE RESTRICT</code>: пока на рейс ссылается хоть один пассажир, удалить его нельзя.'},
+    {title: 'Удалить пассажира', type: 'choice', choices: FK,
+      q: `У пассажира № ${D.Q.id} два чемодана. Что будет с ними?`,
+      sql: `DELETE FROM passenger WHERE id = ${D.Q.id};`,
+      answer: res => res[0].ok ? 'cascade' : 'restrict',
+      x: 'Правило <code>fk_baggage_passenger … ON DELETE CASCADE</code>: удаление пассажира тянет за собой его багаж. Смотрите, как исчезли метки чемоданов.'},
+    {title: 'Удалить программу', type: 'choice', choices: FK,
+      q: 'Программу «золото» закрывают. Что будет с пассажирами, у которых золотая карта?',
+      sql: `DELETE FROM loyalty WHERE tier = 'золото';`,
+      answer: res => res[0].ok ? 'setnull' : 'restrict',
+      x: 'Правило <code>fk_passenger_loyalty … ON DELETE SET NULL</code>: пассажиры остались, у них просто нет карты. Золотые полоски погасли.'},
+    {title: 'Плюс пять', type: 'choice', choices: atomic,
+      q: `Всем чемоданам ленты ${D.bM} добавляют 5 кг. Один из них уже весит 31 кг, а предел — 32.`,
+      sql: `UPDATE baggage SET weight_kg = weight_kg + 5\nWHERE belt = ${D.bM};`,
+      answer: res => res[0].ok ? 'all' : 'none',
+      x: 'Одна строка нарушила CHECK — и отменилось изменение всех. Команда выполняется целиком или не выполняется совсем.'},
+    {title: 'Забыли WHERE', type: 'number', unit: 'строк удалится',
+      q: 'Новичок хотел снять с ленты один чемодан, но забыл условие. Сколько строк удалит команда? Число чемоданов — в подписи схемы.',
+      sql: 'DELETE FROM baggage;',
+      answer: res => res[0].ok ? res[0].affected : 0,
+      x: 'Все. Команда без WHERE относится ко всем строкам — это не ошибка синтаксиса, и СУБД не предупреждает. Поэтому пульт и требует SELECT перед командой с условием.'},
+  ];
+}
+
+function control(D) {
+  const F0 = D.F[0].flight_no;
+  return [{title: `Перед вылетом ${F0}`, check: 'state', tables: ['passenger', 'baggage'],
+    story: `<p>Три распоряжения перед вылетом. Выполните все: порядок — ваш, правило «сначала SELECT» действует.</p>`,
+    doc: D => note('Начальник смены', `1. ${pname(D, D.cA)} пересаживается на место ${esc(D.cSeat)}.<br>
+      2. Лента № ${D.cBelt}: весы занижали на 1 кг — исправить вес всех чемоданов ленты.<br>
+      3. ${pname(D, D.cC)} снят с рейса вместе с багажом.`),
+    ref: [`UPDATE passenger SET seat = ${L(D.cSeat)} WHERE id = ${D.cA.id}`, `UPDATE baggage SET weight_kg = weight_kg + 1 WHERE belt = ${D.cBelt}`,
+      `DELETE FROM passenger WHERE id = ${D.cC.id}`]}];
+}
+
+// ═════════════════════════════════════════════════════════════ сцена ══
+const scene = (() => {
+  let el, api, P, last = {snap: null, opts: {}};
+  const GX = 836, GW = 414;
+  function init(e, a) {
+    el = e; api = a;
+    P = WORLD.plane({x0: 14, y0: 56, rows: ROWS, biz: BIZ, pitchB: 32, pitchE: 26, sw: 21, sh: 17, h: 156, wing: 34});
+  }
+  const rowsOf = (snap, t) => snap && snap[t] ? [...snap[t].rows.values()] : [];
+  const mainNo = () => api.S.D.F[0].flight_no;
+  function layout(snap) {
+    const fl = rowsOf(snap, 'flight').sort((a, b) => String(a.dep_time).localeCompare(String(b.dep_time)));
+    const main = mainNo();
+    const cards = [], mini = {};
+    const others = fl.filter(f => f.flight_no !== main);
+    const order = (fl.find(f => f.flight_no === main) ? [fl.find(f => f.flight_no === main)] : []).concat(others);
+    const pas = rowsOf(snap, 'passenger');
+    order.forEach((f, i) => {
+      const y = 26 + i * 76;
+      const list = pas.filter(p => p.flight_no === f.flight_no).sort((a, b) => a.id - b.id);
+      cards.push({f, y, n: list.length, main: f.flight_no === main});
+      if (f.flight_no !== main) list.forEach((p, k) => { mini[p.id] = {x: GX + 10 + (k % 34) * 11.6, y: y + 30 + Math.floor(k / 34) * 12}; });
+    });
+    return {cards, mini};
+  }
+  const lyCls = t => t === 'золото' ? 'ly-gold' : t === 'серебро' ? 'ly-silver' : t === 'базовая' ? 'ly-base' : null;
+  // opts: aim Set(id), wrong Set(id), extra Set(id), tseat Set(seat), bagWrong Set(tag), bagHit Set(tag), lyExtra Set(tier)
+  function render(snap, D, opts = {}) {
+    last = {snap, opts};
+    const o = k => opts[k] || new Set();
+    const aim = o('aim'), wrong = o('wrong'), extra = o('extra'), tseat = o('tseat'), bagWrong = o('bagWrong'), bagHit = o('bagHit'), lyExtra = o('lyExtra');
+    const main = mainNo();
+    const pas = rowsOf(snap, 'passenger'), bag = rowsOf(snap, 'baggage'), ly = rowsOf(snap, 'loyalty');
+    const onb = pas.filter(p => p.flight_no === main);
+    const bySeat = {}; onb.forEach(p => { if (!bySeat[p.seat]) bySeat[p.seat] = p; });
+    const bagsBy = {}; bag.forEach(b => (bagsBy[b.passenger_id] = bagsBy[b.passenger_id] || []).push(b));
+    const {cards, mini} = layout(snap);
+    const pc = id => (aim.has(id) ? ' aim' : '') + (wrong.has(id) ? ' mark-wrong' : '') + (extra.has(id) ? ' mark-extra' : '');
+    let s = `<svg viewBox="0 0 1260 336" id="sv">${WORLD.DEFS}
+      <text class="zone-t" x="14" y="16">Салон · рейс ${esc(main)}</text>
+      <text class="zone-s" x="820" y="16" text-anchor="end">passenger · ${pas.length} (на борту ${onb.length}) · baggage · ${bag.length}</text>
+      <rect class="exit" x="14" y="24" width="54" height="16"/><text class="exit-t" x="41" y="36" text-anchor="middle">ВЫХОД</text>
+      ${P.svg}`;
+    for (const seat in P.GEO) {
+      const g = P.GEO[seat], p = bySeat[seat];
+      const k = p ? 'p:' + p.id : null;
+      s += `<rect id="seat_${seat}" class="seat${g.row <= BIZ ? ' biz' : ''}${p ? (p.active ? ' occ' : ' inactive') : ''}${p ? pc(p.id) : ''}${tseat.has(seat) ? ' tseat' : ''}" x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" ${k ? `data-card="${k}"` : ''}><title>${seat}${p ? ' · №' + p.id + ' ' + esc(p.full_name) : ''}</title></rect>`;
+      if (!p) continue;
+      const lc = lyCls(p.loyalty_tier);
+      if (lc) s += `<rect class="${lc}" x="${g.x + 1}" y="${g.y + 1}" width="${g.w - 2}" height="3" pointer-events="none"/>`;
+      if (p.meal) s += `<text class="meal" x="${g.cx - 2}" y="${g.cy + 4}" text-anchor="middle">${esc(String(p.meal)[0].toUpperCase())}</text>`;
+      (bagsBy[p.id] || []).slice(0, 3).forEach((b, i) => {
+        s += `<rect class="bagm${bagWrong.has(b.tag) ? ' wrong' : ''}${bagHit.has(b.tag) ? ' hit' : ''}" id="bag_${b.tag}" x="${g.x + g.w - 6}" y="${g.y + g.h - 6 - i * 5}" width="5" height="5"/>`;
+      });
+    }
+    // пассажиры рейса на несуществующих местах
+    const over = onb.filter(p => !P.GEO[p.seat]);
+    if (over.length) s += `<text class="over" x="90" y="${P.bot + 50}">за бортом (нет такого места): ${over.slice(0, 6).map(p => esc(p.seat) + ' №' + p.id).join(', ')}</text>`;
+    // программы лояльности
+    s += `<text class="zone-t" x="14" y="${P.bot + 50 + (over.length ? 18 : 0)}">Программы лояльности</text>`;
+    const lyY = P.bot + 58 + (over.length ? 18 : 0);
+    const cntLy = {}; pas.forEach(p => { if (p.loyalty_tier) cntLy[p.loyalty_tier] = (cntLy[p.loyalty_tier] || 0) + 1; });
+    ly.sort((a, b) => b.discount - a.discount).forEach((t, i) => {
+      const x = 14 + i * 150;
+      s += `<g data-card="ly:${esc(t.tier)}"><rect class="lytile${lyExtra.has(t.tier) ? ' mark-extra' : ''}" x="${x}" y="${lyY}" width="140" height="30"/>
+        <rect class="${lyCls(t.tier)}" x="${x}" y="${lyY}" width="6" height="30"/>
+        <text class="lyt" x="${x + 14}" y="${lyY + 19}">${esc(t.tier)} · −${t.discount}%</text>
+        <text class="gs" x="${x + 134}" y="${lyY + 19}" text-anchor="end">${cntLy[t.tier] || 0}</text></g>`;
+    });
+    if (!ly.length) s += `<text class="gs" x="14" y="${lyY + 18}">справочник пуст</text>`;
+    // выходы на посадку
+    s += `<text class="zone-t" x="${GX}" y="16">Выходы на посадку</text><text class="zone-s" x="${GX + GW}" y="16" text-anchor="end">flight · ${cards.length}</text>`;
+    cards.forEach(c => {
+      const f = c.f;
+      s += `<g data-card="fl:${esc(f.flight_no)}"><rect class="gcard${c.main ? ' main' : ''}" x="${GX}" y="${c.y}" width="${GW}" height="68"/>
+        <text class="gh" x="${GX + 8}" y="${c.y + 17}"><tspan font-weight="600">${esc(f.flight_no)}</tspan>  ${esc(f.dest)}  ${esc(String(f.dep_time).slice(0, 5))}  выход ${esc(f.gate || '—')}</text>
+        <text class="gs" x="${GX + GW - 8}" y="${c.y + 17}" text-anchor="end">${c.n} пасс.</text></g>`;
+      if (c.main) s += `<text class="gs" x="${GX + 8}" y="${c.y + 42}">этот рейс — на схеме салона слева</text>`;
+    });
+    pas.forEach(p => {
+      const m = mini[p.id];
+      if (m) s += `<rect id="mini_${p.id}" class="mini${p.active ? '' : ' inactive'}${pc(p.id)}" x="${m.x}" y="${m.y}" width="9" height="9" data-card="p:${p.id}"><title>№${p.id} ${esc(p.full_name)} · ${esc(p.seat)}</title></rect>`;
+    });
+    s += `<g id="walk"></g><g id="floats"></g></svg>`;
+    el.innerHTML = s;
+  }
+
+  const posOf = (snap, p) => {
+    if (!p) return null;
+    if (p.flight_no === mainNo()) { const g = P.GEO[p.seat]; return g ? [g.cx, g.cy] : null; }
+    const m = layout(snap).mini[p.id];
+    return m ? [m.x + 4.5, m.y + 4.5] : null;
+  };
+  async function animate(prev, next, d, anim) {
+    render(next, null, {});
+    if (!anim) return;
+    const layer = document.getElementById('walk'), fl = document.getElementById('floats');
+    const dp = d.passenger || {ins: [], del: [], upd: []};
+    const db_ = d.baggage || {ins: [], del: [], upd: []};
+    const door = [P.door.x, P.door.y - 10], aisleAt = x => [x, P.aisle];
+    const jobs = [];
+    const viaAisle = (a, b) => {               // путь по салону
+      const pts = [a];
+      const inA = a[0] < 820, inB = b[0] < 820;
+      if (inA) pts.push(aisleAt(a[0]));
+      if (inA && !inB) { pts.push(aisleAt(P.door.x)); pts.push(door); }
+      if (!inA && inB) { pts.push(door); pts.push(aisleAt(P.door.x)); }
+      if (inB) pts.push(aisleAt(b[0]));
+      pts.push(b);
+      return pts;
+    };
+    // перемещения (место или рейс)
+    dp.upd.filter(u => u.cols.includes('seat') || u.cols.includes('flight_no')).forEach(u => {
+      const a = posOf(prev, u.a), b = posOf(next, u.b);
+      if (!a || !b) return;
+      const tgt = u.b.flight_no === mainNo() ? document.getElementById('seat_' + u.b.seat) : document.getElementById('mini_' + u.b.id);
+      if (tgt) tgt.style.visibility = 'hidden';
+      jobs.push(() => WORLD.moveDot(layer, viaAisle(a, b), {dur: 900}).then(() => { if (tgt) tgt.style.visibility = ''; }));
+    });
+    // удаления: к выходу
+    dp.del.forEach(p => {
+      const a = posOf(prev, p);
+      if (!a) return;
+      const pts = a[0] < 820 ? [a, aisleAt(a[0]), aisleAt(P.door.x), door, [41, 32]] : [a, [a[0] + 30, a[1] - 20]];
+      jobs.push(() => WORLD.moveDot(layer, pts, {dur: 900, cls: 'walker out', fade: true}));
+    });
+    // вставки: от двери
+    dp.ins.forEach(p => {
+      const b = posOf(next, p);
+      if (!b) return;
+      const tgt = p.flight_no === mainNo() ? document.getElementById('seat_' + p.seat) : document.getElementById('mini_' + p.id);
+      if (tgt) tgt.style.visibility = 'hidden';
+      jobs.push(() => WORLD.moveDot(layer, viaAisle(door, b), {dur: 800}).then(() => { if (tgt) tgt.style.visibility = ''; }));
+    });
+    // чемоданы, снятые с борта
+    db_.del.forEach(b => {
+      const owner = prev.passenger.rows.get(String(b.passenger_id));
+      const a = posOf(prev, owner);
+      if (a) jobs.push(() => WORLD.moveDot(layer, [a, [a[0], a[1] + 40]], {dur: 700, r: 3.5, cls: 'walker out', fade: true}));
+    });
+    // изменения значений — вспышка и подпись
+    const changed = dp.upd.filter(u => !u.cols.includes('seat') && !u.cols.includes('flight_no'));
+    const labelled = changed.length <= 8;
+    changed.forEach(u => {
+      const e = document.getElementById(u.b.flight_no === mainNo() ? 'seat_' + u.b.seat : 'mini_' + u.b.id);
+      if (e) e.classList.add('flash');
+      if (labelled) {
+        const a = posOf(next, u.b);
+        if (a) {
+          const c = u.cols[0];
+          fl.insertAdjacentHTML('beforeend', `<text class="floatl" x="${Math.min(a[0], 700)}" y="${a[1] - 12}">${esc(c)}: ${esc(u.a[c] === null ? 'NULL' : u.a[c])} → ${esc(u.b[c] === null ? 'NULL' : u.b[c])}</text>`);
+        }
+      }
+    });
+    db_.upd.forEach(u => { const e = document.getElementById('bag_' + u.b.tag); if (e) e.classList.add('hit'); });
+    const per = Math.min(110, 2200 / Math.max(1, jobs.length));
+    await Promise.all(jobs.map((j, i) => api.sleep(i * per).then(j)));
+    if (changed.length || db_.upd.length) await api.sleep(labelled && changed.length ? 1600 : 700);
+    fl.innerHTML = '';
+    document.querySelectorAll('.bagm.hit').forEach(e => e.classList.remove('hit'));
+  }
+
+  function showResult(sel, D, snap) {
+    const f = sel.fields;
+    const aim = new Set(), bagHit = new Set();
+    const main = mainNo();
+    if (f.includes('tag')) sel.rows.forEach(r => bagHit.add(r.tag));
+    else if (f.includes('id')) sel.rows.forEach(r => aim.add(r.id));
+    else if (f.includes('seat')) {
+      const pas = rowsOf(snap, 'passenger');
+      sel.rows.forEach(r => { const p = pas.find(x => x.seat === r.seat && (f.includes('flight_no') ? x.flight_no === r.flight_no : x.flight_no === main)); if (p) aim.add(p.id); });
+    }
+    if (aim.size || bagHit.size) {
+      render(snap, D, Object.assign({}, last.opts, {aim, bagHit}));
+      api.msg(`Под прицелом: ${aim.size || bagHit.size} ${aim.size ? W.plural(aim.size, 'пассажир', 'пассажира', 'пассажиров') : W.plural(bagHit.size, 'чемодан', 'чемодана', 'чемоданов')}. Теперь та же строка WHERE — в UPDATE или DELETE.`, 'info');
+    } else if (sel.rows.length && !f.some(x => x === 'count')) {
+      api.msg('В ответе нет столбцов id, seat или tag — схеме некого подсветить. Результат — в таблице под пультом.', 'info');
+    }
+  }
+  function marksFrom(cmp) {
+    const o = {wrong: new Set(), extra: new Set(), tseat: new Set(), bagWrong: new Set(), lyExtra: new Set(), aim: new Set()};
+    cmp.wrong.forEach(x => {
+      if (x.t === 'passenger') { o.wrong.add(x.a.id); if (x.cols.includes('seat') && x.b.flight_no === mainNo()) o.tseat.add(x.b.seat); }
+      if (x.t === 'baggage') o.bagWrong.add(x.a.tag);
+    });
+    cmp.extra.forEach(x => {
+      if (x.t === 'passenger') o.extra.add(x.row.id);
+      if (x.t === 'baggage') o.bagWrong.add(x.row.tag);
+      if (x.t === 'loyalty') o.lyExtra.add(x.row.tier);
+    });
+    return o;
+  }
+  async function target(Lv, D, snap) {
+    if (Lv.check !== 'state' || !Lv._target) return;
+    const cur = await W.snapshot(Lv.tables.map(n => LAB.tables.find(t => t.name === n)));
+    render(snap, D, marksFrom(W.compare(cur, Lv._target)));
+  }
+  function showDiff(cmp, D) { render(last.snap, D, marksFrom(cmp)); }
+  function clearMarks() { render(last.snap, null, {aim: last.opts.aim, bagHit: last.opts.bagHit}); }
+  function clearResult() { if (last.snap) render(last.snap, null, Object.assign({}, last.opts, {aim: null, bagHit: null})); }
+  function card(key) {
+    const t = key.slice(0, key.indexOf(':')), v = key.slice(key.indexOf(':') + 1);
+    const snap = api.S.snap;
+    const tbl = {p: 'passenger', fl: 'flight', ly: 'loyalty'}[t];
+    const row = snap[tbl] && snap[tbl].rows.get(v);
+    if (!row) return null;
+    const r = Object.assign({}, row);
+    if (r.dep_time) r.dep_time = String(r.dep_time).slice(0, 5);
+    let more = '';
+    if (t === 'p') {
+      const bags = [...snap.baggage.rows.values()].filter(b => b.passenger_id === row.id);
+      more = `<div class="muted" style="margin-top:4px">Багаж: ${bags.length ? bags.map(b => `${esc(b.tag)} · ${b.weight_kg} кг · лента ${b.belt}`).join('<br>') : 'нет'}</div>`;
+    }
+    return {title: 'Строка таблицы ' + tbl, row: r, more};
+  }
+  return {init, render, animate, showResult, target, showDiff, clearMarks, clearResult, card};
+})();
+
+// ═══════════════════════════════════════════════════════════ брифинг ══
+function brief(D) {
+  const F0 = D.F[0].flight_no;
+  const q = s => `<button class="choice" style="font-family:var(--mono);font-size:12.5px;margin-top:4px" data-q="${esc(s)}">${esc(s)}</button>`;
+  return `<div class="peye">Брифинг · свободная работа</div>
+    <div class="ptitle">Вы — диспетчер на перроне</div>
+    <div class="pcap"><p>База наполнена: рейсы, пассажиры, багаж. Теперь в ней всё время что-то меняется — пересадки, отмены, неявки.
+      Ваша смена — менять данные <b>точно</b>: ни одной лишней строки, ни одной забытой.</p>
+      <p>Пересаженный пассажир идёт по проходу на новое место, снятый — к выходу, изменённое значение вспыхивает.</p></div>
+    <h4>Правило пульта</h4>
+    <div class="hint" style="margin-top:0">UPDATE и DELETE <b>с условием</b> выполняются, только если перед ними был SELECT с тем же условием.
+      Строки из SELECT загораются на схеме: это прицел. Команда <b>без</b> WHERE выполнится сразу — проверять нечего.</div>
+    <h4>Как читать схему</h4>
+    <ul style="padding-left:18px;font-size:13.5px;color:var(--ink2)">
+      <li>Полоска сверху кресла — карта лояльности: <span style="color:#b8860b">золото</span>, <span style="color:#8a929b">серебро</span>, <span style="color:#5f7d65">базовая</span>. Буква — питание. Коричневые метки — чемоданы.</li>
+      <li>Пунктирное кресло — пассажир помечен недействующим (<code>active = false</code>).</li>
+      <li>В задании: оранжевое — должно измениться, красное — должно исчезнуть, синий пунктир — куда.</li>
+      <li><code>\\d passenger</code> — столбцы и ограничения таблицы, в том числе правила внешних ключей.</li></ul>
+    <h4>Попробуйте</h4>
+    ${q(`SELECT id, seat, full_name FROM passenger WHERE flight_no = '${F0}' AND fare_class = 'бизнес';`)}
+    ${q(`UPDATE passenger SET meal = 'вегетарианское' WHERE flight_no = '${F0}' AND fare_class = 'бизнес';`)}
+    ${q('\\d baggage')}
+    ${q('DELETE FROM baggage;')}
+    <h4>Схема базы</h4>
+    <div class="doc" style="font-family:var(--mono);font-size:11.5px;white-space:pre;overflow:auto">${esc(SCHEMA.trim())}</div>`;
+}
+
+function grading(S) {
+  const P = S.P, d = i => (P.levels[i] || {}).done;
+  return [
+    {t: 'Уровни 1–4: изменения по условию, правило «сначала SELECT», числа строк совпали', pts: 2, ok: [0, 1, 2, 3].every(d)},
+    {t: 'Уровни 5–9: удаление, три правила внешнего ключа, пометка вместо удаления', pts: 2, ok: [4, 5, 6, 7, 8].every(d)},
+    {t: 'Уровень 10: три отказа при изменении, названы ограничения', pts: 2, ok: !!d(9)},
+    {t: 'Контрольный рейс принят', pts: 2, ok: !!P.control.done},
+    {t: 'Ответы на вопросы: правила внешних ключей и недостающее ограничение', pts: 2, ok: false, manual: true},
+  ];
+}
+
+const LAB = {
+  no: 14, title: 'Диспетчер на перроне', topic: 'UPDATE и DELETE', lrTitle: 'Изменение и удаление данных: UPDATE и DELETE',
+  tables: [{name: 'airline', pk: 'code'}, {name: 'loyalty', pk: 'tier'}, {name: 'flight', pk: 'flight_no'}, {name: 'passenger', pk: 'id'}, {name: 'baggage', pk: 'tag'}],
+  placeholder: 'SELECT id, seat FROM passenger WHERE …;',
+  legend: '<span><i style="background:var(--sign)"></i>под прицелом</span><span><i style="border:3px solid #e0561b;background:none"></i>изменить</span><span><i style="background:var(--bad)"></i>убрать</span><span><i style="border:2px dashed var(--blue);background:none"></i>сюда</span>',
+  selectFirst: true,
+  data, levels, predicts, control, scene, brief, grading,
+  base, sandbox: base,
+  badge: (D, seed) => `№${seed} · ${D.F[0].flight_no}`,
+  briefMsg: 'Свободная работа. Щёлкните кресло — строка пассажира и его багаж.',
+  questions: [
+    'Уровень 6: что СУБД сделала с багажом снятого пассажира? Какое правило внешнего ключа это определило?',
+    'Уровень 7: что стало с картами пассажиров, когда программу «серебро» удалили? Почему?',
+    'Уровень 8: почему рейс не удалился и что нужно сделать, чтобы его всё-таки удалить?',
+    'Уровень 9: какой столбец позволил обойтись без удаления? Что теперь придётся учитывать во всех запросах к пассажирам?',
+    'Бонус 2: какое изменение СУБД приняла, хотя так быть не может? Какого ограничения не хватает?',
+  ],
+};
+W.start(LAB);
+</script>
+<script type="module">
+let PGlite;
+try { ({PGlite} = await import('../mvp/vendor/pglite/index.js')); }
+catch (e) { ({PGlite} = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.8/dist/index.js')); }
+await W.boot(PGlite);
+</script>
+</body>
+</html>
