@@ -587,7 +587,7 @@ W.start(LAB);
 </script>
 <script type="module">
 let PGlite;
-try { ({PGlite} = await import('../mvp/vendor/pglite/index.js')); }
+try { ({PGlite} = await import('../vendor/pglite/index.js')); }
 catch (e) { ({PGlite} = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.8/dist/index.js')); }
 await W.boot(PGlite);
 </script>

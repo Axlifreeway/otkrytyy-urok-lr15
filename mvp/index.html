@@ -185,7 +185,7 @@ body.big .rt, body.big .card table { font-size: 15px }
 // PGlite: сначала локальная копия (работает без интернета, если страница открыта
 // через сервер), иначе — CDN (работает и при открытии файла двойным щелчком).
 let PGlite;
-try { ({PGlite} = await import('./vendor/pglite/index.js')); }
+try { ({PGlite} = await import('../vendor/pglite/index.js')); }
 catch (e) { ({PGlite} = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.8/dist/index.js')); }
 
 const $ = id => document.getElementById(id);

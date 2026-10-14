@@ -38,6 +38,7 @@ async function open(path) {
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('request', r => { if (/jsdelivr|unpkg/.test(r.url())) errors.push('PGlite не нашёлся рядом, грузится с CDN: ' + r.url()); });
   page.on('response', r => { if (r.status() >= 400 && !r.url().endsWith('favicon.ico')) errors.push(`http ${r.status()}: ${r.url().replace(BASE, '')}`); });
   await page.goto(BASE + path);
   return {page, errors};
