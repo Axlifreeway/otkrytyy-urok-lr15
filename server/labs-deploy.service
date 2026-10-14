@@ -1,0 +1,7 @@
+[Unit]
+Description=Автообновление лабораторных из GitHub
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/labs-src/server/deploy.sh

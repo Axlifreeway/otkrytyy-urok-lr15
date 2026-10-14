@@ -1,0 +1,30 @@
+# Проверки на каждый push и pull request: тесты, актуальность собранных game.js, все уровни в браузере.
+name: Проверки
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Юнит-тесты и тесты сервера
+        run: npm test
+      - name: game.js собраны из текущих исходников
+        run: npm run check
+      - name: Браузер для сквозных тестов
+        run: npx playwright install --with-deps chromium
+      - name: Все уровни в браузере, телефон, вход по PIN
+        run: npm run e2e
+      - name: Итоги e2e
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e
+          path: tests/out/

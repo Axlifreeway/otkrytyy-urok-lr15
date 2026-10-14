@@ -49,11 +49,47 @@
     sudo nginx -t && sudo systemctl reload nginx
 
 ## 4. HTTPS (один раз)
-В роутере (NAT → Port Mapping) добавить правило TCP 443 → сервер:443, правило для 80 оставить. Затем:
+Без HTTPS пароль-ключ панели и PIN студентов идут по сети открытым текстом, а браузеры помечают сайт «Не защищено».
 
-    sudo apt install -y certbot python3-certbot-nginx
-    sudo certbot --nginx -d labs.твойдомен.ru     # на вопрос про redirect — перенаправлять на HTTPS
-    sudo ufw allow 443/tcp
+1. **Роутер.** NAT → Port Mapping (Virtual Server): добавьте правило TCP **443** → внутренний адрес сервера, порт 443.
+   Правило для 80 оставьте — через него certbot подтверждает домен и продлевает сертификат.
+2. **Домен.** `labs.твойдомен.ru` должен указывать на внешний IP роутера (запись A у регистратора).
+   Проверка с телефона через мобильный интернет: `http://labs.твойдомен.ru` открывается.
+3. **Сертификат** (на сервере):
+
+       sudo apt install -y certbot python3-certbot-nginx
+       sudo ufw allow 443/tcp
+       sudo certbot --nginx -d labs.твойдомен.ru     # на вопрос про redirect — перенаправлять на HTTPS
+
+   certbot сам допишет в nginx `listen 443 ssl` и пути к сертификату и поставит автопродление.
+4. **Проверка:** `https://labs.твойдомен.ru` открывается с замком; `sudo certbot renew --dry-run` проходит без ошибок.
+
+Если не открывается снаружи: провайдер может блокировать входящие 80/443 на «серых» IP — проверьте,
+что внешний IP в роутере совпадает с тем, что показывает 2ip.ru; если нет — нужен «белый» IP у провайдера.
+
+## 4а. Автовыкладка из GitHub (один раз)
+На каждый push GitHub Actions прогоняет проверки (`.github/workflows/ci.yml`): тесты, сборку, все уровни в браузере.
+Сервер раз в минуту смотрит ветку `main` и, если там новое, сам выкладывает лабы (и перезапускает labsrv,
+если он менялся). Порядок работы: изменения — в отдельной ветке → pull request → проверки зелёные → слить в `main`.
+
+1. Ключ только для чтения репозитория (на сервере):
+
+       sudo ssh-keygen -t ed25519 -N '' -f /root/.ssh/labs_deploy
+       sudo cat /root/.ssh/labs_deploy.pub
+
+   GitHub → репозиторий → Settings → Deploy keys → Add deploy key: вставьте ключ, «Allow write access» **не** отмечать.
+2. Клон и таймер:
+
+       sudo GIT_SSH_COMMAND='ssh -i /root/.ssh/labs_deploy -o StrictHostKeyChecking=accept-new' \
+         git clone git@github.com:Axlifreeway/otkrytyy-urok-lr15.git /opt/labs-src
+       sudo git -C /opt/labs-src config core.sshCommand 'ssh -i /root/.ssh/labs_deploy'
+       sudo cp /opt/labs-src/server/labs-deploy.service /opt/labs-src/server/labs-deploy.timer /etc/systemd/system/
+       sudo systemctl daemon-reload && sudo systemctl enable --now labs-deploy.timer
+
+3. Проверка: `sudo systemctl start labs-deploy.service && journalctl -t labs-deploy -n 5` — строка «выложено …».
+   Что и когда выкладывалось: `journalctl -t labs-deploy`.
+
+Ручная выкладка (раздел 1) после этого не нужна. Откатить: `git revert` неудачного коммита в `main` — через минуту сервер вернётся к рабочей версии.
 
 ## 5. Группы
 `https://labs.твойдомен.ru/teacher/` → ключ → «Группы и списки» → название группы и список «Фамилия Имя» по строке → «Сохранить список».
