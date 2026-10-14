@@ -1,7 +1,7 @@
 // Вход студента: группа → фамилия → PIN. Прогресс хранится на сервере, поэтому можно начать на паре и закончить дома.
 // Если сервера нет (файл открыт с диска) — старый вход: ФИО, группа, номер в журнале.
-const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k) || ''; if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return ''; } };
+import {esc, ls} from './util.js';
+import {isTeacherCode} from './teacher.js';
 async function api(path, body, headers = {}) {
   const r = await fetch(path, body ? {method: 'POST', headers: {'Content-Type': 'application/json', ...headers}, body: JSON.stringify(body)} : {headers});
   const j = await r.json().catch(() => ({}));
@@ -18,7 +18,7 @@ export const session = {
 };
 
 // m — контейнер модального окна; head — заголовок и описание лабы (html); onGo({seed, fio, grp, sid, token, demo})
-export async function loginScreen(m, {head, teacherCode, onGo, legacy}) {
+export async function loginScreen(m, {head, onGo, legacy}) {
   const groups = await groupsAvailable();
   if (!groups) return legacy();
   m.hidden = false;
@@ -28,7 +28,7 @@ export async function loginScreen(m, {head, teacherCode, onGo, legacy}) {
       <div class="who"><span>Вы вошли как</span><b>${esc(saved.fio)}</b><span>${esc(saved.grp)}</span></div>
       <div class="btns"><button class="nextBtn" id="lgCont">Продолжить</button><button class="btn" id="lgOther">Это не я / сменить</button></div></div>`;
     m.querySelector('#lgCont').onclick = () => { m.hidden = true; onGo(saved); };
-    m.querySelector('#lgOther').onclick = () => { session.set(null); loginScreen(m, {head, teacherCode, onGo, legacy}); };
+    m.querySelector('#lgOther').onclick = () => { session.set(null); loginScreen(m, {head, onGo, legacy}); };
     return;
   }
   const lastG = ls('air-grp');
@@ -70,7 +70,7 @@ export async function loginScreen(m, {head, teacherCode, onGo, legacy}) {
   $('lgP').onkeydown = e => { if (e.key === 'Enter') go(); };
   $('lgT').onclick = () => { $('lgTeach').hidden = !$('lgTeach').hidden; };
   $('lgDemo').onclick = () => {
-    if ($('lgCode').value.trim() !== teacherCode) { $('lgErr').textContent = 'Код не подошёл.'; return; }
+    if (!isTeacherCode($('lgCode').value)) { $('lgErr').textContent = 'Код не подошёл.'; return; }
     m.hidden = true; onGo({seed: parseInt($('lgSeed').value, 10) || 0, fio: 'Преподаватель', grp: '', demo: true});
   };
   loadRoster();
