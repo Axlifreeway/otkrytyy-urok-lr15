@@ -100,14 +100,18 @@ const NAMES = {
   lr14: ['Детское питание', 'Остальным — стандарт', 'К окну', 'Весы врали', 'Не пролезло', 'Неявка', 'Снят с рейса', 'Программа закрыта', 'Неудаляемый рейс', 'Возврат билетов', 'Охота на ограничения', 'Последний рейс'],
 };
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
-let KEY = new URLSearchParams(location.search).get('key') || store('labs-key') || '';
+// ключ можно передать ссылкой ?key=… — запоминаем и сразу убираем из адресной строки
+const urlKey = new URLSearchParams(location.search).get('key');
+if (urlKey) { store('labs-key', urlKey); history.replaceState(null, '', location.pathname); }
+let KEY = urlKey || store('labs-key') || '';
 let since = +store('labs-since') || 0, sortBy = 'problems', data = null, open = null, groupsData = [];
 const mins = ms => ms < 60000 ? Math.round(ms / 1000) + ' с' : Math.floor(ms / 60000) + ' мин';
 const ruErr = t => { const ls = String(t).split('\n').map(x => x.trim()).filter(Boolean); const code = (/constraint "([^"]+)"/.exec(t) || [])[1]; const ru = ls.find(l => !/^ERROR/.test(l)) || ls[0] || ''; return (code ? code + ': ' : '') + ru; };
+const total = lab => (NAMES[lab] || []).length || 12;
 const short = f => { const w = String(f || '').split(/\s+/); return w[0] + (w[1] ? ' ' + w[1][0] + '.' : ''); };
 
 async function api(path) {
-  const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY));
+  const r = await fetch(path, {headers: {'X-Labs-Key': KEY}});
   if (r.status === 403) throw new Error('key');
   return r.json();
 }
@@ -122,7 +126,7 @@ function renderGroups() {
     <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th></tr>
     ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
       <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}</td>
-      <td>${s.labs.lr13 != null ? s.labs.lr13 + '/12' : '—'}</td><td>${s.labs.lr14 != null ? s.labs.lr14 + '/12' : '—'}</td></tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
+      ${['lr13', 'lr14'].map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
   $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const g = groupsData.find(x => x.name === b.dataset.edit); $('gName').value = g.name; $('gList').value = g.students.filter(s => s.idx).map(s => s.name).join('\n'); });
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
   $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { await post('/api/admin/resetpin', {id: +b.dataset.pin}); loadGroups(); });
@@ -174,7 +178,7 @@ function render() {
     const gr = groupsData.find(x => x.name === g);
     const seen = new Set(ps.map(p => p.client));
     const miss = gr ? gr.students.filter(s => s.idx && !seen.has('s' + s.id)) : [];
-    $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span>${esc(s.name)}</td><td>${esc(g)}</td><td>${s.seed}</td><td colspan="7">не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/12').join(', ') : ''}</td></tr>`).join(''));
+    $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span>${esc(s.name)}</td><td>${esc(g)}</td><td>${s.seed}</td><td colspan="7">не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/' + total(l)).join(', ') : ''}</td></tr>`).join(''));
   }
   $('rows').querySelectorAll('tr.row').forEach(tr => tr.onclick = () => showLog(tr.dataset.c));
   if (document.body.classList.contains('proj')) renderProj(ps);
@@ -195,7 +199,7 @@ async function showLog(client, quiet) {
   const q = new URLSearchParams({client}); q.set('since', since || new Date().setHours(0, 0, 0, 0));
   const r = await api('/api/log?' + q);
   const names = NAMES[p.lab] || [];
-  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', done: 'уровень пройден', paste: 'вставка заблокирована', away: 'ушёл со вкладки', submit: 'сдал'};
+  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', rollback: 'не совпало — откат', done: 'уровень пройден', paste: 'вставка заблокирована', away: 'ушёл со вкладки', submit: 'сдал'};
   const keep = $('drawer').scrollTop;
   $('drawer').hidden = false;
   $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button><h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · № ${p.seed ?? ''} · ${esc((p.lab || '').toUpperCase())}</span></h2>
@@ -205,14 +209,18 @@ async function showLog(client, quiet) {
       if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${esc(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
       if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">${esc(d.msg)}</b><pre>${esc(d.sql)}</pre></div>`;
       if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">вставка заблокирована</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
+      if (e.type === 'rollback') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">не совпало — откат</b><div class="bad" style="font-size:12.5px">${esc(d.msg)}</div></div>`;
       if (e.type === 'away') return `<div class="ev"><span class="t">${t}</span>ушёл со вкладки на ${mins(d.ms)}</div>`;
       return `<div class="ev"><span class="t">${t}</span>${T[e.type] || e.type}${d.lv ? ' ' + d.lv + (names[d.lv - 1] ? ' «' + esc(names[d.lv - 1]) + '»' : '') : ''}${d.reset ? ' (сброс)' : ''}${e.type === 'done' ? ' · ' + '★'.repeat(d.stars || 0) : ''}${e.type === 'submit' ? ` · ${d.pts} б., ${d.done} ур.` : ''}</div>`;
     }).join('')}`;
   if (quiet) $('drawer').scrollTop = keep;
   $('dx').onclick = () => { open = null; $('drawer').hidden = true; };
 }
+let started = false;
 function start() {
   $('login').hidden = true; $('app').hidden = false;
+  if (started) { tick(); loadGroups(); return; }
+  started = true;
   tick(); setInterval(tick, 3000); loadGroups(); setInterval(loadGroups, 20000);
 }
 $('grpBtn').onclick = () => { const on = $('groups').hidden; $('groups').hidden = !on; document.querySelector('main').hidden = on; $('grpBtn').classList.toggle('on', on); if (on) loadGroups(); };

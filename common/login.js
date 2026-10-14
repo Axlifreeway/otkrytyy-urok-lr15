@@ -2,8 +2,8 @@
 // Если сервера нет (файл открыт с диска) — старый вход: ФИО, группа, номер в журнале.
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k) || ''; if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return ''; } };
-async function api(path, body) {
-  const r = await fetch(path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : undefined);
+async function api(path, body, headers = {}) {
+  const r = await fetch(path, body ? {method: 'POST', headers: {'Content-Type': 'application/json', ...headers}, body: JSON.stringify(body)} : {headers});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(j.err || ('Ошибка ' + r.status)), {status: r.status});
   return j;
@@ -102,7 +102,7 @@ let sess = null, lab = '', timer = null, onStatus = () => {};
 export function syncInit(s, labName, statusCb) { sess = s && s.token ? s : null; lab = labName; onStatus = statusCb || (() => {}); if (sess) onStatus('ok'); }
 export async function pull() {
   if (!sess) return null;
-  try { const r = await api(`/api/progress?lab=${lab}&token=${encodeURIComponent(sess.token)}`); onStatus('ok'); return r.data; }
+  try { const r = await api(`/api/progress?lab=${lab}`, null, {'X-Labs-Token': sess.token}); onStatus('ok'); return r.data; }
   catch (e) { onStatus(e.status === 403 ? 'auth' : 'off'); return null; }
 }
 export function push(P, now = false) {

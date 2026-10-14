@@ -1,0 +1,16 @@
+{
+  "name": "otkrytyy-urok-lr15",
+  "private": true,
+  "type": "module",
+  "description": "Лабораторные ОПЦ.07 «Аэропорт»: 3D-лабы ЛР-13/14, тетради, сервер и панель преподавателя",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "check": "node tools/build.mjs --check",
+    "test": "node --test tests/*.test.mjs && python3 -m unittest discover -s server -p 'test_*.py'",
+    "e2e": "node tests/e2e.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0",
+    "three": "0.170.0"
+  }
+}
