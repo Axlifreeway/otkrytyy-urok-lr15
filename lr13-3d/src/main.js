@@ -8,17 +8,48 @@ import {parse, litVal, badCol, explain} from './parse.js';
 import {SFX} from '../../common/sfx.js';
 import {judge, describe, keyHint, fmtv as fmt} from '../../common/judge.js';
 import {
-  initShell, boot, db, D, L, G, running, setRunning, unlocked, state, prepareLevel, cmdBar, hud, errBox, verdict, save, recOf,
-  journal, renderLevels, predict, rollback, success, pushHist, markError, allowPaste, lintFail, levelTag, missionButtons, bindMissionButtons, hold,
+  initShell,
+  boot,
+  db,
+  D,
+  L,
+  G,
+  running,
+  setRunning,
+  unlocked,
+  state,
+  prepareLevel,
+  cmdBar,
+  hud,
+  errBox,
+  verdict,
+  save,
+  recOf,
+  journal,
+  renderLevels,
+  predict,
+  rollback,
+  success,
+  pushHist,
+  markError,
+  allowPaste,
+  lintFail,
+  levelTag,
+  missionButtons,
+  bindMissionButtons,
+  hold,
 } from '../../common/shell.js';
 import {report} from '../../common/net.js';
 
 const W = createWorld($('stage'));
 // время вылета — как ЧЧ:ММ, без секунд
-const SEL = t => `SELECT ${COLS[t].map(c => c === 'dep_time' ? "to_char(dep_time, 'HH24:MI') AS dep_time" : c).join(', ')} FROM ${t}`;
+const SEL = t => `SELECT ${COLS[t].map(c => (c === 'dep_time' ? "to_char(dep_time, 'HH24:MI') AS dep_time" : c)).join(', ')} FROM ${t}`;
 
 // ═══════════════════════════════════════════════════ выполнение ══
-const robotErr = () => { W.play('jump', true); setTimeout(() => W.play('idle'), 700); };
+const robotErr = () => {
+  W.play('jump', true);
+  setTimeout(() => W.play('idle'), 700);
+};
 async function run() {
   if (running || !db || !G || G.lv == null) return;
   const all = $('sql').value.trim();
@@ -32,14 +63,18 @@ async function run() {
   if (bad >= 0) {
     const msg = (st.length > 1 ? `Команда ${bad + 1}: ` : '') + qs[bad].err;
     $('result').innerHTML = `<span class="bad">${esc(msg)}</span>`;
-    SFX.err(); robotErr();
+    SFX.err();
+    robotErr();
     errBox('Ошибка в записи команды', msg);
     lintFail(msg, st[bad]);
     return;
   }
   if (lv.pred && !G.P.pred[lv.key] && qs.some(q => q.kind === 'INSERT')) await predict(lv);
-  setRunning(true); $('runBtn').disabled = true;
-  W.clearChips(); W.hideCard(); W.clearSay();
+  setRunning(true);
+  $('runBtn').disabled = true;
+  W.clearChips();
+  W.hideCard();
+  W.clearSay();
   const rec = recOf(lv);
   try {
     for (let i = 0; i < qs.length; i++) {
@@ -47,16 +82,27 @@ async function run() {
       rec.runs++;
       const info = qs[i].kind === 'INSERT' ? await runInsert(qs[i], st[i]) : await runSelect(qs[i], st[i]);
       const left = qs.length - 1 - i;
-      if (info && info.err && left) { $('result').insertAdjacentHTML('beforeend', `<div class="ru">Команды после ошибки (${left}) не выполнялись.</div>`); break; }
+      if (info && info.err && left) {
+        $('result').insertAdjacentHTML('beforeend', `<div class="ru">Команды после ошибки (${left}) не выполнялись.</div>`);
+        break;
+      }
       if ((G.P.lv[lv.key] || {}).done && left && G.lv === L.indexOf(lv)) break;
     }
   } finally {
     G.stmtTag = '';
-    cmdBar(null); hud(); W.camS.follow = false; W.focus(null); W.beamOff();
-    setRunning(false); $('runBtn').disabled = false;
+    cmdBar(null);
+    hud();
+    W.camS.follow = false;
+    W.focus(null);
+    W.beamOff();
+    setRunning(false);
+    $('runBtn').disabled = false;
   }
 }
-async function fin(q, info) { await afterRun(q, info); return info; }
+async function fin(q, info) {
+  await afterRun(q, info);
+  return info;
+}
 
 async function runInsert(q, sql) {
   const cols = q.cols || COLS[q.t];
@@ -64,85 +110,147 @@ async function runInsert(q, sql) {
   // 1. команда целиком — есть ли ошибка, которая не про конкретную строку
   let whole = null;
   await db.exec('BEGIN');
-  try { await db.query(q.sql); } catch (e) { whole = e; }
+  try {
+    await db.query(q.sql);
+  } catch (e) {
+    whole = e;
+  }
   await db.exec('ROLLBACK');
   if (whole && !/^23/.test(whole.code || '')) {
     robotErr();
-    markError(whole); $('result').innerHTML = `<span class="bad">ERROR: ${esc(whole.message)}</span><div class="ru">${esc(explain(whole))}</div>`;
-    SFX.err(); journal(sql, 'ERROR ' + (whole.code || ''));
+    markError(whole);
+    $('result').innerHTML = `<span class="bad">ERROR: ${esc(whole.message)}</span><div class="ru">${esc(explain(whole))}</div>`;
+    SFX.err();
+    journal(sql, 'ERROR ' + (whole.code || ''));
     return fin(q, {err: whole});
   }
   // 2. пробный прогон по строкам — что подставит СУБД и где откажет
-  const got = []; let failAt = -1, failErr = null;
+  const got = [];
+  let failAt = -1,
+    failErr = null;
   await db.exec('BEGIN');
   for (let i = 0; i < q.tuples.length; i++) {
-    try { got.push((await db.query(`INSERT INTO ${q.t}${colPart} VALUES ${q.tuples[i].raw} RETURNING ${SEL(q.t).slice(7).replace(/ FROM \w+$/, '')}`)).rows[0]); }
-    catch (e) { failAt = i; failErr = e; break; }
+    try {
+      got.push(
+        (
+          await db.query(
+            `INSERT INTO ${q.t}${colPart} VALUES ${q.tuples[i].raw} RETURNING ${SEL(q.t)
+              .slice(7)
+              .replace(/ FROM \w+$/, '')}`,
+          )
+        ).rows[0],
+      );
+    } catch (e) {
+      failAt = i;
+      failErr = e;
+      break;
+    }
   }
   await db.exec('ROLLBACK');
-  if (whole && failAt < 0) { failAt = q.tuples.length - 1; failErr = whole; }
+  if (whole && failAt < 0) {
+    failAt = q.tuples.length - 1;
+    failErr = whole;
+  }
   // 3. робот несёт строки по одной
   const n = q.tuples.length;
-  cmdBar(`<span class="k">${G.stmtTag || ''}INSERT INTO ${esc(q.t)}${esc(colPart)}</span><span class="w">${n} ${plural(n, 'строка', 'строки', 'строк')} в VALUES — по одной, сверху вниз</span>`);
+  cmdBar(
+    `<span class="k">${G.stmtTag || ''}INSERT INTO ${esc(q.t)}${esc(colPart)}</span><span class="w">${n} ${plural(n, 'строка', 'строки', 'строк')} в VALUES — по одной, сверху вниз</span>`,
+  );
   W.camS.follow = true;
   hud(0, 0, n, 'строк', 'принято');
   const jobs = [];
   const fast = () => W.speed >= 50;
   for (let i = 0; i < n; i++) {
-    const tu = q.tuples[i], ok = i !== failAt;
+    const tu = q.tuples[i],
+      ok = i !== failAt;
     const given = Object.fromEntries(cols.slice(0, tu.vals.length).map((c, k) => [c, tu.vals[k]]));
     const row = ok ? got[i] : Object.fromEntries(cols.map(c => [c, litVal(given[c] ?? 'NULL')]));
     const loc = W.locate(q.t, row);
     if (!fast() || !ok) {
       W.focus(loc.aim);
-      await W.robotGo(loc.x, loc.z); W.face(loc.face); W.aimBeam(loc.aim);
+      await W.robotGo(loc.x, loc.z);
+      W.face(loc.face);
+      W.aimBeam(loc.aim);
       // карточка строки: что указано, что подставлено по умолчанию, какой столбец нарушил правило
       const bc = ok ? null : badCol(failErr, q.t);
-      const lines = COLS[q.t].map(c => {
-        const has = c in given;
-        const v = has ? given[c] : null, dv = /^default$/i.test(v || '');
-        const val = has && !dv ? `<b>${esc(v)}</b>` : ok ? `<b>${esc(fmt(row[c]))}</b><em>${row[c] === null ? 'пусто' : 'по умолчанию'}</em>` : '<b>—</b><em>не указан</em>';
-        return `<div class="${c === bc ? 'bad' : has && !dv ? '' : 'def'}"><span>${c}</span>${val}</div>`;
-      }).join('');
-      const v = ok ? '<div class="rc-v yes">ПРИНЯТО</div>' : `<div class="rc-v err">ОТКАЗ · ${esc(failErr.constraint || failErr.column || failErr.code)}</div><div class="rc-t">${esc(explain(failErr))}</div>`;
+      const lines = COLS[q.t]
+        .map(c => {
+          const has = c in given;
+          const v = has ? given[c] : null,
+            dv = /^default$/i.test(v || '');
+          const val =
+            has && !dv
+              ? `<b>${esc(v)}</b>`
+              : ok
+                ? `<b>${esc(fmt(row[c]))}</b><em>${row[c] === null ? 'пусто' : 'по умолчанию'}</em>`
+                : '<b>—</b><em>не указан</em>';
+          return `<div class="${c === bc ? 'bad' : has && !dv ? '' : 'def'}"><span>${c}</span>${val}</div>`;
+        })
+        .join('');
+      const v = ok
+        ? '<div class="rc-v yes">ПРИНЯТО</div>'
+        : `<div class="rc-v err">ОТКАЗ · ${esc(failErr.constraint || failErr.column || failErr.code)}</div><div class="rc-t">${esc(explain(failErr))}</div>`;
       W.showCard(loc.obj[0], loc.obj[1], `<div class="rc-h">${esc(q.t)} · строка ${i + 1} из ${n}</div>${lines}${v}`, ok ? 'ins' : 'err');
       ok ? SFX.yes() : SFX.err();
       await sleep(Math.max(120, 700 / W.speed));
       await hold(i + 1);
     }
-    if (!ok) {                                       // отказ: вся команда отменяется
-      W.beamOff(); W.play('jump', true); W.shake();
+    if (!ok) {
+      // отказ: вся команда отменяется
+      W.beamOff();
+      W.play('jump', true);
+      W.shake();
       hud(i, i, n, 'строк', 'принято');
       const cyr = Object.values(given).find(x => /^'.*[АВСЕНКМОРТХ].*'$/.test(x || '') && /^'[1-9][АВСЕНКМОРТХA-Z0-9]*'$/.test(x));
       const ruNote = cyr ? ` В ${cyr} русская буква — номера мест и выходов пишутся латиницей (раскладка EN).` : '';
-      const bv = given[badCol(failErr, q.t)];               // значение, которое не пропустила СУБД
-      markError(bv && !/^default$/i.test(bv) ? bv : failErr); $('result').innerHTML = `<span class="bad">ERROR: ${esc(failErr.message)}</span><div class="ru">${esc(explain(failErr) + ruNote)} Команда не выполнена — строки, вставленные до этой, тоже отменяются.</div>`;
+      const bv = given[badCol(failErr, q.t)]; // значение, которое не пропустила СУБД
+      markError(bv && !/^default$/i.test(bv) ? bv : failErr);
+      $('result').innerHTML =
+        `<span class="bad">ERROR: ${esc(failErr.message)}</span><div class="ru">${esc(explain(failErr) + ruNote)} Команда не выполнена — строки, вставленные до этой, тоже отменяются.</div>`;
       await Promise.all(jobs);
       await sleep(1500);
-      $('rewind').hidden = false; SFX.rew();
+      $('rewind').hidden = false;
+      SFX.rew();
       W.hideCard();
       await W.sync(await state(), true);
-      await sleep(400); $('rewind').hidden = true;
-      W.clearChips(); W.play('idle');
+      await sleep(400);
+      $('rewind').hidden = true;
+      W.clearChips();
+      W.play('idle');
       journal(sql, 'ERROR ' + (failErr.constraint || failErr.code));
-      await W.robotGo(W.HOME.x, 0); W.face(-Math.PI / 2);
+      await W.robotGo(W.HOME.x, 0);
+      W.face(-Math.PI / 2);
       return fin(q, {err: failErr});
     }
-    W.hideCard(); SFX.pop();
+    W.hideCard();
+    SFX.pop();
     jobs.push(W.insertRow(q.t, row, true));
     W.chip(q.t, String(row[TABLES[q.t]]), 'yes', '+');
-    if (!fast()) { W.play('jump', true); await sleep(Math.max(80, 380 / W.speed)); W.play('idle'); }
+    if (!fast()) {
+      W.play('jump', true);
+      await sleep(Math.max(80, 380 / W.speed));
+      W.play('idle');
+    }
     hud(i + 1, i + 1, n, 'строк', 'принято');
   }
   W.beamOff();
   // 4. настоящая команда
   let r;
-  try { r = await db.query(q.sql); } catch (e) { markError(e); $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span>`; await W.sync(await state(), true); return fin(q, {err: e}); }
+  try {
+    r = await db.query(q.sql);
+  } catch (e) {
+    markError(e);
+    $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span>`;
+    await W.sync(await state(), true);
+    return fin(q, {err: e});
+  }
   const tag = `INSERT 0 ${r.affectedRows}`;
-  $('result').innerHTML = `<span class="ok">${esc(tag)}</span><div class="ru">${r.affectedRows} ${plural(r.affectedRows, 'строка добавлена', 'строки добавлены', 'строк добавлено')} одной командой.</div>`;
+  $('result').innerHTML =
+    `<span class="ok">${esc(tag)}</span><div class="ru">${r.affectedRows} ${plural(r.affectedRows, 'строка добавлена', 'строки добавлены', 'строк добавлено')} одной командой.</div>`;
   journal(sql, tag);
   await Promise.all(jobs);
-  await W.robotGo(W.HOME.x, 0); W.face(-Math.PI / 2);
+  await W.robotGo(W.HOME.x, 0);
+  W.face(-Math.PI / 2);
   W.camS.follow = false;
   await W.sync(await state(), true);
   return fin(q, {err: null, n: r.affectedRows, cols: q.cols});
@@ -155,64 +263,97 @@ async function runSelect(q, sql) {
     r = await db.query(q.sql);
   } catch (e) {
     robotErr();
-    markError(e); $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
-    SFX.err(); journal(sql, 'ошибка');
+    markError(e);
+    $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
+    SFX.err();
+    journal(sql, 'ошибка');
     return fin(q, {err: e});
   }
-  cmdBar(`<span class="k">${G.stmtTag || ''}SELECT … FROM ${esc(q.t)}</span><span class="w">${q.where ? 'WHERE ' + esc(q.where) : q.count ? 'count(*) — робот считает строки' : 'все строки'}</span>`);
+  cmdBar(
+    `<span class="k">${G.stmtTag || ''}SELECT … FROM ${esc(q.t)}</span><span class="w">${q.where ? 'WHERE ' + esc(q.where) : q.count ? 'count(*) — робот считает строки' : 'все строки'}</span>`,
+  );
   W.camS.follow = true;
-  let done = 0, yes = 0;
-  const one = q.t === 'flight';                      // все рейсы — на одном табло
+  let done = 0,
+    yes = 0;
+  const one = q.t === 'flight'; // все рейсы — на одном табло
   hud(0, 0, rows.length);
   for (const row of rows) {
     const loc = W.locate(q.t, row);
-    const v = row.__w, kind = v === true ? 'yes' : v === false ? 'no' : 'unk';
+    const v = row.__w,
+      kind = v === true ? 'yes' : v === false ? 'no' : 'unk';
     if (W.speed < 50 && (!one || done === 0)) {
       W.focus(loc.aim);
-      await W.robotGo(loc.x, loc.z); W.face(loc.face); W.aimBeam(loc.aim);
+      await W.robotGo(loc.x, loc.z);
+      W.face(loc.face);
+      W.aimBeam(loc.aim);
       SFX[kind]();
       await sleep(Math.max(40, (q.count ? 120 : 380) / W.speed));
       await hold(done + 1);
     }
-    done++; if (v === true) yes++;
+    done++;
+    if (v === true) yes++;
     if (!one) W.chip(loc.obj[0], loc.obj[1], kind, q.count && v === true ? String(yes) : kind === 'yes' ? '✓' : '?');
     hud(done, yes, rows.length);
   }
   if (one) W.chip('flight', '*', 'yes', String(yes));
-  W.beamOff(); W.fadeNo();
+  W.beamOff();
+  W.fadeNo();
   const n = r.rows.length;
   const val = q.count && r.rows[0] ? Object.values(r.rows[0])[0] : null;
   const tag = q.count && n === 1 ? `count = ${val}` : `(${n} ${plural(n, 'строка', 'строки', 'строк')})`;
   const cols = r.rows[0] ? Object.keys(r.rows[0]) : [];
-  const grid = !q.count && n ? `<table class="res"><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr>${r.rows.slice(0, 12).map(x => `<tr>${cols.map(c => `<td>${esc(x[c] == null ? 'NULL' : x[c])}</td>`).join('')}</tr>`).join('')}</table>${n > 12 ? `<div class="ru">…и ещё ${n - 12}</div>` : ''}` : '';
+  const grid =
+    !q.count && n
+      ? `<table class="res"><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr>${r.rows
+          .slice(0, 12)
+          .map(x => `<tr>${cols.map(c => `<td>${esc(x[c] == null ? 'NULL' : x[c])}</td>`).join('')}</tr>`)
+          .join('')}</table>${n > 12 ? `<div class="ru">…и ещё ${n - 12}</div>` : ''}`
+      : '';
   $('result').innerHTML = `<span class="ok">${esc(tag)}</span>${grid}<div class="ru">Это только просмотр — база не изменилась.</div>`;
   journal(sql, tag);
-  await W.robotGo(W.HOME.x, 0); W.face(-Math.PI / 2);
+  await W.robotGo(W.HOME.x, 0);
+  W.face(-Math.PI / 2);
   return fin(q, {err: null, value: val != null ? Number(val) : null});
 }
 
 // ═════════════════════════════════════════════════ проверка уровня ══
 async function afterRun(q, info) {
-  const lv = L[G.lv], rec = G.P.lv[lv.key];
-  if (rec.done && !lv.final) { if (!info.err) verdict(true, 'Уровень уже пройден — можно идти дальше.', '', true, true); return; }
-  if (lv.check === 'custom') {                     // «охота»: отказ по каждому правилу из списка
+  const lv = L[G.lv],
+    rec = G.P.lv[lv.key];
+  if (rec.done && !lv.final) {
+    if (!info.err) verdict(true, 'Уровень уже пройден — можно идти дальше.', '', true, true);
+    return;
+  }
+  if (lv.check === 'custom') {
+    // «охота»: отказ по каждому правилу из списка
     let msg = '';
     if (lv.slotBy === 'constraint' && q.kind === 'INSERT') {
       if (info.err) {
         const key = info.err.code === '23502' ? 'notnull' : info.err.constraint;
         if (lv.slots.includes(key)) G.slots[key] = info.err.code === '23502' ? 'столбец ' + (info.err.column || '') : 'отказ получен';
-        else msg = `Отказ по правилу ${key || info.err.code} — его нет в списке. Нужны: ${lv.slots.filter(x => G.slots[x] == null).map(x => lv.slotNames[x]).join(', ')}.`;
+        else
+          msg = `Отказ по правилу ${key || info.err.code} — его нет в списке. Нужны: ${lv.slots
+            .filter(x => G.slots[x] == null)
+            .map(x => lv.slotNames[x])
+            .join(', ')}.`;
       } else msg = 'Эту строку СУБД приняла. Нужна такая, которую она отклонит именно по одному из правил списка.';
     }
     renderSlots();
-    if (!lv.slots.every(s => G.slots[s] != null)) { if (msg) verdict(false, msg); return; }
+    if (!lv.slots.every(s => G.slots[s] != null)) {
+      if (msg) verdict(false, msg);
+      return;
+    }
     rec.note = lv.slots.map(s => `${lv.slotNames[s]}: ${G.slots[s]}`).join('; ');
     return success(lv, rec);
   }
-  if (q.kind === 'SELECT') {                       // доклад count(*) после загрузки
+  if (q.kind === 'SELECT') {
+    // доклад count(*) после загрузки
     if (!lv.needCount || info.err || !q.count || q.t !== lv.needCount || q.where) return;
     const jj = judge(await state(), G.target, G.start, lv.tables, TABLES);
-    if (!jj.ok) { verdict(null, 'Сначала загрузите все чемоданы — потом считайте.'); return; }
+    if (!jj.ok) {
+      verdict(null, 'Сначала загрузите все чемоданы — потом считайте.');
+      return;
+    }
     rec.note = `count(*) FROM ${q.t} = ${info.value}`;
     return success(lv, rec);
   }
@@ -220,7 +361,9 @@ async function afterRun(q, info) {
     errBox('Ошибка — команда не выполнена', `${explain(info.err) || info.err.message} База не изменилась.`);
     if (info.err.code === '23505' && lv.key === 'group') G.sawFail = true;
     if (!(lv.prefill && rec.runs === 1)) rec.fails++;
-    save(); renderMission(); return;
+    save();
+    renderMission();
+    return;
   }
   G.maxN = Math.max(G.maxN || 0, info.n || 0);
   if (lv.noCol && info.cols && info.cols.includes(lv.noCol)) G.usedCol = true;
@@ -231,12 +374,26 @@ async function afterRun(q, info) {
   }
   if (j.pending.length) {
     verdict(null, `Принято. Осталось добавить: ${j.pending.length} ${plural(j.pending.length, 'строку', 'строки', 'строк')}.`);
-    renderMission(); return;
+    renderMission();
+    return;
   }
   if (lv.one && G.maxN < lv.one) return rollback(rec, 'Строки верные, но их нужно было добавить одной командой: VALUES (…), (…), (…).');
-  if (lv.noCol && G.usedCol) return rollback(rec, `Строки верные, но столбец ${lv.noCol} вы указали сами. Его значение по умолчанию подставляет СУБД — уберите ${lv.noCol} из перечня столбцов.`);
-  if (lv.key === 'group' && !G.sawFail) return rollback(rec, 'Группа на месте, но сначала нужно было запустить список как есть и увидеть отказ. Список снова в пульте — запустите его.', true);
-  if (lv.needCount) { verdict(null, `Все строки на месте. Осталось доложить: SELECT count(*) FROM ${lv.needCount};`); renderMission(); return; }
+  if (lv.noCol && G.usedCol)
+    return rollback(
+      rec,
+      `Строки верные, но столбец ${lv.noCol} вы указали сами. Его значение по умолчанию подставляет СУБД — уберите ${lv.noCol} из перечня столбцов.`,
+    );
+  if (lv.key === 'group' && !G.sawFail)
+    return rollback(
+      rec,
+      'Группа на месте, но сначала нужно было запустить список как есть и увидеть отказ. Список снова в пульте — запустите его.',
+      true,
+    );
+  if (lv.needCount) {
+    verdict(null, `Все строки на месте. Осталось доложить: SELECT count(*) FROM ${lv.needCount};`);
+    renderMission();
+    return;
+  }
   return success(lv, rec);
 }
 
@@ -244,7 +401,12 @@ async function afterRun(q, info) {
 function renderSlots() {
   const lv = L[G.lv];
   if (!lv.slots || !$('slots')) return;
-  $('slots').innerHTML = lv.slots.map(s => `<div class="slot${G.slots[s] != null ? ' on' : ''}${lv.key === 'count' ? ' cnt' : ''}"><b>${esc(lv.slotNames[s])}</b><span>${G.slots[s] != null ? esc(G.slots[s]) : lv.key === 'count' ? '?' : 'нет отказа'}</span></div>`).join('');
+  $('slots').innerHTML = lv.slots
+    .map(
+      s =>
+        `<div class="slot${G.slots[s] != null ? ' on' : ''}${lv.key === 'count' ? ' cnt' : ''}"><b>${esc(lv.slotNames[s])}</b><span>${G.slots[s] != null ? esc(G.slots[s]) : lv.key === 'count' ? '?' : 'нет отказа'}</span></div>`,
+    )
+    .join('');
 }
 function cmdsLine(lv) {
   if (lv.cmds) return lv.cmds;
@@ -258,7 +420,8 @@ const SCHEMA_HTML = `<details class="schema"><summary>Структура таб�
   <div class="ru-n">Номера мест (1A…6F) и выходов (A1) — латиницей, раскладка EN.</div>
   <div><b>baggage</b> tag <i>PK</i>, passenger_id <i>→ passenger</i>, weight_kg <i>CHECK 1–32</i></div></details>`;
 function renderMission() {
-  const lv = L[G.lv], rec = G.P.lv[lv.key] || {};
+  const lv = L[G.lv],
+    rec = G.P.lv[lv.key] || {};
   $('mission').innerHTML = `${levelTag(lv)}
     <h1>${esc(lv.title)}</h1><div class="lab">${esc(lv.lab)}</div>
     <p>${esc(lv.text)}</p>
@@ -276,52 +439,92 @@ async function startLevel(i) {
   if (!unlocked(i)) return;
   setRunning(true);
   const same = G.lv === i;
-  G.lv = i; G.slots = {}; G.maxN = 0; G.usedCol = false; G.sawFail = false;
+  G.lv = i;
+  G.slots = {};
+  G.maxN = 0;
+  G.usedCol = false;
+  G.sawFail = false;
   const lv = L[i];
-  $('verdict').innerHTML = ''; $('result').innerHTML = '';
-  renderLevels(); renderMission();
+  $('verdict').innerHTML = '';
+  $('result').innerHTML = '';
+  renderLevels();
+  renderMission();
   await prepareLevel(i);
-  W.resetRoot(); W.clearConfetti();
+  W.resetRoot();
+  W.clearConfetti();
   W.build(await state(), {flight: D.FLIGHT, queue: (lv.queue || []).map(talon), cart: (lv.cart || []).map(tagOf), ghosts: lv.ghosts});
   W.home();
   if (!same || !$('sql').value.trim()) $('sql').value = lv.prefill || '';
   if (lv.prefill) allowPaste(lv.prefill);
-  G.P.cur = i; save();
+  G.P.cur = i;
+  save();
   report('level', {lv: i + 1, key: lv.key, reset: same});
   setRunning(false);
   $('sql').focus();
 }
 
 // ═════════════════════════════════════ щелчок по объекту сцены ══
-const rowCard = (title, obj) => `<div class="rc-h">${esc(title)}</div>${Object.entries(obj).map(([c, v]) => `<div><span>${esc(c)}</span><b>${esc(v == null ? 'NULL' : v)}</b></div>`).join('')}`;
+const rowCard = (title, obj) =>
+  `<div class="rc-h">${esc(title)}</div>${Object.entries(obj)
+    .map(([c, v]) => `<div><span>${esc(c)}</span><b>${esc(v == null ? 'NULL' : v)}</b></div>`)
+    .join('')}`;
 async function pick(p) {
-  if (p.t === 'queue') {                           // у трапа — посадочный талон
-    const Q = W.queue.get(p.k); if (!Q) return;
+  if (p.t === 'queue') {
+    // у трапа — посадочный талон
+    const Q = W.queue.get(p.k);
+    if (!Q) return;
     const d = Q.doc;
-    W.showCard('queue', p.k, `<div class="talon"><div class="tl-h">ПОСАДОЧНЫЙ № ${d.id}</div><div class="tl-n">${esc(d.full_name)}</div>
-      <div class="tl-g"><span>рейс</span><b>${esc(d.flight_no)}</b><span>место</span><b>${esc(d.seat_no)}</b><span>г. р.</span><b>${d.birth_year}</b><span>город</span><b>${esc(d.city)}</b>${d.meal ? `<span>питание</span><b>${esc(d.meal)}</b>` : ''}</div></div>`, 'info');
+    W.showCard(
+      'queue',
+      p.k,
+      `<div class="talon"><div class="tl-h">ПОСАДОЧНЫЙ № ${d.id}</div><div class="tl-n">${esc(d.full_name)}</div>
+      <div class="tl-g"><span>рейс</span><b>${esc(d.flight_no)}</b><span>место</span><b>${esc(d.seat_no)}</b><span>г. р.</span><b>${d.birth_year}</b><span>город</span><b>${esc(d.city)}</b>${d.meal ? `<span>питание</span><b>${esc(d.meal)}</b>` : ''}</div></div>`,
+      'info',
+    );
     return;
   }
-  if (p.t === 'cart') {                            // на тележке — бирка
-    const C = W.cartBags.get(p.k); if (!C) return;
-    W.showCard('cart', p.k, `<div class="btag"><b>${esc(C.doc.tag)}</b><div>${C.doc.weight_kg} кг</div><div class="mu">рейс ${esc(C.doc.flight_no)} · место ${esc(C.doc.seat_no)}</div></div>`, 'info');
+  if (p.t === 'cart') {
+    // на тележке — бирка
+    const C = W.cartBags.get(p.k);
+    if (!C) return;
+    W.showCard(
+      'cart',
+      p.k,
+      `<div class="btag"><b>${esc(C.doc.tag)}</b><div>${C.doc.weight_kg} кг</div><div class="mu">рейс ${esc(C.doc.flight_no)} · место ${esc(C.doc.seat_no)}</div></div>`,
+      'info',
+    );
     return;
   }
-  if (p.t === 'flight') {                          // табло — вся таблица flight
+  if (p.t === 'flight') {
+    // табло — вся таблица flight
     const rs = (await db.query(`${SEL('flight')} ORDER BY dep_time`)).rows;
-    W.showCard('flight', '*', `<div class="rc-h">flight · ${rs.length} ${plural(rs.length, 'строка', 'строки', 'строк')}</div>${rs.map(r => `<div><b>${esc(r.flight_no)}</b> ${esc(r.dep_time)} ${esc(r.dest)} <span>${r.gate == null ? 'NULL' : esc(r.gate)}</span></div>`).join('') || '<div><span>таблица пуста</span></div>'}`, 'info');
+    W.showCard(
+      'flight',
+      '*',
+      `<div class="rc-h">flight · ${rs.length} ${plural(rs.length, 'строка', 'строки', 'строк')}</div>${rs.map(r => `<div><b>${esc(r.flight_no)}</b> ${esc(r.dep_time)} ${esc(r.dest)} <span>${r.gate == null ? 'NULL' : esc(r.gate)}</span></div>`).join('') || '<div><span>таблица пуста</span></div>'}`,
+      'info',
+    );
     return;
   }
   const r = (await db.query(`${SEL(p.t)} WHERE ${TABLES[p.t]} = $1`, [p.k])).rows[0];
   if (r) W.showCard(p.t, String(p.k), rowCard(p.t + ' · строка', r), 'info');
 }
 
-const INTRO = '<p>Самолёт пуст: ни рейса на табло, ни кресел, ни пассажиров. Всё, что появится на борту, появится из ваших команд <code>INSERT</code>. <b>Робот-СУБД</b> несёт каждую строку на её место и проверяет: есть ли всё обязательное, не нарушено ли правило, существует ли то, на что строка ссылается.</p>';
+const INTRO =
+  '<p>Самолёт пуст: ни рейса на табло, ни кресел, ни пассажиров. Всё, что появится на борту, появится из ваших команд <code>INSERT</code>. <b>Робот-СУБД</b> несёт каждую строку на её место и проверяет: есть ли всё обязательное, не нарушено ли правило, существует ли то, на что строка ссылается.</p>';
 const head = more => `<span class="tag">ОПЦ.07 · ЛР-13</span><h2>INSERT: открытие рейса</h2>${INTRO}
     <p class="mu">12 уровней, каждый открывается после предыдущего. За каждый уровень — баллы; сдать можно в любой момент (кнопка «Сдать»). ${more}</p>`;
 initShell({
-  lab: 'lr13', storeKey: 'air3d-lr13-', world: W,
-  makeData, levels, baseSql, PTS, TABLES, COLS, sel: SEL,
+  lab: 'lr13',
+  storeKey: 'air3d-lr13-',
+  world: W,
+  makeData,
+  levels,
+  baseSql,
+  PTS,
+  TABLES,
+  COLS,
+  sel: SEL,
   head: head('Вариант задаётся вашим местом в списке группы — у соседа данные другие.'),
   legacyHead: head('Номер в журнале задаёт рейс, пассажиров и багаж — у соседа они другие.'),
   startLabel: 'Открыть рейс',
@@ -330,14 +533,18 @@ initShell({
   protoTitle: 'ЛР-13 «Наполнение базы данными: оператор INSERT»',
   questions: [
     'Уровни «Эконом по умолчанию» и «Первый пассажир»: что записала СУБД в cls и meal, хотя вы их не указывали? Откуда она взяла эти значения?',
-    'Уровень «Ещё два рейса»: чем NULL в столбце gate отличается от текста \'NULL\' и от пустой строки \'\'?',
+    "Уровень «Ещё два рейса»: чем NULL в столбце gate отличается от текста 'NULL' и от пустой строки ''?",
     'Уровень «Сначала кресло»: почему пассажира нельзя было вставить раньше кресла? В каком порядке заполнять flight, seat, passenger, baggage?',
     'Уровень «Ошибка в списке»: сколько строк добавила команда, в которой ошибка была только во второй строке, и почему?',
   ],
   onRollback: prefill => {
-    G.maxN = 0; G.usedCol = false;
+    G.maxN = 0;
+    G.usedCol = false;
     if (prefill && L[G.lv].prefill) $('sql').value = L[G.lv].prefill;
   },
-  run, startLevel, renderMission, pick,
+  run,
+  startLevel,
+  renderMission,
+  pick,
 });
 boot();

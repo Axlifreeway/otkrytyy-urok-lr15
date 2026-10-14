@@ -12,7 +12,14 @@ const check = process.argv.includes('--check');
 let stale = 0;
 for (const lab of LABS) {
   const outfile = join(ROOT, lab, 'game.js');
-  const r = await build({entryPoints: [join(ROOT, lab, 'src/main.js')], bundle: true, format: 'iife', minify: true, outfile, write: !check});
+  const r = await build({
+    entryPoints: [join(ROOT, lab, 'src/main.js')],
+    bundle: true,
+    format: 'iife',
+    minify: true,
+    outfile,
+    write: !check,
+  });
   if (check) {
     const same = Buffer.compare(r.outputFiles[0].contents, readFileSync(outfile)) === 0;
     if (!same) stale++;

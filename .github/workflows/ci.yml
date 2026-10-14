@@ -14,6 +14,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Код отформатирован (Prettier)
+        run: npm run lint
       - name: Юнит-тесты и тесты сервера
         run: npm test
       - name: game.js собраны из текущих исходников

@@ -5,15 +5,16 @@
 'use strict';
 const W = (() => {
   const $ = id => document.getElementById(id);
-  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
-    c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const esc = s =>
+    String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // ─────────────────────────────────────────── случайность по номеру ──
-  function rng(seed) {                                   // mulberry32
+  function rng(seed) {
+    // mulberry32
     let a = seed >>> 0;
     const f = () => {
-      a = (a + 0x6D2B79F5) >>> 0;
+      a = (a + 0x6d2b79f5) >>> 0;
       let t = a;
       t = Math.imul(t ^ (t >>> 15), t | 1);
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
@@ -21,63 +22,225 @@ const W = (() => {
     };
     f.int = (lo, hi) => lo + Math.floor(f() * (hi - lo + 1));
     f.pick = a => a[Math.floor(f() * a.length)];
-    f.shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(f() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    f.shuffle = a => {
+      a = a.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(f() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    };
     f.take = (a, n) => f.shuffle(a).slice(0, n);
     return f;
   }
 
-  const SURN = ['Иванов', 'Петров', 'Смирнов', 'Кузнецов', 'Попов', 'Соколов', 'Лебедев', 'Козлов',
-    'Новиков', 'Морозов', 'Волков', 'Алексеев', 'Егоров', 'Павлов', 'Семёнов', 'Голубев', 'Виноградов',
-    'Богданов', 'Фёдоров', 'Михайлов', 'Беляев', 'Тарасов', 'Комаров', 'Орлов', 'Киселёв', 'Макаров',
-    'Андреев', 'Ковалёв', 'Ильин', 'Гусев', 'Титов', 'Баранов', 'Куликов', 'Степанов', 'Яковлев',
-    'Сорокин', 'Романов', 'Захаров', 'Борисов', 'Королёв', 'Герасимов', 'Пономарёв', 'Григорьев',
-    'Лазарев', 'Медведев', 'Ершов', 'Никитин', 'Соболев', 'Рябов', 'Поляков', 'Цветков', 'Данилов',
-    'Жуков', 'Фролов', 'Николаев', 'Крылов', 'Максимов', 'Сидоров', 'Осипов', 'Белоусов', 'Калинин',
-    'Антонов', 'Тимофеев', 'Филиппов', 'Марков', 'Миронов', 'Казаков', 'Ефимов', 'Денисов', 'Громов',
-    'Фомин', 'Давыдов', 'Мельников', 'Карпов', 'Власов', 'Тихонов', 'Гаврилов', 'Котов', 'Быков',
-    'Зуев', 'Панов', 'Абрамов', 'Воронов', 'Мухин', 'Архипов', 'Чернов', 'Назаров', 'Лукин', 'Ермаков',
-    'Дроздов', 'Савин', 'Логинов', 'Кириллов', 'Уваров', 'Юдин', 'Щукин', 'Шубин', 'Широков', 'Ушаков'];
+  const SURN = [
+    'Иванов',
+    'Петров',
+    'Смирнов',
+    'Кузнецов',
+    'Попов',
+    'Соколов',
+    'Лебедев',
+    'Козлов',
+    'Новиков',
+    'Морозов',
+    'Волков',
+    'Алексеев',
+    'Егоров',
+    'Павлов',
+    'Семёнов',
+    'Голубев',
+    'Виноградов',
+    'Богданов',
+    'Фёдоров',
+    'Михайлов',
+    'Беляев',
+    'Тарасов',
+    'Комаров',
+    'Орлов',
+    'Киселёв',
+    'Макаров',
+    'Андреев',
+    'Ковалёв',
+    'Ильин',
+    'Гусев',
+    'Титов',
+    'Баранов',
+    'Куликов',
+    'Степанов',
+    'Яковлев',
+    'Сорокин',
+    'Романов',
+    'Захаров',
+    'Борисов',
+    'Королёв',
+    'Герасимов',
+    'Пономарёв',
+    'Григорьев',
+    'Лазарев',
+    'Медведев',
+    'Ершов',
+    'Никитин',
+    'Соболев',
+    'Рябов',
+    'Поляков',
+    'Цветков',
+    'Данилов',
+    'Жуков',
+    'Фролов',
+    'Николаев',
+    'Крылов',
+    'Максимов',
+    'Сидоров',
+    'Осипов',
+    'Белоусов',
+    'Калинин',
+    'Антонов',
+    'Тимофеев',
+    'Филиппов',
+    'Марков',
+    'Миронов',
+    'Казаков',
+    'Ефимов',
+    'Денисов',
+    'Громов',
+    'Фомин',
+    'Давыдов',
+    'Мельников',
+    'Карпов',
+    'Власов',
+    'Тихонов',
+    'Гаврилов',
+    'Котов',
+    'Быков',
+    'Зуев',
+    'Панов',
+    'Абрамов',
+    'Воронов',
+    'Мухин',
+    'Архипов',
+    'Чернов',
+    'Назаров',
+    'Лукин',
+    'Ермаков',
+    'Дроздов',
+    'Савин',
+    'Логинов',
+    'Кириллов',
+    'Уваров',
+    'Юдин',
+    'Щукин',
+    'Шубин',
+    'Широков',
+    'Ушаков',
+  ];
   const INIT = 'АБВГДЕИКЛМНОПРСТЮЯ';
-  const CITIES = ['Тюмень', 'Тюмень', 'Тюмень', 'Москва', 'Москва', 'Сургут', 'Тобольск', 'Ишим',
-    'Екатеринбург', 'Омск', 'Ханты-Мансийск', 'Нижневартовск'];
+  const CITIES = [
+    'Тюмень',
+    'Тюмень',
+    'Тюмень',
+    'Москва',
+    'Москва',
+    'Сургут',
+    'Тобольск',
+    'Ишим',
+    'Екатеринбург',
+    'Омск',
+    'Ханты-Мансийск',
+    'Нижневартовск',
+  ];
   function person(r) {
     const f = r() < 0.5;
     return `${r.pick(SURN)}${f ? 'а' : ''} ${r.pick(INIT)}. ${r.pick(INIT)}.`;
   }
-  const lit = v => v === null || v === undefined ? 'NULL' : typeof v === 'boolean' ? String(v)
-    : typeof v === 'number' ? String(v) : "'" + String(v).replace(/'/g, "''") + "'";
+  const lit = v =>
+    v === null || v === undefined
+      ? 'NULL'
+      : typeof v === 'boolean'
+        ? String(v)
+        : typeof v === 'number'
+          ? String(v)
+          : "'" + String(v).replace(/'/g, "''") + "'";
 
   // ────────────────────────────────────────────── разбор текста SQL ──
   // Делит текст на команды по «;» вне строк и комментариев.
   // Строка, начинающаяся с «\», — метакоманда psql (до конца строки).
   function splitSQL(src) {
     const out = [];
-    let cur = '', i = 0;
+    let cur = '',
+      i = 0;
     const n = src.length;
     const push = () => {
       const s = cur.trim();
-      if (s && s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim()) out.push(s);
+      if (
+        s &&
+        s
+          .replace(/--[^\n]*/g, '')
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .trim()
+      )
+        out.push(s);
       cur = '';
     };
     while (i < n) {
-      const c = src[i], d = src[i + 1];
+      const c = src[i],
+        d = src[i + 1];
       if (c === '\\' && !cur.replace(/--[^\n]*/g, '').trim()) {
-        let j = src.indexOf('\n', i); if (j < 0) j = n;
-        cur = src.slice(i, j); push(); i = j + 1; continue;
+        let j = src.indexOf('\n', i);
+        if (j < 0) j = n;
+        cur = src.slice(i, j);
+        push();
+        i = j + 1;
+        continue;
       }
-      if (c === '-' && d === '-') { let j = src.indexOf('\n', i); if (j < 0) j = n; cur += src.slice(i, j); i = j; continue; }
-      if (c === '/' && d === '*') { let j = src.indexOf('*/', i + 2); j = j < 0 ? n : j + 2; cur += src.slice(i, j); i = j; continue; }
+      if (c === '-' && d === '-') {
+        let j = src.indexOf('\n', i);
+        if (j < 0) j = n;
+        cur += src.slice(i, j);
+        i = j;
+        continue;
+      }
+      if (c === '/' && d === '*') {
+        let j = src.indexOf('*/', i + 2);
+        j = j < 0 ? n : j + 2;
+        cur += src.slice(i, j);
+        i = j;
+        continue;
+      }
       if (c === "'" || c === '"') {
         let j = i + 1;
-        while (j < n) { if (src[j] === c) { if (src[j + 1] === c) { j += 2; continue; } break; } j++; }
-        cur += src.slice(i, j + 1); i = j + 1; continue;
+        while (j < n) {
+          if (src[j] === c) {
+            if (src[j + 1] === c) {
+              j += 2;
+              continue;
+            }
+            break;
+          }
+          j++;
+        }
+        cur += src.slice(i, j + 1);
+        i = j + 1;
+        continue;
       }
       if (c === '$') {
         const m = /^\$[A-Za-z_]*\$/.exec(src.slice(i));
-        if (m) { let j = src.indexOf(m[0], i + m[0].length); j = j < 0 ? n : j + m[0].length; cur += src.slice(i, j); i = j; continue; }
+        if (m) {
+          let j = src.indexOf(m[0], i + m[0].length);
+          j = j < 0 ? n : j + m[0].length;
+          cur += src.slice(i, j);
+          i = j;
+          continue;
+        }
       }
-      if (c === ';') { push(); i++; continue; }
-      cur += c; i++;
+      if (c === ';') {
+        push();
+        i++;
+        continue;
+      }
+      cur += c;
+      i++;
     }
     push();
     return out;
@@ -86,7 +249,10 @@ const W = (() => {
   function kindOf(sql) {
     const s = stripComments(sql).trim().replace(/^\(+/, '');
     if (s.startsWith('\\')) return 'META';
-    const w = s.split(/\s+/).slice(0, 2).map(x => x.toUpperCase());
+    const w = s
+      .split(/\s+/)
+      .slice(0, 2)
+      .map(x => x.toUpperCase());
     if (w[0] === 'WITH' || w[0] === 'TABLE' || w[0] === 'VALUES') return 'SELECT';
     if (['CREATE', 'ALTER', 'DROP'].includes(w[0])) return w[0] + ' ' + (w[1] || '');
     if (w[0] === 'START' || w[0] === 'BEGIN') return 'BEGIN';
@@ -97,35 +263,60 @@ const W = (() => {
   function whereOf(sql) {
     const s = stripComments(sql).replace(/\s+/g, ' ').trim().replace(/;$/, '');
     let m;
-    const norm = w => w.toLowerCase().replace(/\s+/g, ' ').replace(/\s*([=<>(),])\s*/g, '$1').trim();
+    const norm = w =>
+      w
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/\s*([=<>(),])\s*/g, '$1')
+        .trim();
     if ((m = /^update\s+([\w.]+)(?:\s+(?:as\s+)?\w+)?\s+set\s+[\s\S]*?\swhere\s+([\s\S]+?)(?:\s+returning\s[\s\S]*)?$/i.exec(s)))
       return {table: m[1].toLowerCase(), where: norm(m[2])};
     if ((m = /^update\s+([\w.]+)/i.exec(s))) return {table: m[1].toLowerCase(), where: null};
     if ((m = /^delete\s+from\s+([\w.]+)(?:\s+(?:as\s+)?\w+)?\s+where\s+([\s\S]+?)(?:\s+returning\s[\s\S]*)?$/i.exec(s)))
       return {table: m[1].toLowerCase(), where: norm(m[2])};
     if ((m = /^delete\s+from\s+([\w.]+)/i.exec(s))) return {table: m[1].toLowerCase(), where: null};
-    if ((m = /^select\s[\s\S]*?\sfrom\s+([\w.]+)(?:\s+(?:as\s+)?(?!where\b)\w+)?\s+where\s+([\s\S]+?)(?:\s+(?:order\s+by|limit|offset|group\s+by)\s[\s\S]*)?$/i.exec(s)))
+    if (
+      (m =
+        /^select\s[\s\S]*?\sfrom\s+([\w.]+)(?:\s+(?:as\s+)?(?!where\b)\w+)?\s+where\s+([\s\S]+?)(?:\s+(?:order\s+by|limit|offset|group\s+by)\s[\s\S]*)?$/i.exec(
+          s,
+        ))
+    )
       return {table: m[1].toLowerCase(), where: norm(m[2])};
     if ((m = /^select\s[\s\S]*?\sfrom\s+([\w.]+)/i.exec(s))) return {table: m[1].toLowerCase(), where: null};
     return null;
   }
 
   // ─────────────────────────────────────────────── ошибки по-русски ──
-  const ERR_LABEL = {fk: 'Внешний ключ', notnull: 'NOT NULL', check: 'CHECK', unique: 'Уникальность',
-    type: 'Тип данных', name: 'Имя', syntax: 'Синтаксис', tx: 'Транзакция', other: 'Отказ'};
+  const ERR_LABEL = {
+    fk: 'Внешний ключ',
+    notnull: 'NOT NULL',
+    check: 'CHECK',
+    unique: 'Уникальность',
+    type: 'Тип данных',
+    name: 'Имя',
+    syntax: 'Синтаксис',
+    tx: 'Транзакция',
+    other: 'Отказ',
+  };
   function explainErr(e) {
     const code = e.code || '';
     const det = e.detail || '';
     let m;
     if (code === '23001') {
       m = /referenced from table "(.+?)"/.exec(det);
-      return {type: 'fk', ru: `На эту строку ссылаются строки таблицы ${m ? m[1] : ''}. Правило внешнего ключа RESTRICT запрещает удаление.`};
+      return {
+        type: 'fk',
+        ru: `На эту строку ссылаются строки таблицы ${m ? m[1] : ''}. Правило внешнего ключа RESTRICT запрещает удаление.`,
+      };
     }
     if (code === '23503') {
       if ((m = /Key \((.+?)\)=\((.+?)\) is not present in table "(.+?)"/.exec(det)))
         return {type: 'fk', ru: `Ссылка ${m[1]} = ${m[2]}: в таблице ${m[3]} такой строки нет. Сначала родитель, потом ссылка на него.`};
       if ((m = /referenced from table "(.+?)"/.exec(det)))
-        return {type: 'fk', ru: `На эту строку ссылаются строки таблицы ${m[1]}. Правило внешнего ключа запрещает удаление (RESTRICT / NO ACTION).`};
+        return {
+          type: 'fk',
+          ru: `На эту строку ссылаются строки таблицы ${m[1]}. Правило внешнего ключа запрещает удаление (RESTRICT / NO ACTION).`,
+        };
       return {type: 'fk', ru: 'Нарушена ссылочная целостность: ссылка указывает на несуществующую строку.'};
     }
     if (code === '23502') return {type: 'notnull', ru: `Столбец ${e.column || ''} обязателен (NOT NULL), а значение не задано.`};
@@ -135,11 +326,14 @@ const W = (() => {
       return {type: 'unique', ru: m ? `Повтор: ${m[1]} = ${m[2]} уже есть в таблице.` : 'Повтор значения, которое должно быть уникальным.'};
     }
     if (code === '22001') return {type: 'type', ru: 'Значение длиннее, чем позволяет тип столбца. Не перепутан ли порядок значений?'};
-    if (['22P02', '42804', '22007', '22008', '22003'].includes(code)) return {type: 'type', ru: 'Значение не подходит к типу столбца. Проверьте порядок значений и кавычки.'};
+    if (['22P02', '42804', '22007', '22008', '22003'].includes(code))
+      return {type: 'type', ru: 'Значение не подходит к типу столбца. Проверьте порядок значений и кавычки.'};
     if (code === '42P01') return {type: 'name', ru: 'Такой таблицы нет — проверьте имя.'};
     if (code === '42703') return {type: 'name', ru: 'Такого столбца нет — проверьте имя (и не забыты ли кавычки вокруг текста).'};
-    if (code === '42702') return {type: 'name', ru: 'Столбец с таким именем есть в нескольких таблицах запроса — укажите, из какой: p.id, f.flight_no.'};
-    if (code === '42P10' || code === '42P18' || code === '42601' || /syntax error/.test(e.message)) return {type: 'syntax', ru: 'Синтаксическая ошибка — смотрите на слово, названное в сообщении, и на то, что перед ним.'};
+    if (code === '42702')
+      return {type: 'name', ru: 'Столбец с таким именем есть в нескольких таблицах запроса — укажите, из какой: p.id, f.flight_no.'};
+    if (code === '42P10' || code === '42P18' || code === '42601' || /syntax error/.test(e.message))
+      return {type: 'syntax', ru: 'Синтаксическая ошибка — смотрите на слово, названное в сообщении, и на то, что перед ним.'};
     if (code === '25P02') return {type: 'tx', ru: 'Транзакция прервана ошибкой: до ROLLBACK команды не выполняются.'};
     if (code === '21000') return {type: 'other', ru: 'Подзапрос вернул больше одной строки там, где ждали одно значение.'};
     return {type: 'other', ru: ''};
@@ -155,14 +349,22 @@ const W = (() => {
     await db.query('select 1');
     pending.splice(0).forEach(f => f());
   }
-  const ready = () => db ? Promise.resolve() : new Promise(r => pending.push(r));
+  const ready = () => (db ? Promise.resolve() : new Promise(r => pending.push(r)));
   // база одна на страницу: подготовка уровня и выполнение команд идут строго по очереди,
   // иначе быстрые щелчки по вкладкам запускают две загрузки сразу («relation … already exists»)
   let queue = Promise.resolve();
-  const exclusive = fn => { const r = queue.then(fn); queue = r.catch(() => {}); return r; };
+  const exclusive = fn => {
+    const r = queue.then(fn);
+    queue = r.catch(() => {});
+    return r;
+  };
 
   async function loadBaseline(sql) {
-    try { await db.query('ROLLBACK'); } catch (e) { /* нет транзакции */ }
+    try {
+      await db.query('ROLLBACK');
+    } catch (e) {
+      /* нет транзакции */
+    }
     await db.exec('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;');
     await db.exec(sql);
   }
@@ -177,19 +379,34 @@ const W = (() => {
       return {rows: r.rows, fields: ['Таблица'], title: 'Список таблиц'};
     }
     const t = m[1].toLowerCase();
-    const cols = await db.query(`SELECT a.attname AS "Столбец", format_type(a.atttypid, a.atttypmod) AS "Тип",
+    const cols = await db.query(
+      `SELECT a.attname AS "Столбец", format_type(a.atttypid, a.atttypmod) AS "Тип",
         CASE WHEN a.attnotnull THEN 'not null' ELSE '' END AS "Пустые",
         coalesce(pg_get_expr(d.adbin, d.adrelid), '') AS "По умолчанию"
       FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-      WHERE a.attrelid = to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`, [t]);
+      WHERE a.attrelid = to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`,
+      [t],
+    );
     if (!cols.rows.length) throw Object.assign(new Error(`Did not find any relation named "${t}".`), {code: '42P01'});
-    const cons = await db.query(`SELECT conname AS "Ограничение", pg_get_constraintdef(oid) AS "Определение"
-      FROM pg_constraint WHERE conrelid = to_regclass($1) ORDER BY contype, conname`, [t]);
-    const refs = await db.query(`SELECT conrelid::regclass::text AS "Таблица", conname AS "Ограничение", pg_get_constraintdef(oid) AS "Определение"
-      FROM pg_constraint WHERE confrelid = to_regclass($1) AND contype = 'f' ORDER BY 1`, [t]);
-    return {title: 'Таблица ' + t, rows: cols.rows, fields: ['Столбец', 'Тип', 'Пустые', 'По умолчанию'],
-      extra: [{title: 'Ограничения', rows: cons.rows, fields: ['Ограничение', 'Определение']},
-              {title: 'Ссылки на неё', rows: refs.rows, fields: ['Таблица', 'Ограничение', 'Определение']}]};
+    const cons = await db.query(
+      `SELECT conname AS "Ограничение", pg_get_constraintdef(oid) AS "Определение"
+      FROM pg_constraint WHERE conrelid = to_regclass($1) ORDER BY contype, conname`,
+      [t],
+    );
+    const refs = await db.query(
+      `SELECT conrelid::regclass::text AS "Таблица", conname AS "Ограничение", pg_get_constraintdef(oid) AS "Определение"
+      FROM pg_constraint WHERE confrelid = to_regclass($1) AND contype = 'f' ORDER BY 1`,
+      [t],
+    );
+    return {
+      title: 'Таблица ' + t,
+      rows: cols.rows,
+      fields: ['Столбец', 'Тип', 'Пустые', 'По умолчанию'],
+      extra: [
+        {title: 'Ограничения', rows: cons.rows, fields: ['Ограничение', 'Определение']},
+        {title: 'Ссылки на неё', rows: refs.rows, fields: ['Таблица', 'Ограничение', 'Определение']},
+      ],
+    };
   }
 
   // Выполнить текст: команда за командой, до первой ошибки (как psql -v ON_ERROR_STOP=1).
@@ -200,7 +417,11 @@ const W = (() => {
       const R = {sql, kind};
       if (opt.guard) {
         const g = opt.guard(sql, kind);
-        if (g) { R.blocked = g; out.push(R); break; }
+        if (g) {
+          R.blocked = g;
+          out.push(R);
+          break;
+        }
       }
       try {
         if (kind === 'META') {
@@ -212,9 +433,16 @@ const W = (() => {
           R.rows = r.rows || [];
           R.fields = (r.fields || []).map(f => f.name);
           R.affected = r.affectedRows || 0;
-          R.tag = kind === 'INSERT' ? `INSERT 0 ${R.affected}` : kind === 'UPDATE' ? `UPDATE ${R.affected}`
-            : kind === 'DELETE' ? `DELETE ${R.affected}` : kind === 'SELECT' ? `(${R.rows.length} ${plural(R.rows.length, 'строка', 'строки', 'строк')})`
-            : kind;
+          R.tag =
+            kind === 'INSERT'
+              ? `INSERT 0 ${R.affected}`
+              : kind === 'UPDATE'
+                ? `UPDATE ${R.affected}`
+                : kind === 'DELETE'
+                  ? `DELETE ${R.affected}`
+                  : kind === 'SELECT'
+                    ? `(${R.rows.length} ${plural(R.rows.length, 'строка', 'строки', 'строк')})`
+                    : kind;
         }
       } catch (e) {
         R.ok = false;
@@ -222,9 +450,13 @@ const W = (() => {
         Object.assign(R.err, explainErr(R.err));
         if (R.err.type === 'check' && R.err.constraint) {
           try {
-            const c = await db.query(`SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname = $1 LIMIT 1`, [R.err.constraint]);
+            const c = await db.query(`SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname = $1 LIMIT 1`, [
+              R.err.constraint,
+            ]);
             if (c.rows[0]) R.err.ru += ` Правило: ${c.rows[0].d}`;
-          } catch (e2) { /* транзакция прервана — без правила */ }
+          } catch (e2) {
+            /* транзакция прервана — без правила */
+          }
         }
         out.push(R);
         break;
@@ -234,10 +466,15 @@ const W = (() => {
     }
     return out;
   }
-  const plural = (n, a, b, c) => { n = Math.abs(n) % 100; const k = n % 10; return n > 10 && n < 20 ? c : k > 1 && k < 5 ? b : k === 1 ? a : c; };
+  const plural = (n, a, b, c) => {
+    n = Math.abs(n) % 100;
+    const k = n % 10;
+    return n > 10 && n < 20 ? c : k > 1 && k < 5 ? b : k === 1 ? a : c;
+  };
 
   // ───────────────────────────────────────── снимки состояния и разница ──
-  const norm = v => v === null || v === undefined ? null : v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  const norm = v =>
+    v === null || v === undefined ? null : v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
   async function snapshot(tables) {
     const snap = {};
     for (const t of tables) {
@@ -246,15 +483,20 @@ const W = (() => {
         const r = await db.query(`SELECT * FROM ${t.name}`);
         r.rows.forEach(row => rows.set(norm(row[t.pk]), row));
         snap[t.name] = {pk: t.pk, rows, ok: true};
-      } catch (e) { snap[t.name] = {pk: t.pk, rows, ok: false}; }
+      } catch (e) {
+        snap[t.name] = {pk: t.pk, rows, ok: false};
+      }
     }
     return snap;
   }
   function diff(a, b) {
     const d = {};
     for (const name in b) {
-      const A = (a[name] || {rows: new Map()}).rows, B = b[name].rows;
-      const ins = [], del = [], upd = [];
+      const A = (a[name] || {rows: new Map()}).rows,
+        B = b[name].rows;
+      const ins = [],
+        del = [],
+        upd = [];
       B.forEach((row, k) => {
         if (!A.has(k)) ins.push(row);
         else {
@@ -263,7 +505,9 @@ const W = (() => {
           if (cols.length) upd.push({a: old, b: row, cols});
         }
       });
-      A.forEach((row, k) => { if (!B.has(k)) del.push(row); });
+      A.forEach((row, k) => {
+        if (!B.has(k)) del.push(row);
+      });
       d[name] = {ins, del, upd};
     }
     return d;
@@ -273,7 +517,8 @@ const W = (() => {
   function compare(cur, tgt, ignore = {}) {
     const res = {missing: [], extra: [], wrong: []};
     for (const name in tgt) {
-      const C = (cur[name] || {rows: new Map()}).rows, T = tgt[name].rows;
+      const C = (cur[name] || {rows: new Map()}).rows,
+        T = tgt[name].rows;
       const ig = ignore[name] || [];
       T.forEach((row, k) => {
         if (!C.has(k)) res.missing.push({t: name, row});
@@ -283,20 +528,40 @@ const W = (() => {
           if (cols.length) res.wrong.push({t: name, a: c, b: row, cols});
         }
       });
-      C.forEach((row, k) => { if (!T.has(k)) res.extra.push({t: name, row}); });
+      C.forEach((row, k) => {
+        if (!T.has(k)) res.extra.push({t: name, row});
+      });
     }
     res.ok = !res.missing.length && !res.extra.length && !res.wrong.length;
     return res;
   }
 
   // ─────────────────────────────────────────────────── хранилище ──
-  const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
-  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* без хранилища */ } };
+  const load = (k, d) => {
+    try {
+      const v = JSON.parse(localStorage.getItem(k));
+      return v == null ? d : v;
+    } catch (e) {
+      return d;
+    }
+  };
+  const save = (k, v) => {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch (e) {
+      /* без хранилища */
+    }
+  };
 
   // ════════════════════════════════════════════════════════ оболочка ══
   let LAB, S;
-  const TABS = [['brief', 'Брифинг', '1'], ['predict', 'Предскажи', '2'], ['shift', 'Смена', '3'],
-    ['control', 'Контрольный рейс', '4'], ['proto', 'Протокол', '5']];
+  const TABS = [
+    ['brief', 'Брифинг', '1'],
+    ['predict', 'Предскажи', '2'],
+    ['shift', 'Смена', '3'],
+    ['control', 'Контрольный рейс', '4'],
+    ['proto', 'Протокол', '5'],
+  ];
 
   function shell() {
     document.title = `ЛР-${LAB.no} · ${LAB.title}`;
@@ -344,17 +609,27 @@ const W = (() => {
   <div><button class="pbtn y" id="seedGo">Заступить на смену</button></div>
   <p class="muted" style="margin-top:10px">0 — демонстрационная смена преподавателя.</p>
 </div></div>`;
-    document.querySelectorAll('.tab').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+    document.querySelectorAll('.tab').forEach(b => (b.onclick = () => setTab(b.dataset.tab)));
     $('runBtn').onclick = () => runEditor();
     $('resetBtn').onclick = () => resetCurrent();
     $('submitBtn').onclick = () => submitControl();
     $('bigBtn').onclick = () => document.body.classList.toggle('big');
     $('seedBtn').onclick = () => askSeed();
     $('seedGo').onclick = () => setSeed();
-    $('seedIn').onkeydown = e => { if (e.key === 'Enter') setSeed(); };
+    $('seedIn').onkeydown = e => {
+      if (e.key === 'Enter') setSeed();
+    };
     $('sql').addEventListener('keydown', e => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runEditor(); }
-      if (e.key === 'Tab') { e.preventDefault(); const t = e.target, p = t.selectionStart; t.setRangeText('  ', p, t.selectionEnd, 'end'); }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        runEditor();
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const t = e.target,
+          p = t.selectionStart;
+        t.setRangeText('  ', p, t.selectionEnd, 'end');
+      }
     });
     $('sql').addEventListener('paste', e => {
       const t = (e.clipboardData || window.clipboardData).getData('text') || '';
@@ -367,17 +642,31 @@ const W = (() => {
   }
 
   function showCard(info) {
-    if (!info) { $('card').hidden = true; return; }
+    if (!info) {
+      $('card').hidden = true;
+      return;
+    }
     $('card').hidden = false;
     $('card').innerHTML = `<button class="x" onclick="this.parentNode.hidden=true">×</button>
-      <b>${esc(info.title)}</b><table>${Object.entries(info.row).map(([k, v]) =>
-        `<tr><td>${esc(k)}</td><td>${v === null ? '<i>NULL</i>' : esc(v instanceof Date ? v.toISOString().slice(0, 16) : v)}</td></tr>`).join('')}</table>
+      <b>${esc(info.title)}</b><table>${Object.entries(info.row)
+        .map(
+          ([k, v]) =>
+            `<tr><td>${esc(k)}</td><td>${v === null ? '<i>NULL</i>' : esc(v instanceof Date ? v.toISOString().slice(0, 16) : v)}</td></tr>`,
+        )
+        .join('')}</table>
       ${info.more || ''}`;
   }
 
-  const msg = (t, cls = 'info') => { const m = $('msg'); m.className = 'msg ' + cls; m.innerHTML = t; };
+  const msg = (t, cls = 'info') => {
+    const m = $('msg');
+    m.className = 'msg ' + cls;
+    m.innerHTML = t;
+  };
 
-  function askSeed() { $('start').hidden = false; $('seedIn').focus(); }
+  function askSeed() {
+    $('start').hidden = false;
+    $('seedIn').focus();
+  }
   async function setSeed() {
     const v = parseInt($('seedIn').value, 10);
     if (isNaN(v) || v < 0 || v > 60) return;
@@ -406,7 +695,8 @@ const W = (() => {
 
   // ───────────────────────────────────────────────────── вкладки ──
   async function setTab(tab) {
-    S.tab = tab; save(`air-lr${LAB.no}-tab`, tab);
+    S.tab = tab;
+    save(`air-lr${LAB.no}-tab`, tab);
     document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
     $('work').hidden = tab === 'proto';
     $('protoSec').hidden = tab !== 'proto';
@@ -431,7 +721,9 @@ const W = (() => {
       S.lastSelect = null;
       S.snap = await snapshot(LAB.tables);
       LAB.scene.render(S.snap, S.D);
-    } finally { S.busy = false; }
+    } finally {
+      S.busy = false;
+    }
   }
 
   // ── брифинг: свободная работа на полной базе
@@ -441,7 +733,15 @@ const W = (() => {
     $('edHd').innerHTML = 'пульт · <b>свободная работа</b> · база сбрасывается кнопкой «вернуть базу»';
     $('sql').value = '';
     $('side').innerHTML = LAB.brief(S.D);
-    $('side').querySelectorAll('[data-q]').forEach(b => b.onclick = () => { $('sql').value = b.dataset.q; $('sql').focus(); });
+    $('side')
+      .querySelectorAll('[data-q]')
+      .forEach(
+        b =>
+          (b.onclick = () => {
+            $('sql').value = b.dataset.q;
+            $('sql').focus();
+          }),
+      );
     msg(LAB.briefMsg || 'Свободная работа. Щёлкните объект на схеме — увидите строку таблицы.');
   }
 
@@ -460,7 +760,9 @@ const W = (() => {
     $('edHd').innerHTML = `пульт · <b>только чтение</b> · сначала ответ, потом выполнение`;
     $('sql').value = p.sql;
     const rec = S.P.pred[i];
-    const nav = S.predicts.map((q, k) => `<button class="lv${k === i ? ' on' : ''}${S.P.pred[k] ? ' done' : ''}" data-p="${k}">${k + 1}</button>`).join('');
+    const nav = S.predicts
+      .map((q, k) => `<button class="lv${k === i ? ' on' : ''}${S.P.pred[k] ? ' done' : ''}" data-p="${k}">${k + 1}</button>`)
+      .join('');
     let body;
     if (p.type === 'number') {
       body = `<div style="margin-top:8px;display:flex;gap:8px;align-items:center"><input class="numin" id="pnum" type="number" ${rec ? `value="${rec.choice}" disabled` : ''}>
@@ -475,31 +777,55 @@ const W = (() => {
       ${body}
       <div><button class="pbtn y" id="pRun" ${rec ? '' : 'disabled'}>▶ Выполнить и проверить</button></div>
       <div id="pOut"></div>`;
-    $('side').querySelectorAll('[data-p]').forEach(b => b.onclick = () => openPredict(+b.dataset.p));
+    $('side')
+      .querySelectorAll('[data-p]')
+      .forEach(b => (b.onclick = () => openPredict(+b.dataset.p)));
     let pick = rec ? rec.choice : null;
-    $('side').querySelectorAll('.choice').forEach(b => {
-      if (rec) { b.disabled = true; if (b.dataset.c === rec.choice) b.classList.add('pick'); return; }
-      b.onclick = () => { pick = b.dataset.c; $('side').querySelectorAll('.choice').forEach(x => x.classList.toggle('pick', x === b)); $('pRun').disabled = false; };
-    });
-    if ($('pnum') && !rec) $('pnum').oninput = () => { pick = $('pnum').value; $('pRun').disabled = pick === ''; };
+    $('side')
+      .querySelectorAll('.choice')
+      .forEach(b => {
+        if (rec) {
+          b.disabled = true;
+          if (b.dataset.c === rec.choice) b.classList.add('pick');
+          return;
+        }
+        b.onclick = () => {
+          pick = b.dataset.c;
+          $('side')
+            .querySelectorAll('.choice')
+            .forEach(x => x.classList.toggle('pick', x === b));
+          $('pRun').disabled = false;
+        };
+      });
+    if ($('pnum') && !rec)
+      $('pnum').oninput = () => {
+        pick = $('pnum').value;
+        $('pRun').disabled = pick === '';
+      };
     $('pRun').onclick = async () => {
       if (pick === null || pick === '') return;
       const res = await execute(p.sql, {});
       const actual = p.answer ? p.answer(res) : outcomeKey(res);
       const right = String(actual) === String(pick);
-      if (!S.P.pred[i]) { S.P.pred[i] = {choice: String(pick), actual: String(actual), right, at: new Date().toISOString()}; persist(); }
-      $('side').querySelectorAll('.choice').forEach(b => {
-        b.disabled = true;
-        if (b.dataset.c === String(actual)) b.classList.add('right');
-        else if (b.dataset.c === String(pick)) b.classList.add('wrong');
-      });
+      if (!S.P.pred[i]) {
+        S.P.pred[i] = {choice: String(pick), actual: String(actual), right, at: new Date().toISOString()};
+        persist();
+      }
+      $('side')
+        .querySelectorAll('.choice')
+        .forEach(b => {
+          b.disabled = true;
+          if (b.dataset.c === String(actual)) b.classList.add('right');
+          else if (b.dataset.c === String(pick)) b.classList.add('wrong');
+        });
       if ($('pnum')) $('pnum').disabled = true;
-      $('pOut').innerHTML = `<div class="${right ? 'good' : 'badbox'}">${right ? 'Угадали.' : `Нет. ${p.type === 'number' ? 'Правильно: ' + esc(actual) + '.' : ''}`}</div>
+      $('pOut').innerHTML =
+        `<div class="${right ? 'good' : 'badbox'}">${right ? 'Угадали.' : `Нет. ${p.type === 'number' ? 'Правильно: ' + esc(actual) + '.' : ''}`}</div>
         <div class="hint">${typeof p.x === 'function' ? p.x(res, S.D) : p.x}</div>
         <button class="pbtn" id="pAgain">↺ вернуть базу и показать ещё раз</button>
         ${i + 1 < S.predicts.length ? '<button class="pbtn dark" id="pNext">Дальше →</button>' : '<button class="pbtn dark" id="pNext">К смене →</button>'}`;
       $('pAgain').onclick = () => openPredict(i);
-      $('pNext').onclick = () => i + 1 < S.predicts.length ? openPredict(i + 1) : setTab('shift');
+      $('pNext').onclick = () => (i + 1 < S.predicts.length ? openPredict(i + 1) : setTab('shift'));
       $('pRun').disabled = false;
     };
     msg('Сначала ответьте, потом выполните. Ответ запишется в протокол — второй попытки нет.');
@@ -518,7 +844,8 @@ const W = (() => {
     return sql;
   }
   async function prepareTarget(L, baseSql) {
-    L._target = null; L._tres = null;
+    L._target = null;
+    L._tres = null;
     if (L.check === 'state') {
       await loadBaseline(baseSql);
       for (const q of L.ref) await db.query(q);
@@ -533,15 +860,24 @@ const W = (() => {
 
   async function openLevel(i, keepEditor) {
     S.lv = i;
-    S.list = S.levels; S.ctrl = false;
+    S.list = S.levels;
+    S.ctrl = false;
     const L = S.levels[i];
     const baseSql = levelBaseline(i, S.levels);
     await exclusive(async () => {
       S.busy = true;
-      try { await prepareTarget(L, baseSql); } finally { S.busy = false; }
+      try {
+        await prepareTarget(L, baseSql);
+      } finally {
+        S.busy = false;
+      }
       await base0(baseSql);
     });
-    S.L = L; S.fails = 0; S.stamps = new Set(); S.levelStart = Date.now(); S.pasted = 0;
+    S.L = L;
+    S.fails = 0;
+    S.stamps = new Set();
+    S.levelStart = Date.now();
+    S.pasted = 0;
     $('console').innerHTML = '';
     $('edHd').innerHTML = `пульт · <b>${esc(L.title)}</b>`;
     if (!keepEditor) $('sql').value = (S.P.levels[i] || {}).sql || '';
@@ -560,7 +896,10 @@ const W = (() => {
     let h = '<div class="levels">';
     let part = null;
     S.levels.forEach((l, k) => {
-      if (l.part !== part) { part = l.part; h += `<span class="lv-sep">${esc(part)}</span>`; }
+      if (l.part !== part) {
+        part = l.part;
+        h += `<span class="lv-sep">${esc(part)}</span>`;
+      }
       const st = S.P.levels[k] || {};
       h += `<button class="lv${l.bonus ? ' bonus' : ''}${k === S.lv ? ' on' : ''}${st.done ? ' done' : ''}" data-l="${k}" title="${esc(l.title)}">${l.bonus ? '★' : ''}${l.n}</button>`;
     });
@@ -580,22 +919,35 @@ const W = (() => {
         ${S.fails >= 2 && L.hint ? '<button class="pbtn" id="hintBtn">Подсказка</button>' : ''}
         ${st.done && S.lv + 1 < S.levels.length ? '<button class="pbtn dark" id="nextBtn">Следующий →</button>' : ''}
       </div>`;
-    $('side').querySelectorAll('[data-l]').forEach(b => b.onclick = () => openLevel(+b.dataset.l));
-    if ($('hintBtn')) $('hintBtn').onclick = () => { $('lvHint').innerHTML = `<div class="hint">${L.hint}</div>`; S.hinted = true; };
+    $('side')
+      .querySelectorAll('[data-l]')
+      .forEach(b => (b.onclick = () => openLevel(+b.dataset.l)));
+    if ($('hintBtn'))
+      $('hintBtn').onclick = () => {
+        $('lvHint').innerHTML = `<div class="hint">${L.hint}</div>`;
+        S.hinted = true;
+      };
     if ($('nextBtn')) $('nextBtn').onclick = () => openLevel(S.lv + 1);
   }
 
   // ── контрольный рейс
   async function openControl(keepEditor) {
-    S.list = S.controls; S.ctrl = true;
+    S.list = S.controls;
+    S.ctrl = true;
     const C = S.controls[0];
     const baseSql = C.setup ? C.setup(S.D) : LAB.sandbox(S.D);
     await exclusive(async () => {
       S.busy = true;
-      try { await prepareTarget(C, baseSql); } finally { S.busy = false; }
+      try {
+        await prepareTarget(C, baseSql);
+      } finally {
+        S.busy = false;
+      }
       await base0(baseSql);
     });
-    S.L = C; S.levelStart = S.levelStart || Date.now(); S.pasted = 0;
+    S.L = C;
+    S.levelStart = S.levelStart || Date.now();
+    S.pasted = 0;
     $('console').innerHTML = '';
     $('edHd').innerHTML = 'пульт · <b>контрольный рейс</b> · без подсказок';
     const rec = S.P.control;
@@ -615,20 +967,32 @@ const W = (() => {
   }
   async function submitControl() {
     const rec = S.P.control;
-    if (S.busy || rec.done || rec.attempts >= 2) return;      // не сдавать, пока команда ещё выполняется
+    if (S.busy || rec.done || rec.attempts >= 2) return; // не сдавать, пока команда ещё выполняется
     const r = await checkLevel(S.L, S.lastRun || []);
     rec.attempts = (rec.attempts || 0) + 1;
-    rec.sql = $('sql').value; rec.at = new Date().toISOString();
-    if (r.ok) { rec.done = true; rec.mins = Math.round((Date.now() - S.levelStart) / 60000); }
+    rec.sql = $('sql').value;
+    rec.at = new Date().toISOString();
+    if (r.ok) {
+      rec.done = true;
+      rec.mins = Math.round((Date.now() - S.levelStart) / 60000);
+    }
     journal('control', 'СДАЧА', r.ok ? 'принят' : 'не принят');
     persist();
     await openControl(true);
-    if (r.ok) bigstamp('Рейс принят', '', true); else bigstamp('Не принят', rec.attempts >= 2 ? 'попыток больше нет' : 'осталась одна попытка');
+    if (r.ok) bigstamp('Рейс принят', '', true);
+    else bigstamp('Не принят', rec.attempts >= 2 ? 'попыток больше нет' : 'осталась одна попытка');
   }
 
   // ───────────────────────────────────────────────── выполнение ──
   function journal(where, sql, outcome) {
-    S.P.journal.push({t: new Date().toISOString().slice(11, 19), w: where, l: S.tab === 'shift' ? S.L.n : '', q: sql.slice(0, 400), o: outcome, p: S.pasted ? 1 : 0});
+    S.P.journal.push({
+      t: new Date().toISOString().slice(11, 19),
+      w: where,
+      l: S.tab === 'shift' ? S.L.n : '',
+      q: sql.slice(0, 400),
+      o: outcome,
+      p: S.pasted ? 1 : 0,
+    });
     if (S.P.journal.length > 600) S.P.journal.splice(0, S.P.journal.length - 600);
     S.pasted = 0;
   }
@@ -637,7 +1001,7 @@ const W = (() => {
   function guard(sql, kind) {
     if (!LAB.selectFirst || (kind !== 'UPDATE' && kind !== 'DELETE')) return null;
     const w = whereOf(sql);
-    if (!w || w.where === null) return null;                 // без WHERE — проверять нечего
+    if (!w || w.where === null) return null; // без WHERE — проверять нечего
     const s = S.lastSelect;
     if (!s || s.table !== w.table || s.where !== w.where)
       return `Пульт заблокирован: сначала выполните SELECT … FROM ${w.table} WHERE ${w.where} — с тем же условием.`;
@@ -648,17 +1012,20 @@ const W = (() => {
   async function execute0(text, opt) {
     const prev = S.snap;
     // запомнить последний SELECT с условием — сразу после каждой команды
-    const res = await run(text, {guard: opt.guard ? guard : null, after: r => {
-      if (r.ok && r.kind === 'SELECT') {
-        const w = whereOf(r.sql);
-        S.lastSelect = w ? {table: w.table, where: w.where, n: r.rows.length} : null;
-      }
-      if (r.ok && (r.kind === 'UPDATE' || r.kind === 'DELETE') && S.lastSelect) {
-        const w = whereOf(r.sql);
-        if (w && w.where && w.where === S.lastSelect.where && w.table === S.lastSelect.table)
-          r.cmp = {sel: S.lastSelect.n, got: r.affected};
-      }
-    }});
+    const res = await run(text, {
+      guard: opt.guard ? guard : null,
+      after: r => {
+        if (r.ok && r.kind === 'SELECT') {
+          const w = whereOf(r.sql);
+          S.lastSelect = w ? {table: w.table, where: w.where, n: r.rows.length} : null;
+        }
+        if (r.ok && (r.kind === 'UPDATE' || r.kind === 'DELETE') && S.lastSelect) {
+          const w = whereOf(r.sql);
+          if (w && w.where && w.where === S.lastSelect.where && w.table === S.lastSelect.table)
+            r.cmp = {sel: S.lastSelect.n, got: r.affected};
+        }
+      },
+    });
     S.snap = await snapshot(LAB.tables);
     const d = diff(prev, S.snap);
     printConsole(res);
@@ -683,25 +1050,38 @@ const W = (() => {
 
   function printConsole(res) {
     const box = $('console');
-    box.innerHTML = res.map(r => {
-      let a;
-      if (r.blocked) a = `<div class="a bad">${esc(r.blocked)}</div>`;
-      else if (!r.ok) a = `<div class="a bad"><span class="stamp">${esc(ERR_LABEL[r.err.type] || 'Отказ')}</span>ERROR: ${esc(r.err.message)}</div>
+    box.innerHTML =
+      res
+        .map(r => {
+          let a;
+          if (r.blocked) a = `<div class="a bad">${esc(r.blocked)}</div>`;
+          else if (!r.ok)
+            a = `<div class="a bad"><span class="stamp">${esc(ERR_LABEL[r.err.type] || 'Отказ')}</span>ERROR: ${esc(r.err.message)}</div>
         ${r.err.detail ? `<div class="q">DETAIL: ${esc(r.err.detail)}</div>` : ''}
         ${r.err.ru ? `<div class="ex">${esc(r.err.ru)}</div>` : ''}`;
-      else {
-        a = `<div class="a ok">${esc(r.tag)}</div>`;
-        if (r.cmp) a += `<div class="ex">${r.cmp.sel === r.cmp.got ? '✓' : '✗'} SELECT с тем же условием вернул ${r.cmp.sel}, команда затронула ${r.cmp.got}${r.cmp.sel === r.cmp.got ? ' — совпало.' : ' — числа разошлись: данные менялись между SELECT и командой, или условие не то.'}</div>`;
-        if (r.rows && r.fields && r.fields.length) a += table(r.rows, r.fields);
-        if (r.meta && r.meta.extra) r.meta.extra.forEach(x => { if (x.rows.length) a += `<div class="q" style="margin-top:4px">${esc(x.title)}:</div>` + table(x.rows, x.fields); });
-      }
-      return `<div class="cl"><div class="q">${esc(r.sql.length > 300 ? r.sql.slice(0, 300) + '…' : r.sql)}</div>${a}</div>`;
-    }).join('') || '<div class="cl"><div class="q">Пусто: нет ни одной команды.</div></div>';
+          else {
+            a = `<div class="a ok">${esc(r.tag)}</div>`;
+            if (r.cmp)
+              a += `<div class="ex">${r.cmp.sel === r.cmp.got ? '✓' : '✗'} SELECT с тем же условием вернул ${r.cmp.sel}, команда затронула ${r.cmp.got}${r.cmp.sel === r.cmp.got ? ' — совпало.' : ' — числа разошлись: данные менялись между SELECT и командой, или условие не то.'}</div>`;
+            if (r.rows && r.fields && r.fields.length) a += table(r.rows, r.fields);
+            if (r.meta && r.meta.extra)
+              r.meta.extra.forEach(x => {
+                if (x.rows.length) a += `<div class="q" style="margin-top:4px">${esc(x.title)}:</div>` + table(x.rows, x.fields);
+              });
+          }
+          return `<div class="cl"><div class="q">${esc(r.sql.length > 300 ? r.sql.slice(0, 300) + '…' : r.sql)}</div>${a}</div>`;
+        })
+        .join('') || '<div class="cl"><div class="q">Пусто: нет ни одной команды.</div></div>';
   }
   function table(rows, fields) {
     const lim = 60;
-    return `<table class="rt"><tr>${fields.map(f => `<th>${esc(f)}</th>`).join('')}</tr>${rows.slice(0, lim).map(r =>
-      `<tr>${fields.map(f => r[f] === null ? '<td class="null">NULL</td>' : `<td>${esc(r[f] instanceof Date ? r[f].toISOString().slice(0, 16).replace('T', ' ') : r[f])}</td>`).join('')}</tr>`).join('')}</table>
+    return `<table class="rt"><tr>${fields.map(f => `<th>${esc(f)}</th>`).join('')}</tr>${rows
+      .slice(0, lim)
+      .map(
+        r =>
+          `<tr>${fields.map(f => (r[f] === null ? '<td class="null">NULL</td>' : `<td>${esc(r[f] instanceof Date ? r[f].toISOString().slice(0, 16).replace('T', ' ') : r[f])}</td>`)).join('')}</tr>`,
+      )
+      .join('')}</table>
       ${rows.length > lim ? `<div class="q">… ещё ${rows.length - lim}</div>` : ''}`;
   }
 
@@ -731,7 +1111,8 @@ const W = (() => {
       console.error(e);
       msg('Внутренняя ошибка тетради: ' + esc(e.message), 'bad');
     } finally {
-      S.busy = false; $('runBtn').disabled = false;
+      S.busy = false;
+      $('runBtn').disabled = false;
     }
   }
 
@@ -740,7 +1121,10 @@ const W = (() => {
     if (L.check === 'state') {
       const cur = await snapshot(L.tables.map(n => LAB.tables.find(t => t.name === n)));
       const cmp = compare(cur, L._target, L.ignore || {});
-      if (cmp.ok && L.also) { const a = L.also(res, S, cmp); if (a !== true) return {ok: false, msg: a, cmp}; }
+      if (cmp.ok && L.also) {
+        const a = L.also(res, S, cmp);
+        if (a !== true) return {ok: false, msg: a, cmp};
+      }
       return {ok: cmp.ok, cmp};
     }
     if (L.check === 'result') {
@@ -754,16 +1138,19 @@ const W = (() => {
 
   async function afterLevelRun(res) {
     const L = S.L;
-    const st = S.P.levels[S.lv] = S.P.levels[S.lv] || {runs: 0, fails: 0};
+    const st = (S.P.levels[S.lv] = S.P.levels[S.lv] || {runs: 0, fails: 0});
     st.runs++;
     const r = await checkLevel(L, res);
     if (LAB.scene.clearMarks) LAB.scene.clearMarks();
     if (r.ok) {
       if (!st.done) {
-        st.done = true; st.at = new Date().toISOString(); st.sql = $('sql').value;
-        st.tag = res.map(x => x.ok ? x.tag : 'ERROR: ' + (x.err ? x.err.message : '')).join(' · ');
+        st.done = true;
+        st.at = new Date().toISOString();
+        st.sql = $('sql').value;
+        st.tag = res.map(x => (x.ok ? x.tag : 'ERROR: ' + (x.err ? x.err.message : ''))).join(' · ');
         st.mins = Math.max(1, Math.round((Date.now() - S.levelStart) / 60000));
-        st.hint = !!S.hinted; st.fails = S.fails;
+        st.hint = !!S.hinted;
+        st.fails = S.fails;
         if (r.note) st.note = r.note;
       }
       persist();
@@ -772,7 +1159,8 @@ const W = (() => {
       if (LAB.scene.celebrate) LAB.scene.celebrate(L, S.D);
       msg('Уровень пройден.', 'ok');
     } else {
-      S.fails++; st.fails = (st.fails || 0) + 1;
+      S.fails++;
+      st.fails = (st.fails || 0) + 1;
       persist();
       let out = '';
       if (r.msg) out += `<div class="badbox">${r.msg}</div>`;
@@ -789,11 +1177,21 @@ const W = (() => {
     }
   }
   function diffText(cmp) {
-    const f = row => Object.entries(row).slice(0, 4).map(([k, v]) => `${k}=${v === null ? 'NULL' : v instanceof Date ? v.toISOString().slice(0, 16) : v}`).join(', ');
+    const f = row =>
+      Object.entries(row)
+        .slice(0, 4)
+        .map(([k, v]) => `${k}=${v === null ? 'NULL' : v instanceof Date ? v.toISOString().slice(0, 16) : v}`)
+        .join(', ');
     const lines = [];
     cmp.missing.slice(0, 8).forEach(x => lines.push(`<div class="m">не хватает · ${esc(x.t)}: ${esc(f(x.row))}</div>`));
     cmp.extra.slice(0, 8).forEach(x => lines.push(`<div class="x">лишнее · ${esc(x.t)}: ${esc(f(x.row))}</div>`));
-    cmp.wrong.slice(0, 8).forEach(x => lines.push(`<div class="w">не то значение · ${esc(x.t)} ${esc(LAB.tables.find(t => t.name === x.t).pk)}=${esc(x.a[LAB.tables.find(t => t.name === x.t).pk])}: ${x.cols.map(c => `${esc(c)} = ${esc(x.a[c] === null ? 'NULL' : x.a[c])}, нужно ${esc(x.b[c] === null ? 'NULL' : x.b[c])}`).join('; ')}</div>`));
+    cmp.wrong
+      .slice(0, 8)
+      .forEach(x =>
+        lines.push(
+          `<div class="w">не то значение · ${esc(x.t)} ${esc(LAB.tables.find(t => t.name === x.t).pk)}=${esc(x.a[LAB.tables.find(t => t.name === x.t).pk])}: ${x.cols.map(c => `${esc(c)} = ${esc(x.a[c] === null ? 'NULL' : x.a[c])}, нужно ${esc(x.b[c] === null ? 'NULL' : x.b[c])}`).join('; ')}</div>`,
+        ),
+      );
     const more = cmp.missing.length + cmp.extra.length + cmp.wrong.length - lines.length;
     return `<div class="difflist">${lines.join('')}${more > 0 ? `<div>… и ещё ${more}</div>` : ''}</div>`;
   }
@@ -809,7 +1207,7 @@ const W = (() => {
     const max = grade.reduce((s, g) => s + g.pts, 0);
     const mark = total >= 9 ? '5' : total >= 7 ? '4' : total >= 6 ? '3' : 'на доработку';
     const pastes = P.journal.filter(j => j.p).length;
-    const fmt = s => s ? new Date(s).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
+    const fmt = s => (s ? new Date(s).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '');
     sec.innerHTML = `<div class="noprint" style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="pbtn y" onclick="window.print()">Печать / PDF</button>
         <button class="pbtn" id="copyBtn">Скопировать протокол текстом</button>
@@ -827,15 +1225,24 @@ const W = (() => {
         </div>
         <h3>Предсказания</h3>
         <table><tr><th>№</th><th>Команда</th><th>Ответ студента</th><th>Что сделала СУБД</th><th></th></tr>
-        ${S.predicts.map((p, i) => { const r = P.pred[i]; const lab = k => p.choices ? ((p.choices.find(c => c.k === k) || {}).t || k) : k;
-          return `<tr><td>${i + 1}</td><td><pre>${esc(p.sql)}</pre></td><td>${r ? esc(lab(r.choice)) : '—'}</td><td>${r ? esc(lab(r.actual)) : '—'}</td><td>${r ? (r.right ? '<span class="yes">✓</span>' : '<span class="no">✗</span>') : ''}</td></tr>`; }).join('')}
+        ${S.predicts
+          .map((p, i) => {
+            const r = P.pred[i];
+            const lab = k => (p.choices ? (p.choices.find(c => c.k === k) || {}).t || k : k);
+            return `<tr><td>${i + 1}</td><td><pre>${esc(p.sql)}</pre></td><td>${r ? esc(lab(r.choice)) : '—'}</td><td>${r ? esc(lab(r.actual)) : '—'}</td><td>${r ? (r.right ? '<span class="yes">✓</span>' : '<span class="no">✗</span>') : ''}</td></tr>`;
+          })
+          .join('')}
         </table>
         <h3>Уровни смены</h3>
         <table><tr><th>№</th><th>Задача</th><th>Решение (последний верный запуск)</th><th>Ответ СУБД</th><th>Промахов</th></tr>
-        ${S.levels.map((l, i) => { const r = P.levels[i] || {};
-          return `<tr><td>${l.bonus ? '★' : ''}${l.n}</td><td>${esc(l.title)}${l.lab ? `<div class="muted">${esc(l.lab)}</div>` : ''}</td>
+        ${S.levels
+          .map((l, i) => {
+            const r = P.levels[i] || {};
+            return `<tr><td>${l.bonus ? '★' : ''}${l.n}</td><td>${esc(l.title)}${l.lab ? `<div class="muted">${esc(l.lab)}</div>` : ''}</td>
             <td>${r.done ? `<pre>${esc(r.sql)}</pre>` : '<span class="no">не пройден</span>'}</td><td><pre>${esc(r.note || r.tag || '')}</pre></td>
-            <td>${r.done ? (r.fails || 0) + (r.hint ? ' · подсказка' : '') : ''}</td></tr>`; }).join('')}
+            <td>${r.done ? (r.fails || 0) + (r.hint ? ' · подсказка' : '') : ''}</td></tr>`;
+          })
+          .join('')}
         </table>
         <h3>Контрольный рейс</h3>
         <table><tr><th>Задача</th><th>Решение на момент сдачи</th><th>Итог</th></tr>
@@ -850,24 +1257,77 @@ const W = (() => {
         <p class="muted" style="margin-top:8px">Баллы за ответы на вопросы ставит преподаватель. Отметка выставляется после защиты.</p>
         <div class="meta" style="margin-top:22px"><span>Проверил</span><span>Алёшкин А. А. ______________</span></div>
       </div>`;
-    $('fio').oninput = e => { P.fio = e.target.value; persist(); };
-    sec.querySelectorAll('[data-a]').forEach(t => t.oninput = () => { P.answers[t.dataset.a] = t.value; persist(); });
+    $('fio').oninput = e => {
+      P.fio = e.target.value;
+      persist();
+    };
+    sec.querySelectorAll('[data-a]').forEach(
+      t =>
+        (t.oninput = () => {
+          P.answers[t.dataset.a] = t.value;
+          persist();
+        }),
+    );
     $('copyBtn').onclick = () => {
       const txt = $('protoDoc').innerText;
-      navigator.clipboard && navigator.clipboard.writeText(txt).then(() => { $('copyBtn').textContent = 'Скопировано'; });
+      navigator.clipboard &&
+        navigator.clipboard.writeText(txt).then(() => {
+          $('copyBtn').textContent = 'Скопировано';
+        });
     };
   }
 
   // ──────────────────────────────────────────────────── API для сцен ──
-  const api = {msg, showCard, esc, sleep, checkNow: () => afterLevelRun(S.lastRun || []), anim: () => $('anim').checked, get S() { return S; }, bigstamp, get LAB() { return LAB; }};
+  const api = {
+    msg,
+    showCard,
+    esc,
+    sleep,
+    checkNow: () => afterLevelRun(S.lastRun || []),
+    anim: () => $('anim').checked,
+    get S() {
+      return S;
+    },
+    bigstamp,
+    get LAB() {
+      return LAB;
+    },
+  };
 
   async function start(lab) {
     LAB = lab;
     shell();
     const seed = load('air-seed', null);
-    if (seed === null) askSeed(); else await enter(seed);
+    if (seed === null) askSeed();
+    else await enter(seed);
   }
 
-  return {$, esc, sleep, rng, person, SURN, INIT, CITIES, lit, splitSQL, kindOf, whereOf, explainErr,
-    boot, ready, run, snapshot, diff, compare, start, plural, norm, get db() { return db; }, api};
+  return {
+    $,
+    esc,
+    sleep,
+    rng,
+    person,
+    SURN,
+    INIT,
+    CITIES,
+    lit,
+    splitSQL,
+    kindOf,
+    whereOf,
+    explainErr,
+    boot,
+    ready,
+    run,
+    snapshot,
+    diff,
+    compare,
+    start,
+    plural,
+    norm,
+    get db() {
+      return db;
+    },
+    api,
+  };
 })();

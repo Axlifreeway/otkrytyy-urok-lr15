@@ -14,7 +14,9 @@ const ROBOT = `<svg viewBox="0 0 220 260" aria-hidden="true"><g stroke="#22252b"
   <path d="M58 182 Q26 190 22 224" fill="none"/><path d="M162 182 Q194 190 198 224" fill="none"/>
   <circle cx="22" cy="228" r="11" fill="#8b5cf6"/><circle cx="198" cy="228" r="11" fill="#8b5cf6"/></g></svg>`;
 
-let box = null, queue = [], busy = false;
+let box = null,
+  queue = [],
+  busy = false;
 function show({text, mode}) {
   if (!box) {
     box = document.createElement('div');
@@ -29,35 +31,59 @@ function show({text, mode}) {
   p.textContent = '';
   box.hidden = false;
   requestAnimationFrame(() => box.classList.add('on'));
-  if (scream) { SFX.err(); SFX.err(); document.body.classList.add('rs-shake'); setTimeout(() => document.body.classList.remove('rs-shake'), 600); }
-  else SFX.unlock();
+  if (scream) {
+    SFX.err();
+    SFX.err();
+    document.body.classList.add('rs-shake');
+    setTimeout(() => document.body.classList.remove('rs-shake'), 600);
+  } else SFX.unlock();
   // печатаем по буквам: так реплику замечают
   let i = 0;
-  const step = setInterval(() => { p.innerHTML = esc(text.slice(0, ++i)) + (i < text.length ? '<i>▌</i>' : ''); if (i >= text.length) clearInterval(step); }, scream ? 12 : 28);
+  const step = setInterval(
+    () => {
+      p.innerHTML = esc(text.slice(0, ++i)) + (i < text.length ? '<i>▌</i>' : '');
+      if (i >= text.length) clearInterval(step);
+    },
+    scream ? 12 : 28,
+  );
   const hide = () => {
-    clearInterval(step); clearTimeout(timer);
+    clearInterval(step);
+    clearTimeout(timer);
     box.classList.remove('on');
-    setTimeout(() => { box.hidden = true; busy = false; if (queue.length) show(queue.shift()); }, 450);
+    setTimeout(() => {
+      box.hidden = true;
+      busy = false;
+      if (queue.length) show(queue.shift());
+    }, 450);
   };
   const timer = setTimeout(hide, Math.max(4500, text.length * 75) + (scream ? 0 : 800));
   box.querySelector('.rs-x').onclick = hide;
-  box.onclick = e => { if (e.target === box) hide(); };
+  box.onclick = e => {
+    if (e.target === box) hide();
+  };
 }
-export function robotSay(msg) { if (busy) queue.push(msg); else show(msg); }
+export function robotSay(msg) {
+  if (busy) queue.push(msg);
+  else show(msg);
+}
 
 // опрос сервера: новые объявления для группы вошедшего студента
 export function listenRobot(getToken) {
   if (!/^https?:$/.test(location.protocol)) return;
-  let since = -1, fails = 0;
+  let since = -1,
+    fails = 0;
   const poll = async () => {
     try {
       const t = getToken();
       const r = await fetch(`/api/say?since=${since}`, {headers: t ? {'X-Labs-Token': t} : {}});
-      if (r.status === 404) return;                         // сервера нет — лаба работает и так
+      if (r.status === 404) return; // сервера нет — лаба работает и так
       const j = await r.json();
       if (since >= 0) j.items.forEach(robotSay);
-      since = j.last; fails = 0;
-    } catch (e) { fails++; }
+      since = j.last;
+      fails = 0;
+    } catch (e) {
+      fails++;
+    }
     setTimeout(poll, fails ? Math.min(30000, 4000 * fails) : 4000);
   };
   poll();

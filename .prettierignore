@@ -1,0 +1,9 @@
+node_modules/
+vendor/
+**/game.js
+common/three/robot-asset.js
+tests/out/
+tests/fixtures/
+_архив/
+*.html
+*.md

@@ -2,13 +2,36 @@
 'use strict';
 const WORLD = (() => {
   // вымышленные авиакомпании (коды — две кириллические буквы)
-  const AIRLINES = [['ТА', 'Тура-Авиа'], ['ИР', 'Иртыш Эйр'], ['СК', 'Северный курс'], ['ТБ', 'Тобол Авиа'],
-    ['ЯЛ', 'Ялуторовские линии'], ['ПШ', 'Пышма Эйр'], ['ИС', 'Исеть Авиа'], ['ТВ', 'Тавда Авиа']];
-  const DESTS = ['Москва', 'Сочи', 'Казань', 'Новосибирск', 'Сургут', 'Санкт-Петербург', 'Калининград',
-    'Минеральные Воды', 'Красноярск', 'Ханты-Мансийск', 'Анапа', 'Самара', 'Уфа', 'Иркутск'];
+  const AIRLINES = [
+    ['ТА', 'Тура-Авиа'],
+    ['ИР', 'Иртыш Эйр'],
+    ['СК', 'Северный курс'],
+    ['ТБ', 'Тобол Авиа'],
+    ['ЯЛ', 'Ялуторовские линии'],
+    ['ПШ', 'Пышма Эйр'],
+    ['ИС', 'Исеть Авиа'],
+    ['ТВ', 'Тавда Авиа'],
+  ];
+  const DESTS = [
+    'Москва',
+    'Сочи',
+    'Казань',
+    'Новосибирск',
+    'Сургут',
+    'Санкт-Петербург',
+    'Калининград',
+    'Минеральные Воды',
+    'Красноярск',
+    'Ханты-Мансийск',
+    'Анапа',
+    'Самара',
+    'Уфа',
+    'Иркутск',
+  ];
   const GATES = ['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B5', 'B6', 'C2'];
 
-  const L4 = ['A', 'C', 'D', 'F'], L6 = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const L4 = ['A', 'C', 'D', 'F'],
+    L6 = ['A', 'B', 'C', 'D', 'E', 'F'];
   // Схема салона: нос слева. biz — число рядов бизнеса (4 кресла), rows — всего рядов.
   function plane(o) {
     const {x0, y0, rows, biz, pitchB = 30, pitchE = 26, sw = 20, sh = 17, wing = 40} = o;
@@ -20,21 +43,25 @@ const WORLD = (() => {
     for (let r = 1; r <= rows; r++) {
       const isB = r <= biz;
       const letters = isB ? L4 : L6;
-      const w = isB ? sw + 4 : sw, hh = isB ? sh + 4 : sh;
+      const w = isB ? sw + 4 : sw,
+        hh = isB ? sh + 4 : sh;
       const gap = isB ? 4 : 2;
       letters.forEach(L => {
-        const side = 'ABC'.includes(L) ? -1 : 1;           // A–C сверху, D–F снизу
-        const k = isB ? (L === 'A' || L === 'F' ? 1 : 0) : (L === 'A' || L === 'F' ? 2 : L === 'B' || L === 'E' ? 1 : 0);
+        const side = 'ABC'.includes(L) ? -1 : 1; // A–C сверху, D–F снизу
+        const k = isB ? (L === 'A' || L === 'F' ? 1 : 0) : L === 'A' || L === 'F' ? 2 : L === 'B' || L === 'E' ? 1 : 0;
         const y = side < 0 ? aisle - 14 - hh - k * (hh + gap) : aisle + 14 + k * (hh + gap);
         GEO[r + L] = {x, y, w, h: hh, row: r, L, cx: x + w / 2, cy: y + hh / 2};
       });
       x += isB ? pitchB : pitchE;
     }
     const lastX = x;
-    const top = y0, bot = y0 + H, nose = x0, tail = lastX + 46;
+    const top = y0,
+      bot = y0 + H,
+      nose = x0,
+      tail = lastX + 46;
     let svg = `<g class="plane">
       <path d="M${x0 + 300} ${top} L${x0 + 400} ${top - wing} L${x0 + 440} ${top - wing} L${x0 + 400} ${top} Z M${x0 + 300} ${bot} L${x0 + 400} ${bot + wing} L${x0 + 440} ${bot + wing} L${x0 + 400} ${bot} Z" class="wing"/>
-      <path d="M${tail - 30} ${top + 2} L${tail + 4} ${top - wing * .55} L${tail + 18} ${top - wing * .55} L${tail + 4} ${top + 24} Z M${tail - 30} ${bot - 2} L${tail + 4} ${bot + wing * .55} L${tail + 18} ${bot + wing * .55} L${tail + 4} ${bot - 24} Z" class="wing"/>
+      <path d="M${tail - 30} ${top + 2} L${tail + 4} ${top - wing * 0.55} L${tail + 18} ${top - wing * 0.55} L${tail + 4} ${top + 24} Z M${tail - 30} ${bot - 2} L${tail + 4} ${bot + wing * 0.55} L${tail + 18} ${bot + wing * 0.55} L${tail + 4} ${bot - 24} Z" class="wing"/>
       <path d="M${nose + 64} ${top} L${tail - 20} ${top} Q${tail + 26} ${aisle} ${tail - 20} ${bot} L${nose + 64} ${bot} Q${nose - 6} ${bot} ${nose} ${aisle} Q${nose - 6} ${top} ${nose + 64} ${top} Z" class="fuse"/>
       <path d="M${nose + 22} ${aisle - 22} Q${nose + 30} ${aisle} ${nose + 22} ${aisle + 22}" class="cockpit"/>
       <rect x="${firstX - 26}" y="${top - 3}" width="14" height="6" class="door"/>
@@ -46,8 +73,12 @@ const WORLD = (() => {
     svg += '</g>';
     return {GEO, svg, aisle, door: {x: firstX - 19, y: top}, left: nose, right: tail + 20, top, bot, seats: Object.keys(GEO)};
   }
-  const seatsOf = (rows, biz) => { const a = []; for (let r = 1; r <= rows; r++) (r <= biz ? L4 : L6).forEach(L => a.push(r + L)); return a; };
-  const fare = (row, biz) => row <= biz ? 'бизнес' : 'эконом';
+  const seatsOf = (rows, biz) => {
+    const a = [];
+    for (let r = 1; r <= rows; r++) (r <= biz ? L4 : L6).forEach(L => a.push(r + L));
+    return a;
+  };
+  const fare = (row, biz) => (row <= biz ? 'бизнес' : 'эконом');
 
   // путь пассажира: от двери по проходу до своего ряда, затем к креслу
   function walkPath(P, seat, fromDoor = true) {
@@ -66,20 +97,33 @@ const WORLD = (() => {
     const dur = opt.dur || 700;
     const segs = [];
     let total = 0;
-    for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); segs.push(d); total += d; }
+    for (let i = 1; i < pts.length; i++) {
+      const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      segs.push(d);
+      total += d;
+    }
     return new Promise(res => {
       const t0 = performance.now();
       const step = now => {
         let t = Math.min(1, (now - t0) / dur);
-        t = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        let dist = t * total, i = 0;
-        while (i < segs.length - 1 && dist > segs[i]) { dist -= segs[i]; i++; }
+        t = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        let dist = t * total,
+          i = 0;
+        while (i < segs.length - 1 && dist > segs[i]) {
+          dist -= segs[i];
+          i++;
+        }
         const k = segs[i] ? dist / segs[i] : 1;
         const x = pts[i][0] + (pts[i + 1] ? (pts[i + 1][0] - pts[i][0]) * k : 0);
         const y = pts[i][1] + (pts[i + 1] ? (pts[i + 1][1] - pts[i][1]) * k : 0);
-        c.setAttribute('cx', x); c.setAttribute('cy', y);
+        c.setAttribute('cx', x);
+        c.setAttribute('cy', y);
         if (opt.fade) c.setAttribute('opacity', 1 - t);
-        if (t < 1) requestAnimationFrame(step); else { if (!opt.keep) c.remove(); res(c); }
+        if (t < 1) requestAnimationFrame(step);
+        else {
+          if (!opt.keep) c.remove();
+          res(c);
+        }
       };
       requestAnimationFrame(step);
     });

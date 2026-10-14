@@ -15,7 +15,7 @@ test('splitTop и statements не режут внутри кавычек и ск
 });
 
 test('findTop: ключевое слово вне скобок и кавычек', () => {
-  const s = "meal = (SELECT m FROM x WHERE id = 1) WHERE id = 2";
+  const s = 'meal = (SELECT m FROM x WHERE id = 1) WHERE id = 2';
   assert.equal(s.slice(findTop(s, 'where') + 1), 'WHERE id = 2');
   assert.equal(findTop("a = ' where ' ", 'where'), -1);
   assert.equal(findTop('a = 1', 'where'), -1);
@@ -25,14 +25,20 @@ test('ЛР-14: UPDATE с подзапросом в SET', () => {
   const q = p14.parse("UPDATE passenger SET meal = (SELECT meal FROM passenger WHERE id = 1), city = 'Тюмень, центр' WHERE id = 2;");
   assert.equal(q.kind, 'UPDATE');
   assert.equal(q.where, 'id = 2');
-  assert.deepEqual(q.sets.map(s => s.col), ['meal', 'city']);
+  assert.deepEqual(
+    q.sets.map(s => s.col),
+    ['meal', 'city'],
+  );
   assert.equal(q.sets[1].expr, "'Тюмень, центр'");
 });
 
 test('ЛР-14: разбор UPDATE, DELETE, SELECT и отказ в остальном', () => {
   assert.equal(p14.parse("UPDATE passenger SET meal = 'детское' WHERE birth_year >= 2012").where, 'birth_year >= 2012');
   assert.equal(p14.parse('UPDATE baggage SET weight_kg = weight_kg + 2').where, null);
-  assert.deepEqual([p14.parse('delete from passenger where id = 5').kind, p14.parse('delete from passenger where id = 5').where], ['DELETE', 'id = 5']);
+  assert.deepEqual(
+    [p14.parse('delete from passenger where id = 5').kind, p14.parse('delete from passenger where id = 5').where],
+    ['DELETE', 'id = 5'],
+  );
   assert.equal(p14.parse('SELECT * FROM baggage WHERE shelf = 2 ORDER BY tag').where, 'shelf = 2');
   assert.match(p14.parse('UPDATE planes SET x = 1').err, /Таблицы planes нет/);
   assert.match(p14.parse('INSERT INTO flight VALUES (1)').err, /SELECT, UPDATE и DELETE/);
@@ -41,7 +47,10 @@ test('ЛР-14: разбор UPDATE, DELETE, SELECT и отказ в осталь
 });
 
 test('ЛР-14: подстановка значений строки в условие', () => {
-  assert.equal(p14.subst('passenger', "birth_year >= 2012 AND city = 'birth_year'", {birth_year: 2015, city: 'Ишим'}), "2015 >= 2012 AND 'Ишим' = 'birth_year'");
+  assert.equal(
+    p14.subst('passenger', "birth_year >= 2012 AND city = 'birth_year'", {birth_year: 2015, city: 'Ишим'}),
+    "2015 >= 2012 AND 'Ишим' = 'birth_year'",
+  );
   assert.equal(p14.normW('  Id =  5 '), 'id=5');
 });
 
@@ -49,7 +58,13 @@ test('ЛР-13: VALUES, проверка значений до запуска', (
   const q = p13.parse("INSERT INTO seat (seat_no, cls) VALUES ('1A', 'бизнес'), ('1C', DEFAULT);");
   assert.equal(q.kind, 'INSERT');
   assert.deepEqual(q.cols, ['seat_no', 'cls']);
-  assert.deepEqual(q.tuples.map(t => t.vals), [["'1A'", "'бизнес'"], ["'1C'", 'DEFAULT']]);
+  assert.deepEqual(
+    q.tuples.map(t => t.vals),
+    [
+      ["'1A'", "'бизнес'"],
+      ["'1C'", 'DEFAULT'],
+    ],
+  );
   assert.match(p13.parse('INSERT INTO seat VALUES (1A)').err, /без кавычек/);
   assert.match(p13.parse('INSERT INTO seat VALUES ("1A")').err, /двойных кавычках/);
   assert.match(p13.parse("INSERT INTO seat VALUES ('1A)").err, /Не закрыта/);
@@ -66,7 +81,8 @@ test('ЛР-13: какой столбец подсветить при отказ�
 });
 
 test('sha256 совпадает с node:crypto; код преподавателя проверяется по хэшу', () => {
-  for (const s of ['', 'abc', 'boeing747', 'Ёжик в тумане '.repeat(20)]) assert.equal(sha256(s), createHash('sha256').update(s).digest('hex'));
+  for (const s of ['', 'abc', 'boeing747', 'Ёжик в тумане '.repeat(20)])
+    assert.equal(sha256(s), createHash('sha256').update(s).digest('hex'));
   assert.equal(isTeacherCode('boeing747'), true);
   assert.equal(isTeacherCode(' boeing747 '), true);
   assert.equal(isTeacherCode('boeing'), false);
@@ -74,7 +90,10 @@ test('sha256 совпадает с node:crypto; код преподавател�
 });
 
 test('plural', () => {
-  assert.deepEqual([1, 2, 5, 11, 21, 22, 112].map(n => plural(n, 'строка', 'строки', 'строк')), ['строка', 'строки', 'строк', 'строк', 'строка', 'строки', 'строк']);
+  assert.deepEqual(
+    [1, 2, 5, 11, 21, 22, 112].map(n => plural(n, 'строка', 'строки', 'строк')),
+    ['строка', 'строки', 'строк', 'строк', 'строка', 'строки', 'строк'],
+  );
 });
 
 test('подсветка SQL: ключевые слова только при верном написании, место ошибки', async () => {
