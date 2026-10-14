@@ -182,6 +182,14 @@ async function serverFlow() {
 const jobs = {
   lr13: () => lab3d('lr13', 'lr13-3d'),
   lr14: () => lab3d('lr14', 'lr14-3d'),
+  home: async () => {
+    const {page, errors} = await open('/');
+    await page.waitForFunction(() => document.querySelectorAll('#rows .row').length === 4 && document.querySelectorAll('.pass').length === 2);
+    for (const href of await page.evaluate(() => [...document.querySelectorAll('a[href]')].map(a => a.href))) {
+      const r = await fetch(href); if (!r.ok) errors.push(`главная: ссылка ${href} → ${r.status}`);
+    }
+    out.home = {errors}; errors.forEach(e => fails.push(`home: ${e}`)); await page.close();
+  },
   hub: () => plain('hub', '/labs/index.html', () => document.querySelectorAll('.lc').length > 0),
   'labs-lr13': () => workbook('labs-lr13', '/labs/lr13.html'),
   'labs-lr14': () => workbook('labs-lr14', '/labs/lr14.html'),

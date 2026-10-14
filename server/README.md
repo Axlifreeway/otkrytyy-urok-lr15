@@ -1,7 +1,7 @@
 # Как перезалить лабы на сервер
 
 На сервере:
-- `/var/www/labs/` — `lr13-3d/`, `lr14-3d/`, `teacher/`, `common/`, `vendor/` (их отдаёт nginx).
+- `/var/www/labs/` — главная `index.html`, `lr13-3d/`, `lr14-3d/`, `labs/`, `teacher/`, `common/`, `vendor/` (их отдаёт nginx).
   `common/` нужен из-за общих стилей 3D-лаб (`common/lab3d.css`), `vendor/` — PostgreSQL в браузере (PGlite);
 - `/opt/labsrv/labsrv.py` — сервис: вход студентов, сохранение прогресса, события для панели (база `labs.db` рядом).
 
@@ -14,7 +14,7 @@
 
 ## 1. С компьютера (PowerShell)
     cd D:\GIT\otkrytyy-urok-lr15
-    scp -r lr13-3d lr14-3d teacher common vendor user@адрес:/var/www/labs/
+    scp -r index.html lr13-3d lr14-3d labs teacher common vendor user@адрес:/var/www/labs/
 
 Раньше PGlite лежал в `mvp/vendor/pglite/` — после первой заливки `vendor/` старую папку `/var/www/labs/mvp/vendor` можно удалить.
     scp server\labsrv.py server\labsrv.service user@адрес:/tmp/
