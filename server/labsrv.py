@@ -78,8 +78,9 @@ def merge(a, b):
     out['lv'] = lv
     out['pred'] = {**(b.get('pred') or {}), **(a.get('pred') or {})}
     ja = a.get('journal') or []
-    seen = {(e.get('t'), e.get('q')) for e in ja if isinstance(e, dict)}
-    out['journal'] = (ja + [e for e in (b.get('journal') or []) if isinstance(e, dict) and (e.get('t'), e.get('q')) not in seen])[-800:]
+    key = lambda e: (e.get('t'), str(e.get('q') or '')[:200])   # команды приходят укороченными до 200 символов
+    seen = {key(e) for e in ja if isinstance(e, dict)}
+    out['journal'] = (ja + [e for e in (b.get('journal') or []) if isinstance(e, dict) and key(e) not in seen])[-800:]
     ans = dict(a.get('answers') or {})
     for k, v in (b.get('answers') or {}).items():
         if v and len(str(v)) >= len(str(ans.get(k) or '')):

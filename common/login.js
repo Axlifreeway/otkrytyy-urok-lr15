@@ -87,8 +87,10 @@ export function mergeP(a, b) {
   });
   out.lv = lv;
   out.pred = {...(b.pred || {}), ...(a.pred || {})};
-  const ja = a.journal || [], seen = new Set(ja.map(e => e.t + '|' + e.q));
-  out.journal = ja.concat((b.journal || []).filter(e => !seen.has(e.t + '|' + e.q))).slice(-800);
+  // одна и та же команда: время + первые 200 символов (на сервер команды уходят укороченными)
+  const key = e => e.t + '|' + String(e.q || '').slice(0, 200);
+  const ja = a.journal || [], seen = new Set(ja.map(key));
+  out.journal = ja.concat((b.journal || []).filter(e => !seen.has(key(e)))).slice(-800);
   const ans = {...(a.answers || {})};
   Object.entries(b.answers || {}).forEach(([k, v]) => { if (v && String(v).length >= String(ans[k] || '').length) ans[k] = v; });
   out.answers = ans;
@@ -97,22 +99,50 @@ export function mergeP(a, b) {
   return out;
 }
 
-// синхронизация прогресса с сервером
-let sess = null, lab = '', timer = null, onStatus = () => {};
-export function syncInit(s, labName, statusCb) { sess = s && s.token ? s : null; lab = labName; onStatus = statusCb || (() => {}); if (sess) onStatus('ok'); }
+// синхронизация прогресса с сервером.
+// На сервер уходит выжимка: последние 80 записей журнала и команды до 200 символов — чтобы запрос не упирался в лимит
+// размера (nginx/сервер) и успевал уйти при закрытии вкладки (keepalive — до 64 КБ). Пока не дошло — повторяем.
+let sess = null, lab = '', timer = null, retry = null, tries = 0, last = null, onStatus = () => {};
+export const SYNC_JOURNAL = 80;
+export function compact(P) {
+  const j = (P.journal || []).slice(-SYNC_JOURNAL).map(e => ({...e, q: String(e.q || '').slice(0, 200)}));
+  return {...P, journal: j};
+}
+export function syncInit(s, labName, statusCb) {
+  sess = s && s.token ? s : null; lab = labName; onStatus = statusCb || (() => {}); tries = 0; last = null;
+  clearTimeout(timer); clearTimeout(retry);
+  if (sess) onStatus('ok');
+}
 export async function pull() {
   if (!sess) return null;
   try { const r = await api(`/api/progress?lab=${lab}`, null, {'X-Labs-Token': sess.token}); onStatus('ok'); return r.data; }
   catch (e) { onStatus(e.status === 403 ? 'auth' : 'off'); return null; }
 }
+function send(final) {
+  if (!sess || !last) return;
+  clearTimeout(retry);
+  onStatus('wait');
+  const body = JSON.stringify({token: sess.token, lab, data: compact(last)});
+  fetch('/api/progress', {method: 'POST', headers: {'Content-Type': 'application/json'}, keepalive: final || body.length < 60000, body})
+    .then(r => {
+      if (r.ok) { tries = 0; last = null; onStatus('ok'); return; }
+      if (r.status === 403) { onStatus('auth'); return; }        // вход устарел — повтор не поможет
+      throw new Error(r.status);
+    })
+    .catch(() => {
+      onStatus('off');
+      tries++;                                                  // 3 с, 6 с, 12 с … не реже раза в минуту
+      retry = setTimeout(() => send(false), Math.min(60000, 3000 * 2 ** Math.min(tries - 1, 5)));
+    });
+}
 export function push(P, now = false) {
   if (!sess) return;
+  last = P;
   clearTimeout(timer);
-  const go = () => {
-    onStatus('wait');
-    const body = JSON.stringify({token: sess.token, lab, data: P});
-    fetch('/api/progress', {method: 'POST', headers: {'Content-Type': 'application/json'}, keepalive: body.length < 60000, body})
-      .then(r => onStatus(r.ok ? 'ok' : r.status === 403 ? 'auth' : 'off')).catch(() => onStatus('off'));
-  };
-  if (now) go(); else timer = setTimeout(go, 1200);
+  if (now) send(true); else timer = setTimeout(() => send(false), 1200);
+}
+// связь вернулась или студент вернулся на вкладку — дослать несохранённое
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => send(false));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && last) send(false); });
 }
