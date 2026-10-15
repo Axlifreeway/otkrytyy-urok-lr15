@@ -30,11 +30,12 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 12, 'lr14': 12}           # число уровней в лабе — для панели преподавателя
+LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 14, 'lr16': 10}   # число уровней в лабе — для панели преподавателя
+GATED = ('lr15', 'lr16')                    # лабы, которые открывает преподаватель (по умолчанию закрыты)
 MAX_BODY = 400000
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
 REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
-REPORT_LABS = {'lr13', 'lr14', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
+REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
 PIN_TRIES = 8
 # защита от «захвата» чужих аккаунтов: первый вход задаёт PIN, поэтому с одного устройства
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS report (
   id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, fio TEXT, grp TEXT, seed INTEGER, pts REAL, done INTEGER, html TEXT);
 CREATE INDEX IF NOT EXISTS report_ts ON report(ts);
 CREATE INDEX IF NOT EXISTS report_client ON report(client, lab, ts);
+CREATE TABLE IF NOT EXISTS setting (k TEXT PRIMARY KEY, v TEXT);
 '''
 # столбцы, добавленные позже: (таблица, столбец, тип) — для баз, созданных старой версией
 COLUMNS = [
@@ -350,6 +352,17 @@ class Store:
             return [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4], 'to': r[5]}
                     for r in self.con.execute('SELECT s.id, s.ts, s.grp, s.text, s.mode, st.name FROM say s LEFT JOIN student st ON st.id = s.sid ORDER BY s.id DESC LIMIT 10')]
 
+    # ── какие лабы открыты студентам ──
+    def labs_open(self):
+        with self.lock:
+            on = {k[5:] for (k,) in self.con.execute("SELECT k FROM setting WHERE k LIKE 'open:%' AND v = '1'")}
+        return {lab: lab not in GATED or lab in on for lab in LEVELS}
+
+    def set_lab_open(self, lab, on):
+        with self.lock:
+            self.con.execute('INSERT OR REPLACE INTO setting (k, v) VALUES (?, ?)', ('open:' + lab, '1' if on else '0'))
+            self.con.commit()
+
     # ── отчёты: снимок протокола, который студент отправил преподавателю ──
     def add_report(self, client, lab, fio, grp, seed, pts, done, html):
         with self.lock:
@@ -604,7 +617,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, r) if r else self.send(404, {'err': 'not found'})
 
     # POST
+    def closed(self, lab):
+        return lab in GATED and not self.store.labs_open().get(lab)
+
     def ev(self, e):
+        if self.closed(e.get('lab')):
+            return self.send(403, {'err': 'closed'})
         typ = e.get('type')
         if typ not in TYPES or not e.get('client'):
             return self.send(400, {'err': 'type'})
@@ -635,6 +653,8 @@ class Handler(BaseHTTPRequestHandler):
     def post_progress(self, e):
         sid = self.sid(e)
         lab = clip(e.get('lab'), 10)
+        if self.closed(lab):
+            return self.send(403, {'err': 'closed'})
         if not sid or not lab or not isinstance(e.get('data'), dict):
             return self.send(403, {'err': 'token'})
         self.send(200, {'data': self.store.save_progress(sid, lab, e['data'])})
@@ -643,6 +663,8 @@ class Handler(BaseHTTPRequestHandler):
         html, lab = e.get('html'), clip(e.get('lab'), 10)
         if not isinstance(html, str) or not html.strip() or lab not in REPORT_LABS:
             return self.send(400, {'err': 'html'})
+        if self.closed(lab):
+            return self.send(403, {'err': 'Лаба ещё закрыта'})
         if len(html) > MAX_REPORT:
             return self.send(413, {'err': 'Отчёт слишком большой'})
         seed = e.get('seed') if isinstance(e.get('seed'), int) else None
@@ -680,6 +702,16 @@ class Handler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             sid = None
         self.send(200, {'id': self.store.add_say('' if sid else clip(e.get('grp'), 20), text, 'normal', sid)})
+
+    def get_labs(self, q):
+        self.send(200, {'open': self.store.labs_open(), 'gated': list(GATED)})
+
+    def admin_labs(self, e):
+        lab = clip(e.get('lab'), 10)
+        if lab not in GATED:
+            return self.send(400, {'err': 'lab'})
+        self.store.set_lab_open(lab, bool(e.get('open')))
+        self.send(200, {'open': self.store.labs_open()})
 
     def admin_resetpin(self, e):
         self.store.reset_pin(int(e.get('id') or 0))
@@ -719,6 +751,7 @@ GET_ROUTES = {
     '/api/state': (Handler.state, True),
     '/api/log': (Handler.log, True),
     '/api/admin/reports': (Handler.admin_reports, True),
+    '/api/labs': (Handler.get_labs, False),
     '/api/admin/report': (Handler.admin_report, True),
 }
 POST_ROUTES = {
@@ -730,6 +763,7 @@ POST_ROUTES = {
     '/api/admin/resetpin': (Handler.admin_resetpin, True),
     '/api/admin/say': (Handler.admin_say, True),
     '/api/admin/delgroup': (Handler.admin_delgroup, True),
+    '/api/admin/labs': (Handler.admin_labs, True),
 }
 
 

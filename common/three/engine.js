@@ -763,6 +763,45 @@ export function createEngine(stage, o) {
     chips.forEach(drop);
     chips.clear();
   }
+  // связи соединения (JOIN): стержень от одной строки к другой — видно, какие пары собрал запрос
+  const linksG = new THREE.Group();
+  scene.add(linksG);
+  const linkGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 6).translate(0, 0.5, 0);
+  const LINKC = {ok: 0xffc21a, many: 0xd2483c, path: 0x2f6f73};
+  const anchor = (t, obj) => {
+    const p = obj.getWorldPosition(new THREE.Vector3());
+    p.y += t === 'passenger' ? 0.95 * (obj.userData.s || 1) : t === 'flight' ? 0 : 0.18;
+    return p;
+  };
+  function link(t1, k1, t2, k2, kind = 'ok', anim = true) {
+    const a = objOf(t1, k1),
+      b = objOf(t2, k2);
+    if (!a || !b) return null;
+    const pa = anchor(t1, a),
+      d = anchor(t2, b).sub(pa),
+      L = d.length();
+    if (L < 0.01) return null;
+    const m = new THREE.Mesh(
+      linkGeo,
+      new THREE.MeshBasicMaterial({color: LINKC[kind] || LINKC.ok, transparent: true, opacity: 0.85, depthWrite: false}),
+    );
+    m.position.copy(pa);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    m.raycast = () => {};
+    m.renderOrder = 3;
+    linksG.add(m);
+    if (anim) {
+      m.scale.set(1, 0.01, 1);
+      tween(m.scale, {y: L}, 240 / SPD + 60, 'out');
+    } else m.scale.set(1, L, 1);
+    return m;
+  }
+  function clearLinks() {
+    linksG.children.slice().forEach(m => {
+      m.material.dispose();
+      linksG.remove(m);
+    });
+  }
   function fadeNo() {
     chips.forEach(c => {
       if (c.inner.classList.contains('no')) c.inner.animate([{opacity: 1}, {opacity: 0}], {duration: 600, fill: 'forwards'});
@@ -1077,6 +1116,8 @@ export function createEngine(stage, o) {
     makeBag,
     dispose,
     sweepLabels,
+    link,
+    clearLinks,
     resolve,
     sayAt,
     robotHome,

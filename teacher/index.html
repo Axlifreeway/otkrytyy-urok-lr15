@@ -54,7 +54,7 @@
   #groups { padding: 0 16px 24px; display: grid; grid-template-columns: 380px 1fr; gap: 14px; align-items: start }
   .gform { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px } .gform h2 { font-size: 18px } .mu { color: var(--mute); font-size: 12.5px }
   .gform input, .gform textarea { width: 100%; font: 500 14px var(--font); padding: 6px 8px; border: 2.5px solid var(--ink); border-radius: 5px }
-  .gcard { margin-bottom: 14px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
+  .gcard { margin-bottom: 14px } #labGate { margin-bottom: 14px } .gate { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px dashed #d8d0bd } .gate b { min-width: 60px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
   tr.absent td { color: #9a9488; background: #f4f1ea }
   #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
   #sayBox { margin: 0 16px 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 760px }
@@ -88,7 +88,7 @@
 <div id="app" hidden>
 <header>
   <h1>Пульт преподавателя</h1>
-  <select id="labSel"><option value="">все ЛР</option><option value="lr13">ЛР-13 INSERT</option><option value="lr14">ЛР-14 UPDATE/DELETE</option></select>
+  <select id="labSel"><option value="">все ЛР</option><option value="lr13">ЛР-13 INSERT</option><option value="lr14">ЛР-14 UPDATE/DELETE</option><option value="lr15">ЛР-15 SELECT</option><option value="lr16">ЛР-16 JOIN</option></select>
   <select id="grpSel"><option value="">все группы</option></select>
   <span class="days"><button class="btn" id="prevDay" title="Предыдущий день">◀</button><input type="date" id="day" title="За какой день показывать"><button class="btn" id="nextDay" title="Следующий день">▶</button></span>
   <button class="btn" id="newPair" title="Показывать только события с этой минуты (ещё раз — снова весь день)">Новая пара</button>
@@ -117,7 +117,8 @@
     <label>Группа <input id="gName" placeholder="например 2.1"></label>
     <textarea id="gList" rows="10" placeholder="Иванов Иван&#10;Петрова Анна&#10;…"></textarea>
     <div><button class="btn on" id="gSave">Сохранить список</button> <span id="gMsg" class="mu"></span></div></div>
-  <div id="gCards"></div>
+  <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13 и ЛР-14 открыты всегда. ЛР-15 и ЛР-16 студенты не увидят, пока вы их не откроете.</div><div id="gateList"></div></div>
+  <div id="gCards"></div></div>
 </div>
 <div id="proj" hidden></div>
 <button class="btn" id="projX" hidden>✕ Закрыть проектор</button>
@@ -137,6 +138,8 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const NAMES = {
   lr13: ['Рейс на табло', 'Ещё два рейса', 'Бизнес-класс', 'Эконом по умолчанию', 'Первый пассажир', 'Семья', 'Багаж', 'Сначала кресло', 'Ошибка в списке', 'Охота на ограничения', 'Багаж по фамилиям', 'Последние на борт'],
+  lr15: ['Паспорт багажа', 'Чемоданы без хозяина', 'Номер выдаёт СУБД', 'Посадочная ведомость', 'Земляки', 'Ровесники', 'Два города', 'Фамилии на букву', 'Разгрузка по полкам', 'Скобки решают', 'Год не указан', 'Откуда мы', 'Пять самых тяжёлых', 'Вопрос заказчика'],
+  lr16: ['Связи базы', 'Чей чемодан', 'Куда летит ряд', 'Багаж из города', 'Скидки по картам', 'Забыли условие', 'Приоритетная выдача', 'Пустая табличка', 'Налегке', 'Перевес со скидкой'],
   lr14: ['Детское питание', 'Остальным — стандарт', 'К окну', 'Весы врали', 'Не пролезло', 'Неявка', 'Снят с рейса', 'Программа закрыта', 'Неудаляемый рейс', 'Возврат билетов', 'Охота на ограничения', 'Последний рейс'],
 };
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
@@ -154,7 +157,7 @@ function range() {
   return {since: pair ? since : from, until: to, isToday, pair};
 }
 const hl = s => window.sqlHL ? window.sqlHL(s) : esc(s);
-const LABN = {lr13: 'ЛР-13', lr14: 'ЛР-14', lr13t: 'ЛР-13 тетрадь', lr14t: 'ЛР-14 тетрадь', lr16t: 'ЛР-16 тетрадь'};
+const LABN = {lr13: 'ЛР-13', lr14: 'ЛР-14', lr15: 'ЛР-15', lr16: 'ЛР-16', lr13t: 'ЛР-13 тетрадь', lr14t: 'ЛР-14 тетрадь', lr16t: 'ЛР-16 тетрадь'};
 const hm = t => new Date(t).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
 const dhm = t => new Date(t).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
 const mins = ms => ms < 60000 ? Math.round(ms / 1000) + ' с' : Math.floor(ms / 60000) + ' мин';
@@ -171,14 +174,27 @@ async function post(path, body) {
   const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, key: KEY})});
   const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.err || r.status); return j;
 }
+// какие лабы открыты студентам
+async function loadGates() {
+  try {
+    const r = await api('/api/labs');
+    $('gateList').innerHTML = r.gated.map(l => `<div class="gate"><b>${LABN[l] || l}</b> <span class="tag ${r.open[l] ? 'ok' : 'warn'}">${r.open[l] ? 'открыта' : 'закрыта'}</span>
+      <button class="btn" data-gate="${l}" data-on="${r.open[l] ? 0 : 1}">${r.open[l] ? 'Закрыть' : 'Открыть студентам'}</button></div>`).join('');
+    $('gateList').querySelectorAll('[data-gate]').forEach(b => b.onclick = async () => {
+      if (b.dataset.on === '1' && !confirm(`Открыть ${LABN[b.dataset.gate]} всем студентам?`)) return;
+      await post('/api/admin/labs', {lab: b.dataset.gate, open: b.dataset.on === '1'});
+      loadGates();
+    });
+  } catch (e) { $('gateList').textContent = 'Нет связи с сервером'; }
+}
 async function loadGroups() { try { groupsData = (await api('/api/admin/groups')).groups || []; } catch (e) { groupsData = []; } renderGroups(); }
 function renderGroups() {
   $('gCards').innerHTML = groupsData.map(g => `<div class="panel gcard" style="padding:10px 12px"><h3>${esc(g.name)} <span class="mu">${g.students.filter(s => s.idx).length} студ.</span>
       <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
-    <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th></tr>
+    <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th><th>ЛР-15</th><th>ЛР-16</th></tr>
     ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
       <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
-      ${['lr13', 'lr14'].map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
+      ${['lr13', 'lr14', 'lr15', 'lr16'].map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
   $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const g = groupsData.find(x => x.name === b.dataset.edit); $('gName').value = g.name; $('gList').value = g.students.filter(s => s.idx).map(s => s.name).join('\n'); });
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
   $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { await post('/api/admin/resetpin', {id: +b.dataset.pin}); loadGroups(); });
@@ -348,7 +364,7 @@ function start() {
   started = true;
   tick(); setInterval(tick, 3000); loadGroups(); setInterval(loadGroups, 20000);
 }
-$('grpBtn').onclick = () => { const on = $('groups').hidden; $('groups').hidden = !on; document.querySelector('main').hidden = on; $('grpBtn').classList.toggle('on', on); if (on) loadGroups(); };
+$('grpBtn').onclick = () => { const on = $('groups').hidden; $('groups').hidden = !on; document.querySelector('main').hidden = on; $('grpBtn').classList.toggle('on', on); if (on) { loadGroups(); loadGates(); } };
 $('gSave').onclick = async () => {
   const name = $('gName').value.trim(), names = $('gList').value.split('\n').map(x => x.trim()).filter(Boolean);
   if (!name || !names.length) { $('gMsg').textContent = 'Нужны название группы и хотя бы одна фамилия'; return; }

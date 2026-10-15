@@ -6,7 +6,9 @@ import {ROWS, LET, FLIGHT, rng, seatRow, seatL} from './data.js';
 
 export {sleep, tween};
 
-export function createWorld(stage) {
+// opts.tiers — таблички программ на стойке (ЛР-16: ещё «платина»)
+export function createWorld(stage, opts = {}) {
+  const TIERS = opts.tiers || ['золото', 'серебро', 'базовая'];
   const E = createEngine(stage, {home: {tx: 2.3, tz: 0}, sunTarget: [3.5, 0, 0], viewH: 6.8, followZoom: 1.45, apronZ: 0});
   const {root, rbox, at, label, mat} = E;
   const {LEN0, DOOR} = E.airframe({rows: ROWS, wing: [3.2, 4.6, 5.6, 3.7], wingRow: 2.2, engRow: 3.3, engZ: 4.7, dashes: 14});
@@ -32,10 +34,11 @@ export function createWorld(stage) {
     E.flatLabel(`полка ${k}`, root, {x: (shelfX0(k) + shelfX1(k)) / 2, y: BIN_Y + 0.66, z: BIN_Z + 0.05, rx: -Math.PI / 2, h: 0.42});
   const {board, show: showBoard} = E.flightBoard();
   // стойка программ лояльности
-  const stand = rbox(1.6, 0.5, 0.5, 0.06, 0xdcd6c8);
-  at(stand, LEN0 + 1.1, 0.25, 2.2);
+  const stand = rbox(Math.max(1.6, TIERS.length * 0.5 + 0.1), 0.5, 0.5, 0.06, 0xdcd6c8);
+  at(stand, LEN0 + 1.1 + Math.max(0, TIERS.length * 0.5 + 0.1 - 1.6) / 2, 0.25, 2.2);
   root.add(stand);
-  const TIERC = {золото: 0xe0b03a, серебро: 0xc7ced6, базовая: 0x7fa486};
+  const TIERC = {платина: 0x8fa7c4, золото: 0xe0b03a, серебро: 0xc7ced6, базовая: 0x7fa486, бронза: 0xb0713a};
+  const plateX = i => LEN0 + 0.55 + i * (TIERS.length > 3 ? 0.5 : 0.55);
 
   // кресла — стоят всегда, поэтому склеиваются вместе с салоном
   for (let row = 1; row <= ROWS; row++)
@@ -206,14 +209,14 @@ export function createWorld(stage) {
       bags.set(row.tag, {g, row});
       model.baggage.set(row.tag, row);
     });
-    ['золото', 'серебро', 'базовая'].forEach((t, i) => {
+    TIERS.forEach((t, i) => {
       const g = new THREE.Group();
       g.add(rbox(0.06, 0.46, 0.34, 0.04, TIERC[t], {r: 0.4, metalness: t === 'базовая' ? 0 : 0.3}));
       // невидимая зона нажатия крупнее самой таблички — по ней легко попасть
       const hit = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.5), new THREE.MeshBasicMaterial({colorWrite: false, depthWrite: false}));
       hit.position.y = 0.1;
       g.add(hit);
-      g.position.set(LEN0 + 0.55 + i * 0.55, 0.76, 2.2);
+      g.position.set(plateX(i), 0.76, 2.2);
       E.setPick(g, {t: 'loyalty', k: t});
       // название — на самой табличке (её лицо смотрит вдоль салона)
       E.flatLabel(t, g, {x: 0.04, y: 0.02, ry: Math.PI / 2, h: 0.085, color: '#22252b', bg: 'rgba(255,255,255,.7)'});

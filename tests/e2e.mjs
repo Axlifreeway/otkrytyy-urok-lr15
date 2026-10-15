@@ -118,7 +118,7 @@ async function lab3d(lab, dir) {
   for (let i = 0; i < n; i++) {
     const lv = await page.evaluate(i => {
       const l = window.LAB.L[i];
-      return {key: l.key, ref: l.ref, prefill: l.prefill, needCount: l.needCount, check: l.check};
+      return {key: l.key, ref: l.ask ? [l.ask] : l.ref, prefill: l.prefill, needCount: l.needCount, check: l.check};
     }, i);
     await page.evaluate(i => window.LAB.startLevel(i), i);
     await page.waitForFunction(() => !window.LAB.running);
@@ -141,6 +141,7 @@ async function lab3d(lab, dir) {
     const D = await page.evaluate(async lab => {
       const db = await window.__pg,
         q = async s => (await db.query(s)).rows;
+      if (lab === 'lr15' || lab === 'lr16') return {};
       if (lab === 'lr14')
         return {
           FLIGHT: (await q('SELECT flight_no FROM passenger LIMIT 1'))[0].flight_no,
@@ -361,6 +362,36 @@ async function practiceRun(lab, dir) {
   await page.close();
 }
 
+// ЛР-15 и ЛР-16 закрыты, пока преподаватель не откроет: на главной их нет, лаба показывает «Рейс задержан»
+async function gate() {
+  const post = (path, body) =>
+    fetch(BASE + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(r => r.json());
+  const errors = [];
+  for (const lab of ['lr15', 'lr16']) {
+    const {page, errors: e} = await open(`/${lab}-3d/index.html`);
+    await page.waitForSelector('.closed', {timeout: 60000}).catch(() => fails.push(`gate: ${lab} открылась без разрешения`));
+    await page.close();
+    errors.push(...e);
+  }
+  const home = await open('/');
+  await sleep(1500);
+  const before = await home.page.evaluate(() => [...document.querySelectorAll('.pass')].map(x => x.getAttribute('href')));
+  if (before.some(h => /lr1[56]/.test(h))) fails.push('gate: закрытые лабы видны на главной');
+  await post('/api/admin/labs', {key: KEY, lab: 'lr15', open: true});
+  await home.page.reload();
+  await sleep(1500);
+  const after = await home.page.evaluate(() => [...document.querySelectorAll('.pass')].map(x => x.getAttribute('href')));
+  if (!after.includes('lr15-3d/')) fails.push('gate: открытая ЛР-15 не появилась на главной');
+  const {page} = await open('/lr15-3d/index.html');
+  await page.waitForSelector('#modal:not([hidden]) .dlg', {timeout: 60000});
+  if (await page.$('.closed')) fails.push('gate: открытая ЛР-15 всё ещё закрыта');
+  await page.close();
+  await home.page.close();
+  await post('/api/admin/labs', {key: KEY, lab: 'lr15', open: false});
+  out.gate = {before, after, errors: errors.concat(home.errors)};
+  errors.concat(home.errors).forEach(e => fails.push('gate: ' + e));
+}
+
 // телефон (iPhone 13, стоя и боком): страница не шире экрана, панели 3D-лабы не налезают друг на друга
 async function mobile() {
   const {devices} = (() => {
@@ -426,6 +457,8 @@ async function mobile() {
 const jobs = {
   lr13: () => lab3d('lr13', 'lr13-3d'),
   lr14: () => lab3d('lr14', 'lr14-3d'),
+  lr15: () => lab3d('lr15', 'lr15-3d'),
+  lr16: () => lab3d('lr16', 'lr16-3d'),
   home: async () => {
     const {page, errors} = await open('/');
     await page.waitForFunction(
@@ -447,6 +480,7 @@ const jobs = {
   mobile,
   'lr13-practice': () => practiceRun('lr13', 'lr13-3d'),
   'lr14-practice': () => practiceRun('lr14', 'lr14-3d'),
+  gate,
   'server-flow': serverFlow,
   teacher: () =>
     plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),

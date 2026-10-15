@@ -207,6 +207,23 @@ class ServerTest(unittest.TestCase):
         ev = self.call(f'/api/log?client=c1&since={t0 - 1000}&until={t0 + day}', headers=A)[1]['events']
         self.assertEqual([e['type'] for e in ev], ['level', 'run'])
 
+    def test_gated_labs_closed_until_teacher_opens(self):
+        ids = self.group()
+        tok = self.login(ids['Иванов И.'])[1]['token']
+        h = {'X-Labs-Token': tok}
+        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': False, 'lr16': False})
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr15'}, h)[0], 403)
+        self.assertEqual(self.call('/api/progress', {'lab': 'lr15', 'data': {'lv': {}}}, h)[0], 403)
+        self.assertEqual(self.call('/api/report', {'lab': 'lr16', 'html': '<p>x</p>'}, h)[0], 403)
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr14'}, h)[0], 200)   # открытые — как раньше
+        self.assertEqual(self.call('/api/admin/labs', {'lab': 'lr15', 'open': True})[0], 403)               # только с ключом
+        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr13', 'open': False})[0], 400)  # 13 и 14 не закрываются
+        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr15', 'open': True})[1]['open']['lr15'], True)
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr15'}, h)[0], 200)
+        self.assertEqual(self.call('/api/progress', {'lab': 'lr15', 'data': {'lv': {}}}, h)[0], 200)
+        self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr15', 'open': False})
+        self.assertEqual(self.call('/api/labs')[1]['open']['lr15'], False)
+
 
 class RateLimitTest(unittest.TestCase):
     def test_limit(self):

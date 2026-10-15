@@ -2000,3 +2000,113 @@ table.res td {
 .pr-doc pre {
   font-variant-ligatures: none;
 }
+
+/* лабы на запросы (ЛР-15, ЛР-16): вопрос, таблица ответа, структура базы, закрытая лаба */
+.askq {
+  margin: 8px 0;
+  background: #fff3c8;
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  padding: 6px 9px;
+  font-weight: 700;
+  font-size: 14px;
+}
+.askq span {
+  display: block;
+  font: 700 10.5px var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6b6e75;
+}
+.rtab {
+  max-height: 210px;
+  overflow: auto;
+  margin-top: 6px;
+}
+.rtab table {
+  border-collapse: collapse;
+  font: 500 12.5px var(--mono);
+}
+.rtab th {
+  position: sticky;
+  top: 0;
+  background: var(--ink);
+  color: var(--sun);
+  text-align: left;
+  padding: 3px 8px;
+  font-weight: 700;
+}
+.rtab td {
+  padding: 2px 8px;
+  border-bottom: 1px solid #e3dccb;
+  white-space: nowrap;
+}
+.rtab td.nul {
+  color: #b9b2a0;
+  font-style: italic;
+}
+.dbd {
+  margin-top: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  background: #fffaf0;
+}
+.dbd summary {
+  cursor: pointer;
+  padding: 6px 9px;
+  font-weight: 700;
+  font-size: 13.5px;
+}
+.dbd .dt {
+  padding: 4px 9px 8px;
+  border-top: 1px dashed #d8d0bd;
+  font-size: 12px;
+}
+.dbd .dt table {
+  border-collapse: collapse;
+  font: 500 11.5px var(--mono);
+  margin: 3px 0;
+}
+.dbd .dt td {
+  padding: 1px 8px 1px 0;
+}
+.dbd .dt i {
+  color: var(--teal);
+  font-style: normal;
+  font-weight: 700;
+}
+.dbd .dc {
+  font: 500 11.5px var(--mono);
+  color: #4a4d55;
+}
+.dbd .dc b {
+  color: var(--ink);
+}
+.dbd .none {
+  color: var(--red);
+  font-weight: 700;
+}
+table.doc {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-top: 6px;
+}
+table.doc th,
+table.doc td {
+  border: 1px solid #b9b2a0;
+  padding: 2px 6px;
+  text-align: left;
+}
+.closed {
+  margin: 10px 0;
+  background: #fde8e4;
+  border: 3px solid var(--red);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+.closed b {
+  display: block;
+  font-size: 22px;
+  color: var(--red);
+}

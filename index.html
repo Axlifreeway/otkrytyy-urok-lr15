@@ -171,8 +171,13 @@ const FLIGHTS = [
   {no: 'ЛР-14', code: 'UPDATE', title: 'Бортпитание и пересадки', sub: 'изменение и удаление', gate: 'B14', href: 'lr14-3d/', lab: 'lr14', store: 'air3d-lr14-',
     text: 'Робот проверяет WHERE у каждого пассажира. Детские подносы, пересадка к окну, неявка, каскадное удаление багажа и правило RESTRICT.',
     levels: ['kids', 'rest', 'window', 'scale', 'atomic', 'noshow', 'cascade', 'setnull', 'restrict', 'soft', 'hunt', 'final']},
-  {no: 'ЛР-15', code: 'SELECT', title: 'Посадка по запросу', sub: 'выборка данных', gate: 'C15', soon: 'ЗАДЕРЖАН'},
-  {no: 'ЛР-16', code: 'JOIN', title: 'Зал выдачи багажа', sub: 'соединение таблиц', gate: 'D16', soon: 'ПО РАСПИСАНИЮ'},
+  // ЛР-15 и ЛР-16 открывает преподаватель (панель → «Группы и списки»); до этого — «задержан»
+  {no: 'ЛР-15', code: 'SELECT', title: 'Посадка по запросу', sub: 'выборка данных', gate: 'C15', href: 'lr15-3d/', lab: 'lr15', store: 'air3d-lr15-', gated: true, soon: 'ЗАДЕРЖАН',
+    text: 'Сначала база должна стать такой, чтобы ей можно было верить: ключи, связи, номер от СУБД. Потом — вопросы: отбор, диапазоны, образцы, порядок, пустые значения.',
+    levels: ['pk', 'fk', 'ident', 'cols', 'eq', 'range', 'inlist', 'like', 'order2', 'paren', 'null', 'distinct', 'top', 'final']},
+  {no: 'ЛР-16', code: 'JOIN', title: 'Зал выдачи багажа', sub: 'соединение таблиц', gate: 'D16', href: 'lr16-3d/', lab: 'lr16', store: 'air3d-lr16-', gated: true, soon: 'ПО РАСПИСАНИЮ',
+    text: 'Бирка — в одной таблице, владелец — в другой, скидка — в третьей. Робот соединяет строки по ключам и показывает каждую пару; без условия — каждую с каждой.',
+    levels: ['links', 'owner', 'dest', 'city', 'disc', 'cross', 'three', 'empty', 'nobag', 'final']},
 ];
 const $ = id => document.getElementById(id);
 // штрихкод — SVG с целыми полосами: при наведении не «плывёт», как полосатый фон
@@ -203,10 +208,13 @@ function showWho() {
 }
 showWho();
 
+let OPEN = {};   // какие из закрытых лаб открыл преподаватель
+const live = f => !f.gated || OPEN[f.lab] === true;
 function render(prog = {}) {
   $('rows').innerHTML = FLIGHTS.map((f, i) => {
-    const p = f.levels ? prog[f.lab] || progress(f) : null, n = f.levels ? f.levels.length : 0;
-    const st = f.soon ? `<span class="st ${f.soon === 'ЗАДЕРЖАН' ? 'delay' : 'later'}">${f.soon}</span>`
+    const on = live(f);
+    const p = f.levels && on ? prog[f.lab] || progress(f) : null, n = f.levels ? f.levels.length : 0;
+    const st = !on ? `<span class="st ${f.soon === 'ЗАДЕРЖАН' ? 'delay' : 'later'}">${f.soon}</span>`
       : p.done === n ? '<span class="st ok">ПРИЗЕМЛИЛСЯ ✓</span>' : `<span class="st ok"><span class="blink">●</span> ${p.done ? 'В ПОЛЁТЕ' : 'ПОСАДКА'}</span>`;
     const pr = p ? `<div class="prog">${p.done} / ${n} уровней<div class="bar"><i style="width:${p.done / n * 100}%"></i></div></div>` : '<div class="prog">—</div>';
     const cells = `<span class="fl"><span class="flip" style="animation-delay:${i * .12}s">${f.no}</span></span>
@@ -214,7 +222,7 @@ function render(prog = {}) {
       <span class="gate">${f.gate}</span>${st}${pr}`;
     return `<div class="row">${cells}</div>`;
   }).join('');
-  $('passes').innerHTML = FLIGHTS.filter(f => f.href).map(f => {
+  $('passes').innerHTML = FLIGHTS.filter(f => f.href && live(f)).map(f => {
     const p = prog[f.lab] || progress(f), n = f.levels.length;
     const dots = f.levels.map((k, i) => `<i class="${(p.lv[k] || {}).done ? 'd' : ''}${i === n - 1 ? ' f' : ''}" title="уровень ${i + 1}">${i === n - 1 ? '✈' : i + 1}</i>`).join('');
     return `<a class="pass panel" href="${f.href}">
@@ -238,11 +246,13 @@ render();
 // с сервером прогресс берём оттуда: работа могла быть начата на другом компьютере
 function pullProgress() {
   if (!(sess && sess.token && /^https?:$/.test(location.protocol))) return;
-  Promise.all(FLIGHTS.filter(f => f.levels).map(f => fetch(`/api/progress?lab=${f.lab}`, {headers: {'X-Labs-Token': sess.token}})
+  Promise.all(FLIGHTS.filter(f => f.levels && live(f)).map(f => fetch(`/api/progress?lab=${f.lab}`, {headers: {'X-Labs-Token': sess.token}})
     .then(r => r.ok ? r.json() : null).then(j => [f.lab, j && j.data ? progress(f, j.data) : null]).catch(() => [f.lab, null])))
     .then(list => { const prog = {}; list.forEach(([lab, p]) => { if (p && p.done >= progress(FLIGHTS.find(f => f.lab === lab)).done) prog[lab] = p; }); render(prog); });
 }
 pullProgress();
+if (/^https?:$/.test(location.protocol))
+  fetch('/api/labs').then(r => r.ok ? r.json() : null).then(j => { if (j && j.open) { OPEN = j.open; render(); pullProgress(); } }).catch(() => {});
 
 // вход по группе и PIN — тот же, что в лабах (сессия общая: лаба откроется уже «вошедшей»)
 async function api(path, body) {
