@@ -564,8 +564,7 @@ class Handler(BaseHTTPRequestHandler):
         text = clip(e.get('text'), 300).strip()
         if not text:
             return self.send(400, {'err': 'text'})
-        mode = 'scream' if e.get('mode') == 'scream' else 'normal'
-        self.send(200, {'id': self.store.add_say(clip(e.get('grp'), 20), text, mode)})
+        self.send(200, {'id': self.store.add_say(clip(e.get('grp'), 20), text, 'normal')})
 
     def admin_resetpin(self, e):
         self.store.reset_pin(int(e.get('id') or 0))

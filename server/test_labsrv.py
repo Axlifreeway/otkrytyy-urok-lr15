@@ -160,11 +160,11 @@ class ServerTest(unittest.TestCase):
         last = self.call('/api/say?since=-1', headers=h)[1]['last']
         self.assertEqual(self.call('/api/admin/say', {'key': KEY, 'text': ''})[0], 400)
         self.assertEqual(self.call('/api/admin/say', {'text': 'нет ключа'})[0], 403)
-        self.call('/api/admin/say', {'key': KEY, 'text': 'Всем: проверьте WHERE!', 'mode': 'scream'})
+        self.call('/api/admin/say', {'key': KEY, 'text': 'Всем: проверьте WHERE!', 'mode': 'scream'})  # режим игнорируется
         self.call('/api/admin/say', {'key': KEY, 'text': 'Другой группе', 'grp': 'Б-2'})
         self.call('/api/admin/say', {'key': KEY, 'text': 'Вашей группе', 'grp': 'ИИ-25'})
         items = self.call(f'/api/say?since={last}', headers=h)[1]['items']
-        self.assertEqual([(i['text'], i['mode']) for i in items], [('Всем: проверьте WHERE!', 'scream'), ('Вашей группе', 'normal')])
+        self.assertEqual([(i['text'], i['mode']) for i in items], [('Всем: проверьте WHERE!', 'normal'), ('Вашей группе', 'normal')])
         self.assertEqual(len(self.call('/api/admin/says', headers={'X-Labs-Key': KEY})[1]['items']), 3)
 
 

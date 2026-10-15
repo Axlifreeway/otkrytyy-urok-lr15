@@ -1,5 +1,5 @@
 // Робот говорит: объявление преподавателя из панели появляется у студентов поверх лабы —
-// большой робот выезжает снизу на полэкрана, печатает реплику и уезжает. Режим «внезапно» — резко, с тряской и звуком.
+// большой робот выезжает снизу на полэкрана, печатает реплику и уезжает.
 import {esc} from './util.js';
 import {SFX} from './sfx.js';
 
@@ -17,7 +17,7 @@ const ROBOT = `<svg viewBox="0 0 220 260" aria-hidden="true"><g stroke="#22252b"
 let box = null,
   queue = [],
   busy = false;
-function show({text, mode}) {
+function show({text}) {
   if (!box) {
     box = document.createElement('div');
     box.id = 'robotsay';
@@ -25,27 +25,17 @@ function show({text, mode}) {
     document.body.append(box);
   }
   busy = true;
-  const scream = mode === 'scream';
-  box.className = scream ? 'scream' : '';
   const p = box.querySelector('p');
   p.textContent = '';
   box.hidden = false;
   requestAnimationFrame(() => box.classList.add('on'));
-  if (scream) {
-    SFX.err();
-    SFX.err();
-    document.body.classList.add('rs-shake');
-    setTimeout(() => document.body.classList.remove('rs-shake'), 600);
-  } else SFX.unlock();
+  SFX.unlock();
   // печатаем по буквам: так реплику замечают
   let i = 0;
-  const step = setInterval(
-    () => {
-      p.innerHTML = esc(text.slice(0, ++i)) + (i < text.length ? '<i>▌</i>' : '');
-      if (i >= text.length) clearInterval(step);
-    },
-    scream ? 12 : 28,
-  );
+  const step = setInterval(() => {
+    p.innerHTML = esc(text.slice(0, ++i)) + (i < text.length ? '<i>▌</i>' : '');
+    if (i >= text.length) clearInterval(step);
+  }, 28);
   const hide = () => {
     clearInterval(step);
     clearTimeout(timer);
@@ -56,7 +46,7 @@ function show({text, mode}) {
       if (queue.length) show(queue.shift());
     }, 450);
   };
-  const timer = setTimeout(hide, Math.max(4500, text.length * 75) + (scream ? 0 : 800));
+  const timer = setTimeout(hide, Math.max(5300, text.length * 75 + 800));
   box.querySelector('.rs-x').onclick = hide;
   box.onclick = e => {
     if (e.target === box) hide();

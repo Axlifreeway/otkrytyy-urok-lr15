@@ -91,7 +91,6 @@
   <h2>Робот скажет студентам</h2>
   <textarea id="sayText" rows="3" maxlength="300" placeholder="Например: «Не забудьте про IS NULL в уровне 2!»"></textarea>
   <div class="sayrow"><label>Кому <select id="sayGrp"><option value="">всем группам</option></select></label>
-    <label title="Робот выпрыгивает резко, с тряской экрана и звуком"><input type="checkbox" id="sayScream"> внезапно (скример)</label>
     <button class="btn on" id="sayGo">Отправить</button><span id="sayMsg" class="mu"></span></div>
   <div id="sayList" class="mu"></div>
 </div>
@@ -240,7 +239,7 @@ async function showLog(client, quiet) {
 let started = false;
 // робот скажет: объявление студентам
 async function loadSays() {
-  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.grp ? esc(x.grp) : 'всем'}${x.mode === 'scream' ? ' · внезапно' : ''} — ${esc(x.text)}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
+  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.grp ? esc(x.grp) : 'всем'} — ${esc(x.text)}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
 }
 $('sayBtn').onclick = () => {
   const on = $('sayBox').hidden; $('sayBox').hidden = !on; $('sayBtn').classList.toggle('on', on);
@@ -249,7 +248,7 @@ $('sayBtn').onclick = () => {
 $('sayGo').onclick = async () => {
   const text = $('sayText').value.trim(); if (!text) { $('sayText').focus(); return; }
   try {
-    await post('/api/admin/say', {text, grp: $('sayGrp').value, mode: $('sayScream').checked ? 'scream' : 'normal'});
+    await post('/api/admin/say', {text, grp: $('sayGrp').value});
     $('sayMsg').textContent = 'Отправлено — появится у студентов в течение 4 секунд'; $('sayText').value = ''; loadSays();
   } catch (e) { $('sayMsg').textContent = 'Ошибка: ' + e.message; }
 };
