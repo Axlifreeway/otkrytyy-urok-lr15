@@ -176,3 +176,61 @@ class RateLimitTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# схема базы из первой версии сервера (ветка main до рефакторинга) — на ней уже есть данные студентов
+OLD_SCHEMA = '''
+CREATE TABLE ev (id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, fio TEXT, grp TEXT, seed INTEGER, type TEXT, data TEXT, ip TEXT);
+CREATE INDEX ev_ts ON ev(ts);
+CREATE INDEX ev_client ON ev(client, ts);
+CREATE TABLE grp (name TEXT PRIMARY KEY, ord INTEGER);
+CREATE TABLE student (id INTEGER PRIMARY KEY, grp TEXT, name TEXT, idx INTEGER, pin TEXT, fails INTEGER DEFAULT 0, lock_until INTEGER DEFAULT 0);
+CREATE TABLE progress (sid INTEGER, lab TEXT, data TEXT, ts INTEGER, PRIMARY KEY (sid, lab));
+'''
+
+
+class MigrationTest(unittest.TestCase):
+    """Новая версия сервера на базе старой: PIN, токены, прогресс и журнал остаются, схема дополняется."""
+
+    def test_old_database_keeps_students(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'labs.db')
+            con = sqlite3.connect(path)
+            con.executescript(OLD_SCHEMA)
+            old = labsrv.Store.__new__(labsrv.Store)
+            old.key = KEY
+            prog = {'lv': {'insert1': {'done': True, 'runs': 3, 'fails': 1}}, 'journal': [{'t': 1, 'q': 'INSERT …'}]}
+            con.execute("INSERT INTO grp VALUES ('ИИ-25', 1)")
+            con.execute("INSERT INTO student (id, grp, name, idx, pin) VALUES (7, 'ИИ-25', 'Иванов Иван', 1, ?)", (old.pin_hash(7, '4321'),))
+            con.execute("INSERT INTO progress VALUES (7, 'lr13', ?, 5)", (json.dumps(prog),))
+            con.execute("INSERT INTO ev (ts, client, lab, type, data) VALUES (1, 's7', 'lr13', 'run', '{}')")
+            con.commit()
+            con.close()
+
+            st = labsrv.Store(path, KEY)
+            self.assertEqual(st.login(7, '4321')[0], 200)                       # старый PIN подходит
+            self.assertEqual(st.login(7, '1111')[0], 403)
+            self.assertEqual(st.sid_from(old.token_for(7)), 7)                  # выданные раньше токены действуют
+            self.assertEqual(st.progress(7, 'lr13')[0], prog)
+            self.assertEqual(len(st.log('s7', 0)), 1)
+            self.assertIn('pin_dev', [r[1] for r in st.con.execute('PRAGMA table_info(student)')])
+            self.assertTrue(st.con.execute("SELECT 1 FROM sqlite_master WHERE name = 'say'").fetchone())
+            st.con.close()
+            backups = [f for f in os.listdir(tmp) if f.startswith('labs.db.before-')]
+            self.assertEqual(len(backups), 1)                                    # копия до изменения схемы
+            b = sqlite3.connect(os.path.join(tmp, backups[0]))
+            self.assertEqual(b.execute('SELECT data FROM progress WHERE sid = 7').fetchone()[0], json.dumps(prog))
+            self.assertIsNone(b.execute("SELECT 1 FROM sqlite_master WHERE name = 'say'").fetchone())
+            b.close()
+
+            st = labsrv.Store(path, KEY)                                        # второй запуск: схема та же — копии нет
+            st.con.close()
+            self.assertEqual(len([f for f in os.listdir(tmp) if f.startswith('labs.db.before-')]), 1)
+
+    def test_fresh_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            st = labsrv.Store(os.path.join(tmp, 'labs.db'), KEY)
+            self.assertIn('pin_dev', [r[1] for r in st.con.execute('PRAGMA table_info(student)')])
+            st.con.close()
+            self.assertEqual([f for f in os.listdir(tmp) if '.before-' in f], [])

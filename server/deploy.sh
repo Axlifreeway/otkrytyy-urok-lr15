@@ -7,6 +7,20 @@ SRC=${LABS_SRC:-/opt/labs-src}            # клон репозитория (git
 WWW=${LABS_WWW:-/var/www/labs}
 BRANCH=${LABS_BRANCH:-main}
 PARTS="lr13-3d lr14-3d labs teacher common vendor"
+DB=${LABS_DB:-/opt/labsrv/labs.db}
+BAK=${LABS_BAK:-/opt/labsrv/backups}
+KEEP=${LABS_KEEP:-30}
+
+# копия базы (PIN, прогресс, журнал, отчёты): средствами SQLite, на ходу, без остановки сервера
+backup() {
+  [ -f "$DB" ] || return 0
+  mkdir -p "$BAK"
+  python3 -c 'import sqlite3, sys; d = sqlite3.connect(sys.argv[2]); sqlite3.connect(sys.argv[1]).backup(d); d.close()' \
+    "$DB" "$BAK/labs-$(date +%Y%m%d-%H%M%S)$1.db"
+  ls -1t "$BAK"/labs-*.db | tail -n +$((KEEP + 1)) | xargs -r rm -f       # хранить последние KEEP копий
+}
+# раз в сутки — обязательно, даже если обновлений нет
+ls "$BAK"/labs-"$(date +%Y%m%d)"-*.db >/dev/null 2>&1 || backup ""
 
 cd "$SRC"
 git fetch -q origin "$BRANCH"
@@ -26,6 +40,7 @@ for d in $PARTS; do
 done
 cp index.html "$WWW/.index.html.new" && mv "$WWW/.index.html.new" "$WWW/index.html"
 if ! git diff --quiet "$OLD" "$NEW" -- server/labsrv.py; then
+  backup "-before-$(git rev-parse --short "$NEW")"      # перед новой версией сервера — копия базы
   cp server/labsrv.py /opt/labsrv/labsrv.py
   systemctl restart labsrv
 fi

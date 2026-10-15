@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS student (
 CREATE TABLE IF NOT EXISTS progress (sid INTEGER, lab TEXT, data TEXT, ts INTEGER, PRIMARY KEY (sid, lab));
 CREATE TABLE IF NOT EXISTS say (id INTEGER PRIMARY KEY, ts INTEGER, grp TEXT, text TEXT, mode TEXT);
 '''
+# столбцы, добавленные позже: (таблица, столбец, тип) — для баз, созданных старой версией
+COLUMNS = [
+    ('student', 'pin_dev', 'TEXT'),         # с какого устройства задан PIN
+]
 
 
 def now_ms():
@@ -191,12 +195,27 @@ class Store:
         self.lock = threading.Lock()
         self.con = sqlite3.connect(path, check_same_thread=False)
         self.con.execute('PRAGMA journal_mode=WAL')
-        self.con.executescript(SCHEMA)
-        if 'pin_dev' not in [r[1] for r in self.con.execute('PRAGMA table_info(student)')]:
-            self.con.execute('ALTER TABLE student ADD COLUMN pin_dev TEXT')     # с какого устройства задан PIN
-        self.con.commit()
+        self.migrate(path)
         self.claims = {}                    # устройство → (время, номер студента) последнего первого входа
         self.fails = {}                     # 'd:устройство' / 'i:IP' → времена неверных PIN
+
+    def migrate(self, path):
+        """Обновление схемы только добавлением: новые таблицы и столбцы, старые строки не трогаются.
+        Перед изменением старой базы рядом кладётся её копия labs.db.before-<время>."""
+        con = self.con
+        have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        cols = lambda t: {r[1] for r in con.execute(f'PRAGMA table_info({t})')}
+        need_tables = set(re.findall(r'CREATE TABLE IF NOT EXISTS (\w+)', SCHEMA)) - have
+        need_cols = [(t, c, d) for t, c, d in COLUMNS if t in have and c not in cols(t)]
+        if have and (need_tables or need_cols):
+            dst = sqlite3.connect(f'{path}.before-{time.strftime("%Y%m%d-%H%M%S")}')
+            con.backup(dst)
+            dst.close()
+        con.executescript(SCHEMA)
+        for t, c, d in COLUMNS:
+            if c not in cols(t):
+                con.execute(f'ALTER TABLE {t} ADD COLUMN {c} {d}')
+        con.commit()
 
     # ── токены и PIN ──
     def pin_hash(self, sid, pin):
