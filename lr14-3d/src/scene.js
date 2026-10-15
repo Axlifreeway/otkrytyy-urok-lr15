@@ -10,7 +10,7 @@ export function createWorld(stage) {
   const E = createEngine(stage, {home: {tx: 2.3, tz: 0}, sunTarget: [3.5, 0, 0], viewH: 6.8, followZoom: 1.45, apronZ: 0});
   const {root, rbox, at, label, mat} = E;
   const {LEN0, DOOR} = E.airframe({rows: ROWS, wing: [3.2, 4.6, 5.6, 3.7], wingRow: 2.2, engRow: 3.3, engZ: 4.7, dashes: 14});
-  label('выход', 'tag3', root, DOOR.x, 0.25, 3.05);
+  E.flatLabel('выход', root, {x: DOOR.x, y: 0.19, z: 3.04, h: 0.3}); // на борту у двери
   // полки для багажа над рядами (по два ряда на полку)
   const BIN_Y = 1.55,
     BIN_Z = -2.55;
@@ -27,7 +27,9 @@ export function createWorld(stage) {
   }
   const shelfX0 = k => seatX(2 * k - 1) - 0.6,
     shelfX1 = k => seatX(2 * k) + 0.6;
-  for (let k = 1; k <= 4; k++) label(`полка ${k}`, 'tag3', root, (shelfX0(k) + shelfX1(k)) / 2, BIN_Y + 0.78, BIN_Z + 0.2);
+  // подписи лежат на крышке полок
+  for (let k = 1; k <= 4; k++)
+    E.flatLabel(`полка ${k}`, root, {x: (shelfX0(k) + shelfX1(k)) / 2, y: BIN_Y + 0.66, z: BIN_Z + 0.05, rx: -Math.PI / 2, h: 0.42});
   const {board, show: showBoard} = E.flightBoard();
   // стойка программ лояльности
   const stand = rbox(1.6, 0.5, 0.5, 0.06, 0xdcd6c8);
@@ -213,7 +215,9 @@ export function createWorld(stage) {
       g.add(hit);
       g.position.set(LEN0 + 0.55 + i * 0.55, 0.76, 2.2);
       E.setPick(g, {t: 'loyalty', k: t});
-      plates.set(t, {g, lb: label(t, 'tag3', g, 0, 0.36, 0), alive: false});
+      // название — на самой табличке (её лицо смотрит вдоль салона)
+      E.flatLabel(t, g, {x: 0.04, y: 0.02, ry: Math.PI / 2, h: 0.085, color: '#22252b', bg: 'rgba(255,255,255,.7)'});
+      plates.set(t, {g, alive: false});
     });
     state.loyalty.forEach(row => {
       const L = plates.get(row.tier);
@@ -410,7 +414,6 @@ export function createWorld(stage) {
     } else if (nv && !L.alive) {
       L.alive = true;
       model.loyalty.set(tier, nv);
-      if (!L.g.children.some(o => o.isCSS2DObject)) L.lb = label(tier, 'tag3', L.g, 0, 0.36, 0);
       root.add(L.g);
     }
   }

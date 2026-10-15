@@ -310,10 +310,12 @@ async function serverFlow() {
     .catch(() => fails.push('server-flow: SQL в журнале панели не подсвечен'));
   if (SHOTS) await t.page.screenshot({path: join(SHOTS, 'teacher-drawer.png')});
   await t.page.click('#dx');
-  await t.page.click('#yesterday');
+  // день назад: студента сегодняшнего дня в таблице нет
+  await t.page.click('#prevDay');
   await t.page
-    .waitForFunction(() => document.getElementById('since').classList.contains('past'), null, {timeout: 15000})
-    .catch(() => fails.push('server-flow: «Вчера» не переключил день'));
+    .waitForFunction(() => !document.querySelector('#rows tr.row') && document.getElementById('newPair').hidden, null, {timeout: 15000})
+    .catch(() => fails.push('server-flow: ◀ не переключил день'));
+  if (SHOTS) await t.page.screenshot({path: join(SHOTS, 'teacher-prevday.png')});
   t.errors.forEach(e => errors.push('панель: ' + e));
   await t.page.close();
   out['server-flow'] = {ok, errors};
