@@ -1,0 +1,9 @@
+[Unit]
+Description=Проверять обновления лабораторных раз в минуту
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

@@ -23,11 +23,12 @@ SELECT перед UPDATE/DELETE с тем же WHERE — «прицел»: чи�
 
 ## Файлы
 * `game.js` — собранная игра (Three.js + модель робота + логика), работает без сборки.
-* `src/` — исходники. Пересборка: `npm i three@0.170.0 esbuild` и
-  `npx esbuild src/main.js --bundle --format=iife --minify --outfile=game.js`.
+* `src/` — исходники: data.js (данные и уровни), parse.js (разбор команды, пояснения к ошибкам), scene.js (салон, полки, стойка программ), main.js (обход строк роботом, проверка уровней).
+  Общее с ЛР-13 — в `../common/` (3D-движок, вход, протокол, стили).
+  Пересборка из корня репозитория: `npm install`, затем `npm run build`.
 
 ## Откуда взято
 * Three.js 0.170 — MIT.
 * Робот-СУБД — character.glb из Kenney Starter Kit 3D Platformer (github.com/KenneyNL), MIT.
 * Шрифты Rubik, JetBrains Mono — Google Fonts, OFL.
-* PostgreSQL в браузере — PGlite из `../mvp/vendor/pglite` (или CDN).
+* PostgreSQL в браузере — PGlite из `../vendor/pglite` (или CDN).

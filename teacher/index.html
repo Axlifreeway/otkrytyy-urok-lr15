@@ -44,7 +44,7 @@
   .tag.ok { background: var(--green); color: #fff } .tag.warn { background: var(--red); color: #fff }
   #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 96vw); background: var(--paper); border-left: 3px solid var(--ink); box-shadow: -6px 0 0 rgba(0,0,0,.12); z-index: 5; overflow: auto; padding: 16px }
   #drawer h2 { font-size: 20px } #drawer .ev { border-top: 1px solid #e3dccb; padding: 6px 0; font-size: 13px }
-  #drawer pre { font: 500 12.5px var(--mono); white-space: pre-wrap; background: #23262c; color: #f6f1e3; padding: 6px 8px; border-radius: 4px; margin-top: 3px }
+  #drawer pre { font: 500 12.5px var(--mono); font-variant-ligatures: none; white-space: pre-wrap; background: #23262c; color: #f6f1e3; padding: 6px 8px; border-radius: 4px; margin-top: 3px }
   #drawer .bad { color: var(--red) } #drawer .ok { color: var(--green) } #drawer .t { color: var(--mute); font: 500 12px var(--mono); margin-right: 6px }
   #login { max-width: 420px; margin: 80px auto; padding: 20px } #login input { width: 100%; font: 600 18px var(--mono); padding: 8px; border: 3px solid var(--ink); border-radius: 6px; margin: 10px 0 }
   /* проектор: только прогресс, без ошибок */
@@ -58,6 +58,29 @@
   .gcard { margin-bottom: 14px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
   tr.absent td { color: #9a9488; background: #f4f1ea }
   #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
+  #sayBox { margin: 0 16px 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 760px }
+  #sayBox h2 { font-size: 18px } #sayText { font: 500 16px var(--font); padding: 8px 10px; border: 2.5px solid var(--ink); border-radius: 6px; resize: vertical }
+  .sayrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap } .sayrow select { font-size: 14px; padding: 3px 6px; border: 2.5px solid var(--ink); border-radius: 6px }
+  #sayList div { padding: 3px 0; border-top: 1px dashed #d8d0bd }
+  .days { display: inline-flex; gap: 0 } .days .btn { padding: 5px 8px } .days input { font: 600 14px var(--font); padding: 3px 6px; border: 2.5px solid var(--ink); border-left: 0; border-right: 0; height: 32px }
+  #since.past { color: var(--red); font-weight: 700 }
+  #drawer pre .k { color: var(--sun); font-weight: 700 } #drawer pre .s { color: #9fdcae } #drawer pre .n { color: #8fc7ff }
+  #drawer pre .t { color: #7fd1d6; font: inherit; margin: 0 } #drawer pre .c { color: #8a8d94; font-style: italic }
+  #reports { margin: 0 16px 12px; padding: 12px 14px } #reports h2 { font-size: 18px; margin-bottom: 8px }
+  #repList table { border-width: 2px } #repList td { font-size: 13.5px }
+  .vers a { margin-right: 6px; color: var(--teal); cursor: pointer; text-decoration: underline }
+  #repView { position: fixed; inset: 0; z-index: 8; background: rgba(34,37,43,.6); display: flex; flex-direction: column; padding: 12px }
+  .rv-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--paper); border: 3px solid var(--ink); border-radius: 6px 6px 0 0; padding: 8px 12px }
+  #rvVers a { margin-left: 6px; font-size: 12.5px; color: var(--teal); cursor: pointer; text-decoration: underline } #rvVers a.cur { color: var(--ink); font-weight: 700; text-decoration: none }
+  #rvFrame { flex: 1; width: 100%; border: 3px solid var(--ink); border-top: 0; background: #fff; border-radius: 0 0 6px 6px }
+  /* телефон: шапка переносится, таблицы прокручиваются по горизонтали */
+  @media (max-width: 760px) {
+    header { flex-wrap: wrap; gap: 6px } header h1 { width: 100%; font-size: 20px } header select { font-size: 16px }
+    main { padding-left: 8px; padding-right: 8px } .top { grid-template-columns: 1fr } .kpi { flex-wrap: wrap } .kpi div { flex: 1 1 40% }
+    #tbl, #gCards table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch }
+    #groups { grid-template-columns: 1fr; padding: 0 8px 24px } .gcard { min-width: 0 } .gform input, .gform textarea { font-size: 16px }
+    #drawer { width: 100vw } #reports { margin: 0 8px 12px } #repList table { display: block; overflow-x: auto } #repView { padding: 0 }
+  }
 </style>
 </head>
 <body>
@@ -67,13 +90,24 @@
   <h1>Пульт преподавателя</h1>
   <select id="labSel"><option value="">все ЛР</option><option value="lr13">ЛР-13 INSERT</option><option value="lr14">ЛР-14 UPDATE/DELETE</option></select>
   <select id="grpSel"><option value="">все группы</option></select>
-  <button class="btn" id="newPair" title="Показывать только события с этого момента">Новая пара</button>
-  <button class="btn" id="today">За сегодня</button>
+  <span class="days"><button class="btn" id="prevDay" title="Предыдущий день">◀</button><input type="date" id="day" title="За какой день показывать"><button class="btn" id="nextDay" title="Следующий день">▶</button></span>
+  <button class="btn" id="yesterday">Вчера</button>
+  <button class="btn" id="today">Сегодня</button>
+  <button class="btn" id="newPair" title="Сегодня: показывать только события с этого момента">Новая пара</button>
   <span id="since"></span>
   <span style="flex:1"></span>
+  <button class="btn" id="repBtn" title="Отчёты, которые студенты отправили из протокола">📄 Отчёты <span id="repN"></span></button>
+  <button class="btn" id="sayBtn" title="Сообщение появится у студентов: робот на полэкрана">🤖 Робот скажет</button>
   <button class="btn" id="grpBtn">Группы и списки</button>
   <button class="btn" id="projBtn">Проектор</button>
 </header>
+<div id="sayBox" class="panel" hidden>
+  <h2>Робот скажет студентам</h2>
+  <textarea id="sayText" rows="3" maxlength="300" placeholder="Например: «Не забудьте про IS NULL в уровне 2!»"></textarea>
+  <div class="sayrow"><label>Кому <select id="sayGrp"><option value="">всем группам</option></select></label>
+    <button class="btn on" id="sayGo">Отправить</button><span id="sayMsg" class="mu"></span></div>
+  <div id="sayList" class="mu"></div>
+</div>
 <main>
   <div class="top"><div class="panel kpi" id="kpi"></div><div class="panel hist" id="hist"></div></div>
   <table id="tbl"><thead><tr>
@@ -92,6 +126,15 @@
 <button class="btn" id="projX" hidden>✕ Закрыть проектор</button>
 </div>
 <div id="drawer" hidden></div>
+<div id="reports" class="panel" hidden><h2>Отчёты <span class="mu" id="repWhen"></span></h2><div id="repList"></div></div>
+<div id="repView" hidden><div class="rv-bar"><b id="rvTitle"></b><span id="rvVers"></span><span style="flex:1"></span>
+  <button class="btn" id="rvPrint">Печать / PDF</button><button class="btn" id="rvX">✕ Закрыть</button></div>
+  <iframe id="rvFrame" sandbox="allow-same-origin allow-modals" title="Отчёт студента"></iframe></div>
+<script type="module">
+// подсветка SQL в журнале — тем же кодом, что в пульте студента (ключевые слова жёлтым)
+import {highlight} from '../common/sqlhl.js';
+window.sqlHL = s => highlight(String(s || ''), ['flight', 'seat', 'passenger', 'baggage', 'loyalty']).replace(/\n$/, '');
+</script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -100,14 +143,30 @@ const NAMES = {
   lr14: ['Детское питание', 'Остальным — стандарт', 'К окну', 'Весы врали', 'Не пролезло', 'Неявка', 'Снят с рейса', 'Программа закрыта', 'Неудаляемый рейс', 'Возврат билетов', 'Охота на ограничения', 'Последний рейс'],
 };
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
-let KEY = new URLSearchParams(location.search).get('key') || store('labs-key') || '';
-let since = +store('labs-since') || 0, sortBy = 'problems', data = null, open = null, groupsData = [];
+// ключ можно передать ссылкой ?key=… — запоминаем и сразу убираем из адресной строки
+const urlKey = new URLSearchParams(location.search).get('key');
+if (urlKey) { store('labs-key', urlKey); history.replaceState(null, '', location.pathname); }
+let KEY = urlKey || store('labs-key') || '';
+let since = +store('labs-since') || 0, sortBy = 'problems', data = null, open = null, groupsData = [], reportsData = [];
+// период: выбранный день целиком; сегодня — можно «с начала пары»
+const dstr = t => { const x = new Date(t); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+let day = dstr(Date.now());
+function range() {
+  const [y, m, d] = day.split('-').map(Number), from = new Date(y, m - 1, d).getTime(), to = new Date(y, m - 1, d + 1).getTime();
+  const isToday = day === dstr(Date.now()), pair = isToday && since >= from;
+  return {since: pair ? since : from, until: to, isToday, pair};
+}
+const hl = s => window.sqlHL ? window.sqlHL(s) : esc(s);
+const LABN = {lr13: 'ЛР-13', lr14: 'ЛР-14', lr13t: 'ЛР-13 тетрадь', lr14t: 'ЛР-14 тетрадь', lr16t: 'ЛР-16 тетрадь'};
+const hm = t => new Date(t).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+const dhm = t => new Date(t).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
 const mins = ms => ms < 60000 ? Math.round(ms / 1000) + ' с' : Math.floor(ms / 60000) + ' мин';
 const ruErr = t => { const ls = String(t).split('\n').map(x => x.trim()).filter(Boolean); const code = (/constraint "([^"]+)"/.exec(t) || [])[1]; const ru = ls.find(l => !/^ERROR/.test(l)) || ls[0] || ''; return (code ? code + ': ' : '') + ru; };
+const total = lab => (NAMES[lab] || []).length || 12;
 const short = f => { const w = String(f || '').split(/\s+/); return w[0] + (w[1] ? ' ' + w[1][0] + '.' : ''); };
 
 async function api(path) {
-  const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(KEY));
+  const r = await fetch(path, {headers: {'X-Labs-Key': KEY}});
   if (r.status === 403) throw new Error('key');
   return r.json();
 }
@@ -121,16 +180,18 @@ function renderGroups() {
       <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
     <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th></tr>
     ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
-      <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}</td>
-      <td>${s.labs.lr13 != null ? s.labs.lr13 + '/12' : '—'}</td><td>${s.labs.lr14 != null ? s.labs.lr14 + '/12' : '—'}</td></tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
+      <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
+      ${['lr13', 'lr14'].map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
   $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const g = groupsData.find(x => x.name === b.dataset.edit); $('gName').value = g.name; $('gList').value = g.students.filter(s => s.idx).map(s => s.name).join('\n'); });
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
   $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { await post('/api/admin/resetpin', {id: +b.dataset.pin}); loadGroups(); });
 }
 async function tick() {
   try {
-    const q = new URLSearchParams({lab: $('labSel').value}); if (since) q.set('since', since); else q.set('since', new Date().setHours(0, 0, 0, 0));
+    const R = range(), q = new URLSearchParams({lab: $('labSel').value, since: R.since, until: R.until});
     data = await api('/api/state?' + q);
+    try { reportsData = (await api(`/api/admin/reports?since=${R.since}&until=${R.until}`)).items || []; } catch (e) { if (e.message === 'key') throw e; }
+    renderReports();
     render();
     if (open) showLog(open, true);
   } catch (e) { if (e.message === 'key') { $('app').hidden = true; $('login').hidden = false; $('keyErr').textContent = 'Ключ не подошёл'; } }
@@ -141,9 +202,12 @@ function render() {
   const cur = $('grpSel').value;
   $('grpSel').innerHTML = '<option value="">все группы</option>' + groups.map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
   let ps = data.people.filter(p => !g || p.grp === g);
-  $('since').textContent = 'с ' + new Date(data.since).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}) + (since ? ' (новая пара)' : ' (сегодня)');
-  const online = ps.filter(p => p.idle < 60000).length, stuck = ps.filter(p => p.stuck.length).length, sub = ps.filter(p => p.submit).length;
-  $('kpi').innerHTML = `<div><b>${ps.length}</b><span>студентов</span></div><div><b>${online}</b><span>активны сейчас</span></div><div><b style="color:var(--red)">${stuck}</b><span>застряли</span></div><div><b>${sub}</b><span>сдали</span></div>`;
+  const R = range();
+  $('since').textContent = R.isToday ? (R.pair ? 'с ' + hm(data.since) + ' (новая пара)' : 'сегодня') : 'за ' + new Date(data.since).toLocaleDateString('ru-RU', {weekday: 'short', day: 'numeric', month: 'long'});
+  $('since').className = R.isToday ? '' : 'past';
+  $('day').value = day;
+  const online = R.isToday ? ps.filter(p => p.idle < 60000).length : '—', stuck = ps.filter(p => p.stuck.length).length, sub = ps.filter(p => p.submit).length;
+  $('kpi').innerHTML = `<div><b>${ps.length}</b><span>студентов</span></div><div><b>${online}</b><span>активны сейчас</span></div><div><b style="color:var(--red)">${stuck}</b><span>застряли</span></div><div><b>${sub}</b><span>сдали</span></div><div><b>${new Set(reportsData.filter(r => !g || r.grp === g).map(r => r.client)).size}</b><span>прислали отчёт</span></div>`;
   // где сейчас группа и сколько ошибок на каждом уровне
   const lab = $('labSel').value || (ps[0] && ps[0].lab) || 'lr13', N = (NAMES[lab] || []).length || 12;
   const at = Array(N).fill(0), errs = Array(N).fill(0);
@@ -167,16 +231,17 @@ function render() {
       <td>${p.lvErrors ? `<span class="tag ${p.lvErrors >= 3 ? 'warn' : ''}">${p.lvErrors}</span>` : '0'} <span style="color:var(--mute);font-size:12px">всего ${p.errors + p.lints}</span></td>
       <td><div class="err" title="${esc(p.lastErr)}">${p.lastErr ? esc(ruErr(p.lastErr)) : ''}</div>${p.lastErrTs ? `<div style="font-size:11.5px;color:var(--mute)">${mins(now - p.lastErrTs)} назад</div>` : ''}</td>
       <td>${mins(p.onLevel)}</td>
-      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''}</td>
-      <td>${p.submit ? `<span class="tag ok">${String(p.submit.pts).replace('.', ',')} б. · ${p.submit.done} ур.</span>` : ''}</td></tr>`;
+      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''} ${p.shots ? `<span class="tag warn">снимков экрана ${p.shots}</span>` : ''}</td>
+      <td>${p.submit ? `<span class="tag ok">${String(p.submit.pts).replace('.', ',')} б. · ${p.submit.done} ур.</span>` : ''}${p.practice ? ` <span class="tag" title="Тренировка после уровней: решено заданий (без баллов)">∞ ${p.practice}</span>` : ''}${lastReport(p.client) ? ` <button class="btn" data-rep="${lastReport(p.client).id}" title="Открыть отчёт">📄</button>` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="10" style="padding:20px;color:var(--mute)">Пока никого. Студенты появятся, как только откроют лабу и введут фамилию.</td></tr>';
   if (g) {
     const gr = groupsData.find(x => x.name === g);
     const seen = new Set(ps.map(p => p.client));
     const miss = gr ? gr.students.filter(s => s.idx && !seen.has('s' + s.id)) : [];
-    $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span>${esc(s.name)}</td><td>${esc(g)}</td><td>${s.seed}</td><td colspan="7">не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/12').join(', ') : ''}</td></tr>`).join(''));
+    $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span>${esc(s.name)}</td><td>${esc(g)}</td><td>${s.seed}</td><td colspan="7">не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/' + total(l)).join(', ') : ''}</td></tr>`).join(''));
   }
   $('rows').querySelectorAll('tr.row').forEach(tr => tr.onclick = () => showLog(tr.dataset.c));
+  $('rows').querySelectorAll('[data-rep]').forEach(b => b.onclick = e => { e.stopPropagation(); openReport(+b.dataset.rep); });
   if (document.body.classList.contains('proj')) renderProj(ps);
 }
 function renderProj(ps) {
@@ -192,27 +257,89 @@ function renderProj(ps) {
 async function showLog(client, quiet) {
   open = client;
   const p = data.people.find(x => x.client === client); if (!p) return;
-  const q = new URLSearchParams({client}); q.set('since', since || new Date().setHours(0, 0, 0, 0));
-  const r = await api('/api/log?' + q);
+  const R = range(), q = new URLSearchParams({client, since: R.since, until: R.until});
+  const [r, reps] = await Promise.all([api('/api/log?' + q), api('/api/admin/reports?client=' + encodeURIComponent(client)).catch(() => ({items: []}))]);
   const names = NAMES[p.lab] || [];
-  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', done: 'уровень пройден', paste: 'вставка заблокирована', away: 'ушёл со вкладки', submit: 'сдал'};
+  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', rollback: 'не совпало — откат', done: 'уровень пройден', paste: 'вставка заблокирована', shot: 'нажат Print Screen', away: 'ушёл со вкладки', submit: 'сдал'};
   const keep = $('drawer').scrollTop;
   $('drawer').hidden = false;
   $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button><h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · № ${p.seed ?? ''} · ${esc((p.lab || '').toUpperCase())}</span></h2>
-    <p style="margin:6px 0 10px">Сейчас: уровень ${p.lv} «${esc(names[p.lv - 1] || '')}», ${mins(p.onLevel)}; пройдено ${p.doneN}, баллов ${String(p.pts).replace('.', ',')}</p>
+    <p style="margin:6px 0 10px">${R.isToday ? 'Сейчас' : 'На конец дня'}: уровень ${p.lv} «${esc(names[p.lv - 1] || '')}», ${mins(p.onLevel)}; пройдено ${p.doneN}, баллов ${String(p.pts).replace('.', ',')}</p>
+    ${reps.items.length ? `<p style="margin:0 0 10px"><b>Отчёты:</b> ${reps.items.map(x => `<button class="btn" data-rep="${x.id}" style="margin:2px">📄 ${dhm(x.ts)} · ${esc(LABN[x.lab] || x.lab)} · ${String(x.pts).replace('.', ',')} б.</button>`).join('')}</p>` : ''}
     ${r.events.slice().reverse().map(e => {
       const d = e.data || {}, t = new Date(e.ts).toLocaleTimeString('ru-RU');
-      if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${esc(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
-      if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">${esc(d.msg)}</b><pre>${esc(d.sql)}</pre></div>`;
+      if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${hl(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
+      if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">${esc(d.msg)}</b><pre>${hl(d.sql)}</pre></div>`;
       if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">вставка заблокирована</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
+      if (e.type === 'rollback') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">не совпало — откат</b><div class="bad" style="font-size:12.5px">${esc(d.msg)}</div></div>`;
+      if (e.type === 'report') return `<div class="ev"><span class="t">${t}</span><b class="ok">отправил отчёт</b>${d.pts != null ? ` · ${String(d.pts).replace('.', ',')} б., ${d.done} ур.` : ''} <button class="btn" data-rep="${d.id}">📄 открыть</button></div>`;
       if (e.type === 'away') return `<div class="ev"><span class="t">${t}</span>ушёл со вкладки на ${mins(d.ms)}</div>`;
       return `<div class="ev"><span class="t">${t}</span>${T[e.type] || e.type}${d.lv ? ' ' + d.lv + (names[d.lv - 1] ? ' «' + esc(names[d.lv - 1]) + '»' : '') : ''}${d.reset ? ' (сброс)' : ''}${e.type === 'done' ? ' · ' + '★'.repeat(d.stars || 0) : ''}${e.type === 'submit' ? ` · ${d.pts} б., ${d.done} ур.` : ''}</div>`;
     }).join('')}`;
   if (quiet) $('drawer').scrollTop = keep;
   $('dx').onclick = () => { open = null; $('drawer').hidden = true; };
+  $('drawer').querySelectorAll('[data-rep]').forEach(b => b.onclick = () => openReport(+b.dataset.rep));
 }
+// ── отчёты студентов ──
+const lastReport = client => reportsData.find(r => r.client === client);   // список отсортирован от новых
+function renderReports() {
+  const g = $('grpSel').value, lab = $('labSel').value;
+  const by = new Map();
+  for (const r of reportsData) {
+    if ((g && r.grp !== g) || (lab && !r.lab.startsWith(lab))) continue;
+    const k = r.client + '|' + r.lab;
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(r);
+  }
+  const list = [...by.values()].sort((a, b) => (a[0].grp + a[0].fio).localeCompare(b[0].grp + b[0].fio, 'ru'));
+  $('repN').textContent = list.length ? '· ' + list.length : '';
+  $('repWhen').textContent = $('since').textContent;
+  $('repList').innerHTML = list.length ? `<table><tr><th>Студент</th><th>Группа</th><th>Работа</th><th>Баллы</th><th>Уровней</th><th>Отправлен</th><th>Версии</th></tr>
+    ${list.map(v => { const r = v[0]; return `<tr class="row" data-rep="${r.id}"><td><b>${esc(r.fio)}</b></td><td>${esc(r.grp)}</td><td>${esc(LABN[r.lab] || r.lab)}</td><td>${String(r.pts).replace('.', ',')}</td><td>${r.done}</td><td>${dhm(r.ts)}</td>
+      <td class="vers">${v.length > 1 ? v.map((x, i) => `<a data-rep="${x.id}">${i ? hm(x.ts) : 'последняя'}</a>`).join('') : ''}</td></tr>`; }).join('')}</table>`
+    : '<p class="mu">За этот период отчётов нет. Студенты отправляют их кнопкой «📤 Отправить преподавателю» в протоколе.</p>';
+  $('repList').querySelectorAll('[data-rep]').forEach(el => el.onclick = e => { e.stopPropagation(); openReport(+el.dataset.rep); });
+}
+// отчёт — HTML, присланный студентом: показываем в песочнице (скрипты запрещены) и с запретом сетевых запросов
+const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">`;
+async function openReport(id) {
+  let r;
+  try { r = await api('/api/admin/report?id=' + id); } catch (e) { return; }
+  if (!r || !r.html) return;
+  $('repView').hidden = false;
+  $('rvTitle').textContent = `${r.fio} · ${r.grp} · ${LABN[r.lab] || r.lab} · ${String(r.pts).replace('.', ',')} б. · ${r.done} ур. · ${dhm(r.ts)}`;
+  $('rvFrame').srcdoc = '<!DOCTYPE html>' + CSP + r.html.replace(/^\s*<!DOCTYPE[^>]*>/i, '');
+  const vers = (await api('/api/admin/reports?client=' + encodeURIComponent(r.client)).catch(() => ({items: []}))).items.filter(x => x.lab === r.lab);
+  $('rvVers').innerHTML = vers.length > 1 ? 'версии:' + vers.map(x => `<a data-v="${x.id}" class="${x.id === r.id ? 'cur' : ''}">${dhm(x.ts)}</a>`).join('') : '';
+  $('rvVers').querySelectorAll('[data-v]').forEach(a => a.onclick = () => openReport(+a.dataset.v));
+}
+$('rvX').onclick = () => { $('repView').hidden = true; $('rvFrame').srcdoc = ''; };
+$('rvPrint').onclick = () => $('rvFrame').contentWindow.print();
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('repView').hidden) $('rvX').click(); });
+$('repBtn').onclick = () => { const on = $('reports').hidden; $('reports').hidden = !on; $('repBtn').classList.toggle('on', on); renderReports(); };
+
+let started = false;
+// робот скажет: объявление студентам
+async function loadSays() {
+  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.grp ? esc(x.grp) : 'всем'} — ${esc(x.text)}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
+}
+$('sayBtn').onclick = () => {
+  const on = $('sayBox').hidden; $('sayBox').hidden = !on; $('sayBtn').classList.toggle('on', on);
+  if (on) { $('sayGrp').innerHTML = '<option value="">всем группам</option>' + groupsData.map(g => `<option>${esc(g.name)}</option>`).join(''); $('sayText').focus(); loadSays(); }
+};
+$('sayGo').onclick = async () => {
+  const text = $('sayText').value.trim(); if (!text) { $('sayText').focus(); return; }
+  try {
+    await post('/api/admin/say', {text, grp: $('sayGrp').value});
+    $('sayMsg').textContent = 'Отправлено — появится у студентов в течение 4 секунд'; $('sayText').value = ''; loadSays();
+  } catch (e) { $('sayMsg').textContent = 'Ошибка: ' + e.message; }
+};
+$('sayText').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('sayGo').click(); };
+
 function start() {
   $('login').hidden = true; $('app').hidden = false;
+  if (started) { tick(); loadGroups(); return; }
+  started = true;
   tick(); setInterval(tick, 3000); loadGroups(); setInterval(loadGroups, 20000);
 }
 $('grpBtn').onclick = () => { const on = $('groups').hidden; $('groups').hidden = !on; document.querySelector('main').hidden = on; $('grpBtn').classList.toggle('on', on); if (on) loadGroups(); };
@@ -223,9 +350,16 @@ $('gSave').onclick = async () => {
 };
 $('keyGo').onclick = () => { KEY = $('keyIn').value.trim(); store('labs-key', KEY); $('keyErr').textContent = ''; start(); };
 $('keyIn').onkeydown = e => { if (e.key === 'Enter') $('keyGo').click(); };
-$('labSel').onchange = tick; $('grpSel').onchange = render;
-$('newPair').onclick = () => { since = Date.now(); store('labs-since', since); tick(); };
-$('today').onclick = () => { since = 0; store('labs-since', 0); tick(); };
+$('labSel').onchange = tick; $('grpSel').onchange = () => { render(); renderReports(); };
+const setDay = d => { day = d || dstr(Date.now()); open = null; $('drawer').hidden = true; tick(); };
+const shift = n => { const [y, m, d] = day.split('-').map(Number); setDay(dstr(new Date(y, m - 1, d + n))); };
+$('day').onchange = () => setDay($('day').value);
+$('prevDay').onclick = () => shift(-1);
+$('nextDay').onclick = () => shift(1);
+$('yesterday').onclick = () => setDay(dstr(Date.now() - 864e5));
+$('newPair').onclick = () => { since = Date.now(); store('labs-since', since); setDay(); };
+$('today').onclick = () => { since = 0; store('labs-since', 0); setDay(); };
+$('day').value = day;
 document.querySelectorAll('th[data-s]').forEach(th => th.onclick = () => { sortBy = sortBy === th.dataset.s ? 'problems' : th.dataset.s; render(); });
 $('projBtn').onclick = () => { document.body.classList.add('proj'); $('proj').hidden = false; $('projX').hidden = false; render(); };
 $('projX').onclick = () => { document.body.classList.remove('proj'); $('proj').hidden = true; $('projX').hidden = true; };
