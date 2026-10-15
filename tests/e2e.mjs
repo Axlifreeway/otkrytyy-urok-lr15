@@ -373,7 +373,7 @@ async function gate() {
     await page.close();
     errors.push(...e);
   }
-  const home = await open('/');
+  const home = await open('/airport/');
   await sleep(1500);
   const before = await home.page.evaluate(() => [...document.querySelectorAll('.pass')].map(x => x.getAttribute('href')));
   if (before.some(h => /lr1[56]/.test(h))) fails.push('gate: закрытые лабы видны на главной');
@@ -381,7 +381,7 @@ async function gate() {
   await home.page.reload();
   await sleep(1500);
   const after = await home.page.evaluate(() => [...document.querySelectorAll('.pass')].map(x => x.getAttribute('href')));
-  if (!after.includes('lr15-3d/')) fails.push('gate: открытая ЛР-15 не появилась на главной');
+  if (!after.includes('../lr15-3d/')) fails.push('gate: открытая ЛР-15 не появилась на главной');
   const {page} = await open('/lr15-3d/index.html');
   await page.waitForSelector('#modal:not([hidden]) .dlg', {timeout: 60000});
   if (await page.$('.closed')) fails.push('gate: открытая ЛР-15 всё ещё закрыта');
@@ -411,7 +411,7 @@ async function mobile() {
         /* нет */
       }
     }, SEED);
-    for (const path of ['/', '/labs/lr13.html', '/labs/lr14.html', '/labs/lr16.html', '/teacher/?key=' + KEY]) {
+    for (const path of ['/airport/', '/?map', '/pizza/', '/labs/lr13.html', '/labs/lr14.html', '/labs/lr16.html', '/teacher/?key=' + KEY]) {
       const page = await ctx.newPage();
       await page.goto(BASE + path);
       await sleep(2500);
@@ -459,8 +459,40 @@ const jobs = {
   lr14: () => lab3d('lr14', 'lr14-3d'),
   lr15: () => lab3d('lr15', 'lr15-3d'),
   lr16: () => lab3d('lr16', 'lr16-3d'),
-  home: async () => {
+  // город: пока ЛР-17/18 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии два заказа
+  city: async () => {
     const {page, errors} = await open('/');
+    await page
+      .waitForURL(/\/airport\/$/, {timeout: 15000})
+      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17/18 закрыты'));
+    await page.goto(BASE + '/?map');
+    await page
+      .waitForFunction(
+        () => document.querySelectorAll('#city .bld').length === 3 && document.querySelectorAll('.world').length === 2,
+        null,
+        {timeout: 15000},
+      )
+      .catch(() => fails.push('city: карта не нарисовалась'));
+    // у ссылок внутри SVG href — не строка: берём атрибут
+    for (const href of await page.evaluate(() =>
+      [...document.querySelectorAll('a[href]')].map(a => new URL(a.getAttribute('href'), location.href).href),
+    ))
+      if (!(await fetch(href)).ok) errors.push(`карта: ссылка ${href} не открывается`);
+    await page.goto(BASE + '/pizza/');
+    await page
+      .waitForFunction(
+        () => document.querySelectorAll('#tickets .ticket').length === 2 && document.querySelectorAll('.receipt').length === 2,
+        null,
+        {timeout: 15000},
+      )
+      .catch(() => fails.push('city: страница пиццерии пустая'));
+    if (SHOTS) await page.screenshot({path: join(SHOTS, 'pizza.png'), fullPage: true});
+    out.city = {errors};
+    errors.forEach(e => fails.push(`city: ${e}`));
+    await page.close();
+  },
+  home: async () => {
+    const {page, errors} = await open('/airport/');
     await page.waitForFunction(
       () => document.querySelectorAll('#rows .row').length === 4 && document.querySelectorAll('.pass').length === 2,
     );

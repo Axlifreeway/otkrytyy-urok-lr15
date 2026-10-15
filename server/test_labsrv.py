@@ -211,7 +211,7 @@ class ServerTest(unittest.TestCase):
         ids = self.group()
         tok = self.login(ids['Иванов И.'])[1]['token']
         h = {'X-Labs-Token': tok}
-        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': False, 'lr16': False})
+        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': False, 'lr16': False, 'lr17': False, 'lr18': False})
         self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr15'}, h)[0], 403)
         self.assertEqual(self.call('/api/progress', {'lab': 'lr15', 'data': {'lv': {}}}, h)[0], 403)
         self.assertEqual(self.call('/api/report', {'lab': 'lr16', 'html': '<p>x</p>'}, h)[0], 403)
