@@ -1960,3 +1960,43 @@ table.res td {
     display: none;
   }
 }
+
+/* ═════════════════ справочник SQL в карточке уровня ═════════════════ */
+.sqlref {
+  margin-top: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  background: #fffaf0;
+}
+.sqlref summary {
+  cursor: pointer;
+  padding: 6px 9px;
+  font-weight: 700;
+  font-size: 13.5px;
+}
+.sqlref .need {
+  margin-left: 6px;
+  background: var(--sun);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+.sqlref > .mu {
+  margin: 0 9px 6px;
+  font-size: 12px;
+}
+.ref-i {
+  padding: 0 9px 8px;
+  font-size: 12.5px;
+}
+.sqlhl.ref {
+  position: static;
+  pointer-events: auto;
+  margin-top: 3px;
+  border-width: 2px;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  overflow-x: auto;
+  font-variant-ligatures: none;
+}

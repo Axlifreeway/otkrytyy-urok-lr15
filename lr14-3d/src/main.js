@@ -40,6 +40,7 @@ import {
   hold,
 } from '../../common/shell.js';
 import {report} from '../../common/net.js';
+import {SELECT_REF, WHERE_REF, UPDATE_REF} from '../../common/sqlref.js';
 
 const PTS = {
   kids: 0.5,
@@ -465,6 +466,8 @@ initShell({
   makeData,
   levels,
   baseSql,
+  REF: [SELECT_REF, WHERE_REF, UPDATE_REF],
+  REF_NEED: ['soft', 'final'],
   PTS,
   TABLES,
   COLS,

@@ -9,6 +9,7 @@ import {loginScreen, session, mergeP, syncInit, pull, push} from './login.js';
 import {isTeacherCode} from './teacher.js';
 import {attachHighlight} from './sqlhl.js';
 import {listenRobot, robotSay} from './robotsay.js';
+import {sqlRef} from './sqlref.js';
 
 export let db = null,
   D = null,
@@ -197,7 +198,7 @@ export function renderLevels() {
 }
 // подсказка после промахов и кнопка «Решение» в демо-режиме
 export function missionButtons(lv, rec, minFails = 2) {
-  return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${G.demo && lv.ref ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>`;
+  return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${G.demo && lv.ref ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
 }
 export function bindMissionButtons(lv, rec) {
   if ($('hintBtn'))

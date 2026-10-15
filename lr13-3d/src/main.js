@@ -40,6 +40,7 @@ import {
   hold,
 } from '../../common/shell.js';
 import {report} from '../../common/net.js';
+import {SELECT_REF, INSERT_REF} from '../../common/sqlref.js';
 
 const W = createWorld($('stage'));
 // время вылета — как ЧЧ:ММ, без секунд
@@ -521,6 +522,8 @@ initShell({
   makeData,
   levels,
   baseSql,
+  REF: [SELECT_REF, INSERT_REF],
+  REF_NEED: ['lookup'],
   PTS,
   TABLES,
   COLS,
