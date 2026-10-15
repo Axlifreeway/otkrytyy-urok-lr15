@@ -167,6 +167,43 @@ class ServerTest(unittest.TestCase):
         self.assertEqual([(i['text'], i['mode']) for i in items], [('Всем: проверьте WHERE!', 'normal'), ('Вашей группе', 'normal')])
         self.assertEqual(len(self.call('/api/admin/says', headers={'X-Labs-Key': KEY})[1]['items']), 3)
 
+    def test_report_sent_and_viewed(self):
+        ids = self.group()
+        tok = self.login(ids['Иванов И.'])[1]['token']
+        A = {'X-Labs-Key': KEY}
+        body = {'lab': 'lr13', 'html': '<!doctype html><p>Протокол</p>', 'pts': 7.5, 'done': 11, 'fio': 'Подделка'}
+        self.assertEqual(self.call('/api/report', body)[0], 403)                      # без входа — нельзя
+        self.assertEqual(self.call('/api/report', {**body, 'html': ''}, {'X-Labs-Token': tok})[0], 400)
+        self.assertEqual(self.call('/api/report', {**body, 'lab': 'lr99'}, {'X-Labs-Token': tok})[0], 400)
+        self.assertEqual(self.call('/api/report', {**body, 'html': 'x' * (labsrv.MAX_REPORT + 1)}, {'X-Labs-Token': tok})[0], 413)
+        st, r = self.call('/api/report', body, {'X-Labs-Token': tok})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.call('/api/admin/reports')[0], 403)
+        items = self.call('/api/admin/reports', headers=A)[1]['items']
+        self.assertEqual([(i['fio'], i['pts'], i['done'], i['lab']) for i in items], [('Иванов Иван', 7.5, 11, 'lr13')])   # ФИО — с сервера
+        rep = self.call(f'/api/admin/report?id={r["id"]}', headers=A)[1]
+        self.assertEqual(rep['html'], body['html'])
+        self.assertEqual(self.call('/api/admin/report?id=999', headers=A)[0], 404)
+        p = self.call('/api/state', headers=A)[1]['people'][0]
+        self.assertEqual(p['report']['id'], r['id'])
+        for _ in range(labsrv.REPORT_VERSIONS + 2):                                    # хранятся последние версии
+            self.call('/api/report', body, {'X-Labs-Token': tok})
+        self.assertEqual(len(self.call('/api/admin/reports?client=s%d' % ids['Иванов И.'], headers=A)[1]['items']), labsrv.REPORT_VERSIONS)
+
+    def test_state_for_past_day(self):
+        store = self.srv.RequestHandlerClass.store
+        day = 24 * 3600 * 1000
+        t0 = labsrv.now_ms() - 2 * day
+        store.add_event(t0, 'c1', 'lr13', 'Вчерашний В.', 'ИИ-25', 5, 'level', {'lv': 3}, '')
+        store.add_event(t0 + 60000, 'c1', 'lr13', 'Вчерашний В.', 'ИИ-25', 5, 'run', {'lv': 3, 'ok': False, 'sql': 'INSERT', 'txt': 'ERROR'}, '')
+        A = {'X-Labs-Key': KEY}
+        self.assertEqual(self.call('/api/state', headers=A)[1]['people'], [])            # по умолчанию — последние 6 часов
+        r = self.call(f'/api/state?since={t0 - 1000}&until={t0 + day}', headers=A)[1]
+        self.assertEqual([(p['fio'], p['lv'], p['errors'], p['stuck']) for p in r['people']], [('Вчерашний В.', 3, 1, [])])
+        self.assertEqual(self.call(f'/api/state?since={t0 - 1000}&until={t0 + 1000}', headers=A)[1]['people'][0]['errors'], 0)
+        ev = self.call(f'/api/log?client=c1&since={t0 - 1000}&until={t0 + day}', headers=A)[1]['events']
+        self.assertEqual([e['type'] for e in ev], ['level', 'run'])
+
 
 class RateLimitTest(unittest.TestCase):
     def test_limit(self):

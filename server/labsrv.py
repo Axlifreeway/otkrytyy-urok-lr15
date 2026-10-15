@@ -29,9 +29,12 @@ PORT = int(os.environ.get('LABS_PORT', '8090'))
 DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs.db'))
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
-TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot'}
+TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
 LEVELS = {'lr13': 12, 'lr14': 12}           # число уровней в лабе — для панели преподавателя
 MAX_BODY = 400000
+MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
+REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
+REPORT_LABS = {'lr13', 'lr14', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
 PIN_TRIES = 8
 # защита от «захвата» чужих аккаунтов: первый вход задаёт PIN, поэтому с одного устройства
@@ -52,6 +55,10 @@ CREATE TABLE IF NOT EXISTS student (
   id INTEGER PRIMARY KEY, grp TEXT, name TEXT, idx INTEGER, pin TEXT, fails INTEGER DEFAULT 0, lock_until INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS progress (sid INTEGER, lab TEXT, data TEXT, ts INTEGER, PRIMARY KEY (sid, lab));
 CREATE TABLE IF NOT EXISTS say (id INTEGER PRIMARY KEY, ts INTEGER, grp TEXT, text TEXT, mode TEXT);
+CREATE TABLE IF NOT EXISTS report (
+  id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, fio TEXT, grp TEXT, seed INTEGER, pts REAL, done INTEGER, html TEXT);
+CREATE INDEX IF NOT EXISTS report_ts ON report(ts);
+CREATE INDEX IF NOT EXISTS report_client ON report(client, lab, ts);
 '''
 # столбцы, добавленные позже: (таблица, столбец, тип) — для баз, созданных старой версией
 COLUMNS = [
@@ -97,7 +104,7 @@ def merge(a, b):
         if v and len(str(v)) >= len(str(ans.get(k) or '')):
             ans[k] = v
     out['answers'] = ans
-    for k in ('lints', 'away', 'awayMs', 'pastes', 'cur'):
+    for k in ('lints', 'away', 'awayMs', 'pastes', 'cur', 'practice', 'sentAt'):
         out[k] = max(a.get(k) or 0, b.get(k) or 0)
     out['fio'] = b.get('fio') or a.get('fio') or ''
     return out
@@ -107,7 +114,7 @@ def merge(a, b):
 def _person(ts, client, lab, fio, grp, seed):
     return {'client': client, 'lab': lab, 'fio': fio, 'grp': grp, 'seed': seed, 'first': ts, 'last': ts,
             'lv': 1, 'lvSince': ts, 'done': [], 'pts': 0, 'runs': 0, 'errors': 0, 'lints': 0, 'lvErrors': 0,
-            'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'shots': 0, 'submit': None,
+            'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'shots': 0, 'submit': None, 'report': None, 'practice': 0,
             'hidden': False, 'stars': {}, 'doneN': 0}
 
 
@@ -118,8 +125,8 @@ def _error(p, d, ts, lv, text):
     p['lastErrTs'] = ts
 
 
-def summarize(rows, now):
-    """Сводка по каждому студенту (client) из событий за выбранный период."""
+def summarize(rows, now, live=True):
+    """Сводка по каждому студенту (client) из событий за выбранный период; live=False — прошлый день, «застрял» не считается."""
     people = {}
     for (ts, client, lab, fio, grp, seed, typ, data) in rows:
         try:
@@ -128,6 +135,9 @@ def summarize(rows, now):
             d = {}
         p = people.setdefault(client, _person(ts, client, lab, fio, grp, seed))
         p['last'] = max(p['last'], ts)
+        if typ == 'report':                     # отчёт может быть и из тетради — текущую лабу он не меняет
+            p['report'] = {'id': d.get('id'), 'ts': ts, 'lab': lab}
+            continue
         p['lab'], p['fio'], p['grp'] = lab or p['lab'], fio or p['fio'], grp or p['grp']
         if seed is not None:
             p['seed'] = seed
@@ -160,6 +170,8 @@ def summarize(rows, now):
         elif typ == 'away':
             p['away'] += 1
             p['awayMs'] += int(d.get('ms') or 0)
+        elif typ == 'practice':                 # задание тренировки решено (без баллов)
+            p['practice'] = max(p['practice'], int(d.get('n') or 0))
         elif typ == 'submit':
             p['submit'] = {'ts': ts, 'pts': d.get('pts'), 'done': d.get('done')}
         elif typ in ('hb', 'hello'):
@@ -174,7 +186,7 @@ def summarize(rows, now):
         p['onLevel'] = now - p['lvSince']
         p['total'] = LEVELS.get(p['lab'], 12)
         reasons = []
-        if not p['submit']:
+        if live and not p['submit']:
             if p['onLevel'] > 7 * 60000:
                 reasons.append(f"на уровне {p['onLevel'] // 60000} мин")
             if p['lvErrors'] >= 3:
@@ -301,17 +313,18 @@ class Store:
                               json.dumps(data or {}, ensure_ascii=False)[:4000], ip))
             self.con.commit()
 
-    def events(self, since, lab=''):
-        sql, args = 'SELECT ts, client, lab, fio, grp, seed, type, data FROM ev WHERE ts >= ?', [since]
+    def events(self, since, lab='', until=None):
+        sql, args = 'SELECT ts, client, lab, fio, grp, seed, type, data FROM ev WHERE ts >= ? AND ts < ?', [since, until or 1 << 62]
         if lab:
             sql += ' AND lab = ?'
             args.append(lab)
         with self.lock:
             return self.con.execute(sql + ' ORDER BY ts', args).fetchall()
 
-    def log(self, client, since):
+    def log(self, client, since, until=None):
         with self.lock:
-            rows = self.con.execute('SELECT ts, type, data FROM ev WHERE client = ? AND ts >= ? ORDER BY ts', (client, since)).fetchall()
+            rows = self.con.execute('SELECT ts, type, data FROM ev WHERE client = ? AND ts >= ? AND ts < ? ORDER BY ts',
+                                    (client, since, until or 1 << 62)).fetchall()
         return [{'ts': r[0], 'type': r[1], 'data': json.loads(r[2] or '{}')} for r in rows if r[1] != 'hb']
 
     # ── робот говорит: объявления преподавателя ──
@@ -335,6 +348,32 @@ class Store:
         with self.lock:
             return [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4]} for r in self.con.execute('SELECT id, ts, grp, text, mode FROM say ORDER BY id DESC LIMIT 10')]
 
+    # ── отчёты: снимок протокола, который студент отправил преподавателю ──
+    def add_report(self, client, lab, fio, grp, seed, pts, done, html):
+        with self.lock:
+            i = self.con.execute('INSERT INTO report (ts, client, lab, fio, grp, seed, pts, done, html) VALUES (?,?,?,?,?,?,?,?,?)',
+                                 (now_ms(), client, lab, fio, grp, seed, pts, done, html)).lastrowid
+            # старые версии того же отчёта сверх REPORT_VERSIONS — лишние (новая содержит всё то же и больше)
+            self.con.execute('DELETE FROM report WHERE client = ? AND lab = ? AND id NOT IN '
+                             '(SELECT id FROM report WHERE client = ? AND lab = ? ORDER BY id DESC LIMIT ?)',
+                             (client, lab, client, lab, REPORT_VERSIONS))
+            self.con.commit()
+        return i
+
+    def reports(self, since=0, until=None, client=''):
+        sql, args = 'SELECT id, ts, client, lab, fio, grp, seed, pts, done FROM report WHERE ts >= ? AND ts < ?', [since, until or 1 << 62]
+        if client:
+            sql += ' AND client = ?'
+            args.append(client)
+        keys = ('id', 'ts', 'client', 'lab', 'fio', 'grp', 'seed', 'pts', 'done')
+        with self.lock:
+            return [dict(zip(keys, r)) for r in self.con.execute(sql + ' ORDER BY id DESC LIMIT 1000', args)]
+
+    def report(self, rid):
+        with self.lock:
+            r = self.con.execute('SELECT id, ts, client, lab, fio, grp, seed, pts, done, html FROM report WHERE id = ?', (rid,)).fetchone()
+        return dict(zip(('id', 'ts', 'client', 'lab', 'fio', 'grp', 'seed', 'pts', 'done', 'html'), r)) if r else None
+
     # ── прогресс ──
     def progress(self, sid, lab):
         with self.lock:
@@ -355,7 +394,7 @@ class Store:
             done = {}
             for sid, lab, data in self.con.execute('SELECT sid, lab, data FROM progress'):
                 d = json.loads(data)
-                done.setdefault(sid, {})[lab] = sum(1 for r in (d.get('lv') or {}).values() if r.get('done'))
+                done.setdefault(sid, {})[lab] = sum(1 for k, r in (d.get('lv') or {}).items() if r.get('done') and k != 'practice')
             out = []
             for name, o in self.con.execute('SELECT name, ord FROM grp ORDER BY ord').fetchall():
                 st = [{'id': sid, 'name': n, 'idx': idx, 'pin': bool(pin), 'seed': o * 100 + idx, 'labs': done.get(sid, {}), 'dev': dev}
@@ -527,14 +566,40 @@ class Handler(BaseHTTPRequestHandler):
     def admin_says(self, q):
         self.send(200, {'items': self.store.recent_says()})
 
+    @staticmethod
+    def span(q, now):
+        """Период из ?since=…&until=… (мс); по умолчанию — последние 6 часов."""
+        def num(k, d):
+            try:
+                return int(q.get(k) or d)
+            except ValueError:
+                return d
+        since = num('since', now - 6 * 3600 * 1000)
+        return since, max(since, num('until', now + 1))
+
     def state(self, q):
         now = now_ms()
-        since = int(q.get('since') or now - 6 * 3600 * 1000)
-        self.send(200, {'now': now, 'since': since, 'levels': LEVELS, 'people': summarize(self.store.events(since, q.get('lab') or ''), now)})
+        since, until = self.span(q, now)
+        # прошлый день считается «на его конец»: простой и «на уровне» — относительно until
+        people = summarize(self.store.events(since, q.get('lab') or '', until), min(now, until), until >= now)
+        self.send(200, {'now': now, 'since': since, 'until': until, 'levels': LEVELS, 'people': people})
 
     def log(self, q):
         now = now_ms()
-        self.send(200, {'now': now, 'events': self.store.log(q.get('client', ''), int(q.get('since') or now - 6 * 3600 * 1000))})
+        since, until = self.span(q, now)
+        self.send(200, {'now': now, 'events': self.store.log(q.get('client', ''), since, until)})
+
+    def admin_reports(self, q):
+        now = now_ms()
+        since, until = self.span(q, now) if q.get('since') else (0, None)
+        self.send(200, {'items': self.store.reports(since, until, q.get('client', ''))})
+
+    def admin_report(self, q):
+        try:
+            r = self.store.report(int(q.get('id') or 0))
+        except ValueError:
+            r = None
+        self.send(200, r) if r else self.send(404, {'err': 'not found'})
 
     # POST
     def ev(self, e):
@@ -571,6 +636,31 @@ class Handler(BaseHTTPRequestHandler):
         if not sid or not lab or not isinstance(e.get('data'), dict):
             return self.send(403, {'err': 'token'})
         self.send(200, {'data': self.store.save_progress(sid, lab, e['data'])})
+
+    def post_report(self, e):
+        html, lab = e.get('html'), clip(e.get('lab'), 10)
+        if not isinstance(html, str) or not html.strip() or lab not in REPORT_LABS:
+            return self.send(400, {'err': 'html'})
+        if len(html) > MAX_REPORT:
+            return self.send(413, {'err': 'Отчёт слишком большой'})
+        seed = e.get('seed') if isinstance(e.get('seed'), int) else None
+        client, fio, grp = clip(e.get('client'), 40), clip(e.get('fio'), 60), clip(e.get('grp'), 20)
+        sid = self.sid(e)
+        if sid:
+            st = self.store.student(sid)
+            if not st:
+                return self.send(403, {'err': 'token'})
+            fio, grp, seed = st
+            client = f's{sid}'
+        elif self.store.has_groups() or not client:
+            return self.send(403, {'err': 'token'})
+        try:
+            pts, done = float(e.get('pts') or 0), int(e.get('done') or 0)
+        except (TypeError, ValueError):
+            pts, done = 0.0, 0
+        rid = self.store.add_report(client, lab, fio, grp, seed, pts, done, html)
+        self.store.add_event(now_ms(), client, lab, fio, grp, seed, 'report', {'id': rid, 'pts': pts, 'done': done}, self.ip())
+        self.send(200, {'id': rid})
 
     def admin_group(self, e):
         name = clip(e.get('name'), 20).strip()
@@ -622,11 +712,14 @@ GET_ROUTES = {
     '/api/admin/says': (Handler.admin_says, True),
     '/api/state': (Handler.state, True),
     '/api/log': (Handler.log, True),
+    '/api/admin/reports': (Handler.admin_reports, True),
+    '/api/admin/report': (Handler.admin_report, True),
 }
 POST_ROUTES = {
     '/api/ev': (Handler.ev, False),
     '/api/login': (Handler.login, False),
     '/api/progress': (Handler.post_progress, False),
+    '/api/report': (Handler.post_report, False),
     '/api/admin/group': (Handler.admin_group, True),
     '/api/admin/resetpin': (Handler.admin_resetpin, True),
     '/api/admin/say': (Handler.admin_say, True),

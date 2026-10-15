@@ -75,6 +75,7 @@ test('mergeP: пройденное не теряется ни с одной ст
   assert.equal(m.journal.length, 2);
   assert.equal(m.answers[0], 'длинный ответ');
   assert.deepEqual([m.lints, m.away, m.fio], [4, 3, 'Иванов']);
+  assert.equal(mergeP({...A, practice: 7}, {...B, practice: 3}).practice, 7); // счётчик тренировки — больший
   assert.equal(mergeP(null, B), B);
   assert.equal(mergeP(A, null), A);
 });

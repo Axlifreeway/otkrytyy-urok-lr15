@@ -287,10 +287,76 @@ async function serverFlow() {
     body: JSON.stringify({type: 'run', client: 'x', fio: 'Чужой'}),
   });
   if (anon.status !== 403) fails.push('server-flow: событие без входа принято');
+  // отчёт: «Сдать» → протокол → ответ на вопрос → «Отправить преподавателю» → панель открывает его
+  await page.click('#subBtn');
+  await page.click('#subGo');
+  await page.fill('#proto [data-a="0"]', 'Потому что NULL не равен ничему — e2e');
+  await page.click('#sendRep');
+  await page.waitForSelector('#sendMsg.ok', {timeout: 15000}).catch(() => fails.push('server-flow: отчёт не отправился: ' + ''));
+  const t = await open(`/teacher/index.html?key=${KEY}`);
+  await t.page.waitForSelector('tr.row [data-rep]', {timeout: 15000}).catch(() => fails.push('server-flow: в панели нет кнопки отчёта'));
+  await t.page.click('#repBtn');
+  await t.page.click('#repList tr.row');
+  const frame = await (await t.page.waitForSelector('#rvFrame')).contentFrame();
+  await frame
+    .waitForFunction(() => document.body && document.body.innerText.includes('NULL не равен ничему'), null, {timeout: 15000})
+    .catch(() => fails.push('server-flow: отчёт не открылся в панели'));
+  if (await frame.$('textarea, input, button, script')) fails.push('server-flow: в снимке отчёта остались поля или скрипты');
+  if (SHOTS) await t.page.screenshot({path: join(SHOTS, 'teacher-report.png')});
+  await t.page.click('#rvX');
+  await t.page.click('tr.row');
+  await t.page
+    .waitForSelector('#drawer pre .k', {timeout: 15000})
+    .catch(() => fails.push('server-flow: SQL в журнале панели не подсвечен'));
+  if (SHOTS) await t.page.screenshot({path: join(SHOTS, 'teacher-drawer.png')});
+  await t.page.click('#dx');
+  await t.page.click('#yesterday');
+  await t.page
+    .waitForFunction(() => document.getElementById('since').classList.contains('past'), null, {timeout: 15000})
+    .catch(() => fails.push('server-flow: «Вчера» не переключил день'));
+  t.errors.forEach(e => errors.push('панель: ' + e));
+  await t.page.close();
   out['server-flow'] = {ok, errors};
   errors.forEach(e => fails.push(`server-flow: ${e}`));
   await page.close();
   await post('/api/admin/delgroup', {key: KEY, name: 'E2E-1'});
+}
+
+// тренировка после уровней: генератор даёт выполнимые задания, эталон каждого засчитывается
+async function practiceRun(lab, dir) {
+  const {page, errors} = await open(`/${dir}/index.html`);
+  await page.waitForFunction(() => window.LAB && document.getElementById('loading').hidden, null, {timeout: 60000});
+  await page.evaluate(async seed => {
+    window.LAB.speed = 99;
+    await window.LAB.begin(seed, true);
+  }, SEED);
+  const res = [];
+  for (let k = 0; k < 12; k++) {
+    await page.evaluate(() => window.LAB.startPractice());
+    await page.waitForFunction(() => !window.LAB.running && window.LAB.L.at(-1).practice, null, {timeout: 30000});
+    const lv = await page.evaluate(() => {
+      const l = window.LAB.L.at(-1);
+      return {title: l.title, ref: l.ref, n: window.LAB.G.P.practice || 0};
+    });
+    for (const q of lv.ref) {
+      await page.evaluate(q => {
+        document.getElementById('sql').value = q;
+        return window.LAB.run();
+      }, q);
+      await page.waitForFunction(() => !window.LAB.running, null, {timeout: 60000});
+    }
+    const n = await page.evaluate(() => window.LAB.G.P.practice || 0);
+    res.push(lv.title + (n === lv.n + 1 ? '' : ' — НЕ ЗАСЧИТАНО'));
+    if (n !== lv.n + 1) fails.push(`${lab}-practice: «${lv.title}» не засчитано эталоном: ${lv.ref.join('; ')}`);
+  }
+  const sc = await page.evaluate(() => ({
+    lv: Object.keys(window.LAB.G.P.lv),
+    json: JSON.stringify(window.LAB.G.P).includes('"practice":{'),
+  }));
+  if (sc.lv.includes('practice') || sc.json) fails.push(`${lab}-practice: запись тренировки попала в сохраняемый прогресс`);
+  out[lab + '-practice'] = {tasks: res, errors};
+  errors.forEach(e => fails.push(`${lab}-practice: ${e}`));
+  await page.close();
 }
 
 // телефон (iPhone 13, стоя и боком): страница не шире экрана, панели 3D-лабы не налезают друг на друга
@@ -377,6 +443,8 @@ const jobs = {
   'labs-lr16': () => workbook('labs-lr16', '/labs/lr16.html'),
   mvp: () => plain('mvp', '/mvp/index.html', () => document.body.innerText.length > 200),
   mobile,
+  'lr13-practice': () => practiceRun('lr13', 'lr13-3d'),
+  'lr14-practice': () => practiceRun('lr14', 'lr14-3d'),
   'server-flow': serverFlow,
   teacher: () =>
     plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),

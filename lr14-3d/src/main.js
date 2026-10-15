@@ -40,6 +40,7 @@ import {
   hold,
 } from '../../common/shell.js';
 import {report} from '../../common/net.js';
+import {practice} from './practice.js';
 import {SELECT_REF, WHERE_REF, UPDATE_REF} from '../../common/sqlref.js';
 
 const PTS = {
@@ -467,6 +468,7 @@ initShell({
   levels,
   baseSql,
   REF: [SELECT_REF, WHERE_REF, UPDATE_REF],
+  practice,
   REF_NEED: ['soft', 'final'],
   PTS,
   TABLES,

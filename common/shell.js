@@ -7,7 +7,8 @@ import {openDb, loadSql as load} from './db.js';
 import {report, setCtx, clientId, watchAway, guardPaste} from './net.js';
 import {loginScreen, session, mergeP, syncInit, pull, push} from './login.js';
 import {isTeacherCode} from './teacher.js';
-import {attachHighlight} from './sqlhl.js';
+import {attachHighlight, highlight} from './sqlhl.js';
+import {snapshotHtml, sendReport} from './report.js';
 import {listenRobot, robotSay} from './robotsay.js';
 import {sqlRef} from './sqlref.js';
 
@@ -154,10 +155,10 @@ export const save = () => {
   push(G.P);
 };
 export const recOf = lv => (G.P.lv[lv.key] = G.P.lv[lv.key] || {runs: 0, fails: 0});
-const doneN = () => L.filter(l => (G.P.lv[l.key] || {}).done).length;
+const doneN = () => L.filter(l => !l.practice && (G.P.lv[l.key] || {}).done).length;
 export const starsOf = r => (!r || !r.done ? 0 : (r.fails || 0) === 0 ? 3 : r.fails <= 2 ? 2 : 1);
 export function score() {
-  const rows = L.map(l => ({l, pts: cfg.PTS[l.key] || 0, ok: !!(G.P.lv[l.key] || {}).done}));
+  const rows = L.filter(l => !l.practice).map(l => ({l, pts: cfg.PTS[l.key] || 0, ok: !!(G.P.lv[l.key] || {}).done}));
   return {rows, sum: Math.round(rows.reduce((t, r) => t + (r.ok ? r.pts : 0), 0) * 10) / 10};
 }
 const MARK = s => (s >= 8.5 ? '5' : s >= 6.5 ? '4' : s >= 4.5 ? '3' : '2');
@@ -176,12 +177,15 @@ export function journal(sql, out) {
 
 // ═════════════════════════════════════════════════════════ уровни ══
 export function unlocked(i) {
+  if (L[i] && L[i].practice) return true;
   return G.demo || i === 0 || !!(G.P.lv[L[i - 1].key] || {}).done;
 }
 export function renderLevels() {
   $('levels').innerHTML =
     L.map((lv, i) => {
       const rec = G.P.lv[lv.key] || {};
+      if (lv.practice)
+        return `<button class="lvb px${i === G.lv ? ' on' : ''}" data-i="${i}" title="Тренировка: решено ${G.P.practice || 0}">∞</button>`;
       return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${esc(lv.title)}">${unlocked(i) ? (lv.final ? '✈' : i + 1) : '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
     }).join('') +
     (G.demo
@@ -198,7 +202,8 @@ export function renderLevels() {
 }
 // подсказка после промахов и кнопка «Решение» в демо-режиме
 export function missionButtons(lv, rec, minFails = 2) {
-  return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${G.demo && lv.ref ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
+  const sol = lv.ref && (G.demo || (lv.practice && (rec.fails || 0) >= 2)); // в тренировке после двух промахов можно подсмотреть
+  return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${sol ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, lv.sel || (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
 }
 export function bindMissionButtons(lv, rec) {
   if ($('hintBtn'))
@@ -213,7 +218,9 @@ export function bindMissionButtons(lv, rec) {
     };
 }
 export const levelTag = lv =>
-  `<span class="tag">${lv.final ? 'КОНТРОЛЬНЫЙ' : 'УРОВЕНЬ ' + (G.lv + 1) + ' / ' + L.length}</span>${lv.hard ? '<span class="tag hardt">СЛОЖНЫЙ · ' + comma(cfg.PTS[lv.key]) + ' балла</span>' : ''}`;
+  lv.practice
+    ? `<span class="tag">ТРЕНИРОВКА · без баллов</span><span class="tag hardt">решено: ${G.P.practice || 0}</span>`
+    : `<span class="tag">${lv.final ? 'КОНТРОЛЬНЫЙ' : 'УРОВЕНЬ ' + (G.lv + 1) + ' / ' + L.length}</span>${lv.hard ? '<span class="tag hardt">СЛОЖНЫЙ · ' + comma(cfg.PTS[lv.key]) + ' балла</span>' : ''}`;
 
 // прогноз до запуска: ответ пишется в протокол
 export function predict(lv) {
@@ -259,6 +266,7 @@ export async function rollback(rec, msg, prefill) {
 }
 
 export async function success(lv, rec) {
+  if (lv.practice) return practiceDone(lv, rec);
   rec.done = true;
   rec.at = new Date().toISOString();
   setTimeout(() => push(G.P, true), 0);
@@ -288,6 +296,57 @@ export async function success(lv, rec) {
   cfg.renderMission();
 }
 
+// ═══════════════════════════════ тренировка: бесконечные задания без баллов ══
+// После уровней (или после отправки отчёта) студент может решать новые задания, собранные из его же базы
+// (состояние после всех уровней). cfg.practice(D, state, rnd) возвращает уровень {title, text, goals, tables, ref, ok}.
+// Задание — 13-й элемент L с key 'practice'; его запись в G.P.lv неперечисляемая — не сохраняется и не уходит на сервер.
+export async function startPractice() {
+  if (running || !cfg.practice) return;
+  setRunning(true);
+  $('proto').hidden = true;
+  $('modal').hidden = true;
+  W.resetRoot();
+  if (L[L.length - 1].practice) L.pop();
+  const base = canon(L.length);
+  let lv = null;
+  for (let k = 0; k < 10 && !lv; k++) {
+    await loadSql(base);
+    const before = await state(),
+      cand = cfg.practice(D, before, Math.random);
+    try {
+      for (const q of cand.ref) await db.query(q);
+      if (JSON.stringify(await state()) !== JSON.stringify(before)) lv = cand; // команда что-то меняет и база её принимает
+    } catch (e) {
+      /* такое задание в этой базе не выполнить — берём другое */
+    }
+  }
+  setRunning(false);
+  if (!lv) return toast('Не получилось придумать задание — попробуйте ещё раз');
+  Object.assign(lv, {key: 'practice', practice: true, lab: lv.lab || 'тренировка · без баллов'});
+  Object.defineProperty(G.P.lv, 'practice', {value: {runs: 0, fails: 0}, enumerable: false, configurable: true, writable: true});
+  L.push(lv);
+  await cfg.startLevel(L.length - 1);
+}
+function practiceDone(lv, rec) {
+  rec.done = true;
+  G.P.practice = (G.P.practice || 0) + 1;
+  save();
+  report('practice', {n: G.P.practice, fails: rec.fails || 0, sql: (G.P.journal.at(-1) || {}).q});
+  SFX.ok();
+  W.play('jump', true);
+  W.confetti();
+  verdict(
+    true,
+    lv.ok || 'Верно!',
+    `<div class="stars"><span>Тренировка: решено ${G.P.practice} · ${(rec.fails || 0) === 0 ? 'с первой попытки' : 'промахов: ' + rec.fails}</span></div><button class="nextBtn" id="pxNext">Ещё задание →</button>`,
+    false,
+    true,
+  );
+  $('pxNext').onclick = startPractice;
+  renderLevels();
+  cfg.renderMission();
+}
+
 // ═════════════════════════════════════════════════ итоги, протокол ══
 function endScreen() {
   const m = $('modal');
@@ -298,8 +357,9 @@ function endScreen() {
   m.innerHTML = `<div class="dlg panel end"><span class="tag">${esc(cfg.end.tag)}</span><h2>Рейс ${esc(cfg.flight())} в воздухе</h2>
     <div class="end-row"><div><b>${doneN()}/${L.length}</b><span>уровней</span></div><div><b>${pr}/${preds.length}</b><span>прогнозов верно</span></div>
       <div><b>${v3}</b><span>${esc(l3)}</span></div><div><b>${score().sum}/9</b><span>баллов автоматически</span></div></div>
-    <div class="btns"><button class="nextBtn" id="protoBtn">Протокол для отчёта</button><button class="btn" id="backBtn">Вернуться</button></div></div>`;
+    <div class="btns"><button class="nextBtn" id="protoBtn">Протокол для отчёта</button>${cfg.practice ? '<button class="btn" id="pxBtn">🔁 Тренировка без баллов</button>' : ''}<button class="btn" id="backBtn">Вернуться</button></div></div>`;
   $('protoBtn').onclick = protocol;
+  if ($('pxBtn')) $('pxBtn').onclick = startPractice;
   $('backBtn').onclick = () => {
     m.hidden = true;
     W.resetRoot();
@@ -313,7 +373,9 @@ function protocol() {
     done = sc.rows.filter(r => r.ok).length;
   const awayMin = Math.round((P.awayMs || 0) / 60000);
   pr.hidden = false;
-  pr.innerHTML = `<div class="pr-bar"><button class="nextBtn" onclick="window.print()">Печать / PDF</button><button class="btn" onclick="document.getElementById('proto').hidden=true">Закрыть</button></div>
+  const canSend = !G.demo && /^https?:$/.test(location.protocol);
+  pr.innerHTML = `<div class="pr-bar">${canSend ? '<button class="nextBtn" id="sendRep">📤 Отправить преподавателю</button>' : ''}<button class="${canSend ? 'btn' : 'nextBtn'}" onclick="window.print()">Печать / PDF</button>${cfg.practice ? '<button class="btn" id="pxGo" title="Новые задания из вашей базы, без баллов — отчёт не меняется">🔁 Продолжить тренировку</button>' : ''}<button class="btn" onclick="document.getElementById('proto').hidden=true">Закрыть</button>
+    <span id="sendMsg" class="pr-send">${canSend ? (P.sentAt ? 'Последняя отправка: ' + new Date(P.sentAt).toLocaleString('ru-RU') + '. Исправили ответы — отправьте ещё раз.' : 'Заполните ответы на вопросы и отправьте — печатать не нужно.') : ''}</span></div>
   <div class="pr-doc"><div class="pr-eye">ФГАОУ ВО «Тюменский государственный университет» · Колледж ИИ · ОПЦ.07</div>
   <h2>Протокол · ${esc(cfg.protoTitle)}</h2>
   <div class="pr-meta"><span>Студент</span><span><input id="fio" value="${esc(P.fio || [G.fio, G.grp].filter(Boolean).join(', '))}" placeholder="Фамилия И. О., группа"></span>
@@ -324,9 +386,10 @@ function protocol() {
   ${sc.rows
     .map(({l, pts, ok}) => {
       const r = P.lv[l.key] || {};
-      return `<tr><td>${esc(l.title)}<div class="pr-mu">${esc(l.lab)}</div></td><td><pre>${ok ? esc(r.sql) : 'не пройден'}</pre></td><td><pre>${esc(r.note || r.tag || '')}</pre></td><td>${ok ? r.fails || 0 : ''}</td><td>${ok ? comma(pts) : '0'} / ${comma(pts)}</td></tr>`;
+      return `<tr><td>${esc(l.title)}<div class="pr-mu">${esc(l.lab)}</div></td><td><pre class="sql">${ok ? highlight(r.sql || '', Object.keys(cfg.TABLES)) : 'не пройден'}</pre></td><td><pre>${esc(r.note || r.tag || '')}</pre></td><td>${ok ? r.fails || 0 : ''}</td><td>${ok ? comma(pts) : '0'} / ${comma(pts)}</td></tr>`;
     })
     .join('')}</table>
+  ${P.practice ? `<p style="margin-top:8px">Тренировка после уровней (без баллов): решено заданий — <b>${P.practice}</b></p>` : ''}
   <h3>Прогнозы</h3><table><tr><th>Вопрос</th><th>Ответ</th><th>На деле</th></tr>${Object.values(P.pred)
     .map(p => `<tr><td>${esc(p.q)}</td><td>${esc(p.label)}</td><td>${p.right ? '✓' : esc(p.alabel)}</td></tr>`)
     .join('')}</table>
@@ -338,6 +401,33 @@ function protocol() {
     P.fio = e.target.value;
     save();
   };
+  if ($('pxGo')) $('pxGo').onclick = startPractice;
+  if ($('sendRep'))
+    $('sendRep').onclick = async () => {
+      const b = $('sendRep');
+      b.disabled = true;
+      $('sendMsg').textContent = 'Отправляю…';
+      const html = snapshotHtml(pr.querySelector('.pr-doc'), `${cfg.protoTitle} — ${P.fio || G.fio || ''}`);
+      const r = await sendReport({
+        lab: cfg.lab,
+        html,
+        pts: sc.sum,
+        done,
+        token: (G.sess && G.sess.token) || '',
+        client: clientId(),
+        fio: P.fio || G.fio,
+        grp: G.grp,
+        seed: G.seed,
+      });
+      b.disabled = false;
+      $('sendMsg').textContent = r.msg;
+      $('sendMsg').className = 'pr-send ' + (r.ok ? 'ok' : 'bad');
+      if (r.ok) {
+        P.sentAt = Date.now();
+        save();
+        SFX.ok();
+      }
+    };
   const fitT = t => {
     t.style.height = 'auto';
     t.style.height = t.scrollHeight + 4 + 'px';
@@ -361,7 +451,7 @@ function submitDialog() {
   m.hidden = false;
   m.innerHTML = `<div class="dlg panel"><span class="tag">Сдать работу</span><h2>${done} из ${L.length} уровней</h2>
     <p>Сейчас набрано <b>${comma(sc.sum)} из 9</b> баллов за уровни. Без ответов на вопросы это ${MARK(sc.sum) === '2' ? 'пока ниже «3»' : 'не меньше чем на «' + MARK(sc.sum) + '»'}; ответы добавят до 1 балла. Шкала: 8,5+ → «5», 6,5+ → «4», 4,5+ → «3».</p>
-    <p class="mu">После сдачи можно продолжить — протокол просто сформируется заново.</p>
+    <p class="mu">Протокол уходит преподавателю кнопкой «Отправить преподавателю» — печатать не нужно. После сдачи можно продолжить и отправить заново.</p>
     <div class="btns"><button class="nextBtn" id="subGo">Сформировать протокол</button><button class="btn" id="subBack">Продолжить работу</button></div></div>`;
   $('subGo').onclick = () => {
     m.hidden = true;
@@ -458,7 +548,7 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
   stampScreen();
   if (server || P) save();
   // продолжить с первого непройденного открытого уровня
-  let i = demo ? 0 : G.P.cur || 0;
+  let i = Math.min(demo ? 0 : G.P.cur || 0, L.length - 1);
   if (L[i] && (G.P.lv[L[i].key] || {}).done) {
     const nd = L.findIndex(l => !(G.P.lv[l.key] || {}).done);
     if (nd >= 0) i = nd;
@@ -664,6 +754,7 @@ export async function boot() {
     },
     run: cfg.run,
     startLevel: cfg.startLevel,
+    startPractice,
     get G() {
       return G;
     },

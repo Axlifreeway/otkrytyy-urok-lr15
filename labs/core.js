@@ -1210,8 +1210,9 @@ const W = (() => {
     const fmt = s => (s ? new Date(s).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '');
     sec.innerHTML = `<div class="noprint" style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="pbtn y" onclick="window.print()">Печать / PDF</button>
+        ${/^https?:$/.test(location.protocol) ? '<button class="pbtn y" id="sendRep">📤 Отправить преподавателю</button>' : ''}
         <button class="pbtn" id="copyBtn">Скопировать протокол текстом</button>
-        <span class="muted" style="align-self:center">Протокол собирается сам из того, что вы сделали. Заполните ФИО и ответы на вопросы.</span></div>
+        <span class="muted" id="sendMsg" style="align-self:center">${P.sentAt ? 'Последняя отправка: ' + fmt(P.sentAt) + '. Исправили — отправьте ещё раз.' : 'Протокол собирается сам из того, что вы сделали. Заполните ФИО и ответы на вопросы и отправьте преподавателю.'}</span></div>
       <div class="proto" id="protoDoc">
         <div class="peye">ФГАОУ ВО «Тюменский государственный университет» · Колледж ИИ · ОПЦ.07</div>
         <h2>Протокол смены · ЛР-${LAB.no} «${esc(LAB.lrTitle)}»</h2>
@@ -1268,6 +1269,41 @@ const W = (() => {
           persist();
         }),
     );
+    if ($('sendRep'))
+      $('sendRep').onclick = async () => {
+        $('sendRep').disabled = true;
+        $('sendMsg').textContent = 'Отправляю…';
+        // вход по PIN — общий для сайта: если студент входил в 3D-лабу в этом браузере, сервер его узнает
+        let sess = null,
+          client = '';
+        try {
+          sess = JSON.parse(localStorage.getItem('air-session') || 'null');
+          client = localStorage.getItem('air-client') || '';
+        } catch (e) {
+          /* нет хранилища */
+        }
+        const {snapshotHtml, sendReport} = await import('../common/report.js');
+        const r = await sendReport({
+          lab: 'lr' + LAB.no + 't',
+          html: snapshotHtml($('protoDoc'), `Протокол смены · ЛР-${LAB.no} — ${P.fio || ''}`),
+          pts: total,
+          done,
+          token: (sess && sess.token) || '',
+          client: client || 'nc' + S.seed,
+          fio: P.fio,
+          grp: '',
+          seed: S.seed,
+        });
+        $('sendRep').disabled = false;
+        $('sendMsg').textContent = r.ok
+          ? r.msg
+          : r.msg.replace('войдите по группе и PIN', 'войдите по группе и PIN в 3D-лабу (главная страница) в этом браузере');
+        $('sendMsg').style.color = r.ok ? 'var(--green, #3f9a5a)' : 'var(--red, #d2483c)';
+        if (r.ok) {
+          P.sentAt = Date.now();
+          persist();
+        }
+      };
     $('copyBtn').onclick = () => {
       const txt = $('protoDoc').innerText;
       navigator.clipboard &&

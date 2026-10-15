@@ -4,7 +4,7 @@ export const ROWS = 6,
   LET = ['A', 'B', 'C', 'D', 'E', 'F'],
   BIZ = ['A', 'C', 'D', 'F'];
 export {rng};
-const SURN = [
+export const SURN = [
   'Иванов',
   'Петров',
   'Смирнов',
@@ -36,9 +36,9 @@ const SURN = [
   'Ильин',
   'Карпов',
 ];
-const CITIES = ['Тюмень', 'Тюмень', 'Тюмень', 'Москва', 'Сургут', 'Тобольск', 'Ишим', 'Омск', 'Ялуторовск'];
+export const CITIES = ['Тюмень', 'Тюмень', 'Тюмень', 'Москва', 'Сургут', 'Тобольск', 'Ишим', 'Омск', 'Ялуторовск'];
 const DEST = ['Сочи', 'Казань', 'Москва', 'Калининград', 'Анапа', 'Новосибирск', 'Уфа', 'Минеральные Воды', 'Махачкала', 'Самара'];
-const INI = 'АБВГДЕИКЛМНОПРСТ';
+export const INI = 'АБВГДЕИКЛМНОПРСТ';
 export const seatRow = s => parseInt(s, 10);
 export const seatL = s => String(s).slice(-1);
 export const shelfOf = row => Math.ceil(row / 2);
@@ -231,7 +231,7 @@ export function baseSql(D) {
 const insFl = fs =>
   'INSERT INTO flight (flight_no, dest, dep_time, gate) VALUES ' +
   fs.map(f => `(${lit(f.flight_no)}, ${lit(f.dest)}, ${lit(f.dep_time)}, ${lit(f.gate)})`).join(', ');
-const insP = (ps, meal) =>
+export const insP = (ps, meal) =>
   `INSERT INTO passenger (id, flight_no, seat_no, full_name, birth_year, city${meal ? ', meal' : ''}) VALUES ` +
   ps
     .map(
@@ -239,7 +239,7 @@ const insP = (ps, meal) =>
         `(${p.id}, ${lit(p.flight_no)}, ${lit(p.seat_no)}, ${lit(p.full_name)}, ${p.birth_year}, ${lit(p.city)}${meal ? ', ' + lit(p.meal || 'стандарт') : ''})`,
     )
     .join(', ');
-const insB = bs =>
+export const insB = bs =>
   'INSERT INTO baggage (tag, passenger_id, weight_kg) VALUES ' +
   bs.map(b => `(${lit(b.tag)}, ${b.passenger_id}, ${b.weight_kg})`).join(', ');
 const esc = s =>
@@ -253,22 +253,22 @@ const flDoc = fs =>
     ['рейс', 'куда', 'вылет', 'выход'],
     fs.map(f => [f.flight_no, f.dest, f.dep_time, f.gate ?? 'NULL — не назначен']),
   );
-const pDoc = (ps, meal) =>
+export const pDoc = (ps, meal) =>
   tbl(
     ['№', 'место', 'пассажир', 'г. р.', 'город'].concat(meal ? ['питание'] : []),
     ps.map(p => [p.id, p.seat_no, p.full_name, p.birth_year ?? 'NULL — неизвестен', p.city].concat(meal ? [p.meal || 'по умолчанию'] : [])),
   );
-const nDoc = bs =>
+export const nDoc = bs =>
   tbl(
     ['бирка', 'вес', 'владелец', 'город владельца'],
     bs.map(b => [b.tag, b.weight_kg + ' кг', b.owner.full_name, b.owner.city]),
   );
-const bDoc = bs =>
+export const bDoc = bs =>
   tbl(
     ['бирка', 'вес', 'рейс', 'место владельца'],
     bs.map(b => [b.tag, b.weight_kg + ' кг', b.owner.flight_no, b.owner.seat_no]),
   );
-const LEGEND = `<div class="legend"><b>NULL</b> — значение неизвестно: так и пишем <code>NULL</code>, без кавычек.<br><b>по умолчанию</b> — пишем <code>DEFAULT</code> или вовсе не указываем столбец.</div>`;
+export const LEGEND = `<div class="legend"><b>NULL</b> — значение неизвестно: так и пишем <code>NULL</code>, без кавычек.<br><b>по умолчанию</b> — пишем <code>DEFAULT</code> или вовсе не указываем столбец.</div>`;
 export const talon = p => ({
   id: p.id,
   flight_no: p.flight_no,

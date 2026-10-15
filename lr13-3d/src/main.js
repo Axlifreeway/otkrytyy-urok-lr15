@@ -40,6 +40,7 @@ import {
   hold,
 } from '../../common/shell.js';
 import {report} from '../../common/net.js';
+import {practice} from './practice.js';
 import {SELECT_REF, INSERT_REF} from '../../common/sqlref.js';
 
 const W = createWorld($('stage'));
@@ -523,6 +524,7 @@ initShell({
   levels,
   baseSql,
   REF: [SELECT_REF, INSERT_REF],
+  practice,
   REF_NEED: ['lookup'],
   PTS,
   TABLES,
