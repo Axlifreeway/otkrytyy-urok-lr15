@@ -193,6 +193,60 @@ export function createEngine(stage, o) {
     obj.add(l);
     return l;
   };
+  // надпись на поверхности модели: лежит в плоскости полки, пола или стены (а не висит перед камерой).
+  // Плоскость по умолчанию смотрит на +z (стена к зрителю); на пол — rx: -PI/2. h — высота строки в метрах сцены.
+  const flatLabel = (
+    text,
+    obj,
+    {x = 0, y = 0, z = 0, rx = 0, ry = 0, h = 0.16, color = '#5c5f66', bg = 'rgba(255,250,240,.88)', mono = false} = {},
+  ) => {
+    const PX = 96,
+      fam = mono ? '"JetBrains Mono", Consolas, monospace' : 'Rubik, "Segoe UI", Arial, sans-serif',
+      cv = document.createElement('canvas'),
+      c = cv.getContext('2d');
+    const font = `800 ${PX * 0.66}px ${fam}`;
+    c.font = font;
+    cv.width = Math.ceil(c.measureText(text).width + PX * 0.9); // запас: шрифт может догрузиться и стать шире
+    cv.height = PX;
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const draw = () => {
+      c.clearRect(0, 0, cv.width, cv.height);
+      if (bg) {
+        c.fillStyle = bg;
+        c.beginPath();
+        c.roundRect(4, 8, cv.width - 8, cv.height - 16, 18);
+        c.fill();
+      }
+      c.font = font;
+      c.fillStyle = color;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(text, cv.width / 2, cv.height / 2 + 2);
+      tex.needsUpdate = true;
+    };
+    draw();
+    if (document.fonts) document.fonts.ready.then(draw);
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry((h * cv.width) / PX, h),
+      new THREE.MeshBasicMaterial({
+        map: tex,
+        transparent: true,
+        depthWrite: false,
+        toneMapped: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+      }),
+    );
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, 0);
+    m.renderOrder = 2;
+    m.userData.keep = true;
+    m.raycast = () => {}; // щелчок проходит сквозь надпись к полке или пассажиру
+    obj.add(m);
+    return m;
+  };
   const setPick = (g, pick) =>
     g.traverse(m => {
       if (m.isMesh) m.userData.pick = pick;
@@ -321,10 +375,10 @@ export function createEngine(stage, o) {
   // табло вылетов — экран на самой модели: строки рисуются на холсте и натягиваются на плоскость.
   // show(rows, flash): rows — [{cells: ['ИИ-750', '12:00', 'Сочи', 'A9'], on: наш рейс}]
   function flightBoard() {
-    // висит у носовой перегородки, развёрнуто к салону — чтобы надписи читались из обычного ракурса
+    // висит на дальней стене у носа, над кухней — в плоскости стены, как полки
     const board = new THREE.Group();
-    board.position.set(geo.LEN0 + 0.45, 1.42, 0.1);
-    board.rotation.y = -0.75;
+    board.position.set(geo.LEN0 + 1.25, 1.6, -2.83);
+    board.rotation.y = -Math.PI / 2;
     root.add(board);
     const frame = rbox(0.07, 1.12, 2.4, 0.04, 0x27292c);
     frame.userData.keep = true;
@@ -1007,6 +1061,7 @@ export function createEngine(stage, o) {
     rbox,
     at,
     label,
+    flatLabel,
     setPick,
     bakeMeshes,
     bakeGroup,

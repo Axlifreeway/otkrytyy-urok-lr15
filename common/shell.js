@@ -545,7 +545,6 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
   };
   setCtx({lab: cfg.lab, fio, grp, seed, client: sess && sess.sid ? 's' + sess.sid : clientId(), demo, token: (sess && sess.token) || ''});
   report('hello', {done: doneN(), pts: score().sum});
-  stampScreen();
   if (server || P) save();
   // продолжить с первого непройденного открытого уровня
   let i = Math.min(demo ? 0 : G.P.cur || 0, L.length - 1);
@@ -578,49 +577,6 @@ function placeMessages() {
     );
   });
 }
-
-// ═════════════════════════════════════════════ снимки экрана ══
-// Запретить снимок экрана браузер не может. Поэтому: водяной знак с ФИО (любой снимок подписан),
-// шторка, пока окно не активно (инструменты снимка забирают фокус), Print Screen — перетирает буфер и попадает в протокол.
-function guardScreen() {
-  const veil = document.createElement('div'),
-    wm = document.createElement('div');
-  veil.id = 'veil';
-  veil.hidden = true;
-  veil.innerHTML = '<div><b>Лабораторная скрыта</b>Вернитесь в окно лабораторной — работа продолжится с того же места.</div>';
-  wm.id = 'wm';
-  wm.hidden = true;
-  document.body.append(wm, veil);
-  const on = () => G && !G.demo;
-  const hide = v => {
-    veil.hidden = !(v && on());
-  };
-  addEventListener('blur', () => hide(true));
-  addEventListener('focus', () => hide(false));
-  document.addEventListener('visibilitychange', () => hide(document.hidden));
-  addEventListener('keyup', e => {
-    if (e.key !== 'PrintScreen' || !on()) return;
-    try {
-      navigator.clipboard && navigator.clipboard.writeText('Снимки экрана лабораторной не допускаются.');
-    } catch (x) {
-      /* нет доступа к буферу */
-    }
-    hide(true);
-    setTimeout(() => hide(!document.hasFocus()), 1500);
-    G.P.shots = (G.P.shots || 0) + 1;
-    save();
-    report('shot', {lv: G.lv + 1});
-    toast('Снимок экрана записан в протокол.');
-  });
-  return () => {
-    // показать водяной знак вошедшего студента
-    const who = [G.fio, G.grp, new Date().toLocaleDateString('ru-RU')].filter(Boolean).join(' · ');
-    wm.hidden = !on() || !G.fio;
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='420' height='180'><text x='10' y='110' transform='rotate(-18 210 90)' font-family='Rubik,Arial' font-size='18' font-weight='700' fill='%2322252b'>${esc(who).replace(/#/g, '%23')}</text></svg>`;
-    wm.style.backgroundImage = `url("data:image/svg+xml;utf8,${svg}")`;
-  };
-}
-let stampScreen = () => {};
 
 // ═══════════════════════════════════════════ история команд, вставка ══
 let paste = {add: () => {}};
@@ -672,7 +628,6 @@ export async function boot() {
     } else histKey(e);
   });
   hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
-  stampScreen = guardScreen();
   listenRobot(() => G && G.sess && G.sess.token); // объявления преподавателя
   new ResizeObserver(placeMessages).observe($('deck'));
   addEventListener('resize', placeMessages);

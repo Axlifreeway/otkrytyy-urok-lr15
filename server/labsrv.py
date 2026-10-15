@@ -63,6 +63,7 @@ CREATE INDEX IF NOT EXISTS report_client ON report(client, lab, ts);
 # столбцы, добавленные позже: (таблица, столбец, тип) — для баз, созданных старой версией
 COLUMNS = [
     ('student', 'pin_dev', 'TEXT'),         # с какого устройства задан PIN
+    ('say', 'sid', 'INTEGER'),              # объявление одному студенту (NULL — всем / группе)
 ]
 
 
@@ -328,25 +329,26 @@ class Store:
         return [{'ts': r[0], 'type': r[1], 'data': json.loads(r[2] or '{}')} for r in rows if r[1] != 'hb']
 
     # ── робот говорит: объявления преподавателя ──
-    def add_say(self, grp, text, mode):
+    def add_say(self, grp, text, mode, sid=None):
         with self.lock:
-            i = self.con.execute('INSERT INTO say (ts, grp, text, mode) VALUES (?,?,?,?)', (now_ms(), grp, text, mode)).lastrowid
+            i = self.con.execute('INSERT INTO say (ts, grp, text, mode, sid) VALUES (?,?,?,?,?)', (now_ms(), grp, text, mode, sid)).lastrowid
             self.con.commit()
         return i
 
-    def says(self, since, grp):
-        """Новые объявления (не старше 2 минут) для группы grp; since < 0 — только номер последнего."""
+    def says(self, since, grp, sid=None):
+        """Новые объявления (не старше 2 минут) для студента sid из группы grp; since < 0 — только номер последнего."""
         with self.lock:
             last = self.con.execute('SELECT coalesce(max(id), 0) FROM say').fetchone()[0]
             if since < 0:
                 return last, []
-            rows = self.con.execute("SELECT id, text, mode FROM say WHERE id > ? AND ts > ? AND (grp = '' OR grp = ?) ORDER BY id",
-                                    (since, now_ms() - 120000, grp or '')).fetchall()
+            rows = self.con.execute("SELECT id, text, mode FROM say WHERE id > ? AND ts > ? AND (grp = '' OR grp = ?) "
+                                    "AND (sid IS NULL OR sid = ?) ORDER BY id", (since, now_ms() - 120000, grp or '', sid or -1)).fetchall()
         return last, [{'id': r[0], 'text': r[1], 'mode': r[2]} for r in rows]
 
     def recent_says(self):
         with self.lock:
-            return [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4]} for r in self.con.execute('SELECT id, ts, grp, text, mode FROM say ORDER BY id DESC LIMIT 10')]
+            return [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4], 'to': r[5]}
+                    for r in self.con.execute('SELECT s.id, s.ts, s.grp, s.text, s.mode, st.name FROM say s LEFT JOIN student st ON st.id = s.sid ORDER BY s.id DESC LIMIT 10')]
 
     # ── отчёты: снимок протокола, который студент отправил преподавателю ──
     def add_report(self, client, lab, fio, grp, seed, pts, done, html):
@@ -560,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
             since = int(q.get('since', -1))
         except ValueError:
             since = -1
-        last, items = self.store.says(since, st[1] if st else '')
+        last, items = self.store.says(since, st[1] if st else '', sid if st else None)
         self.send(200, {'last': last, 'items': items})
 
     def admin_says(self, q):
@@ -673,7 +675,11 @@ class Handler(BaseHTTPRequestHandler):
         text = clip(e.get('text'), 300).strip()
         if not text:
             return self.send(400, {'err': 'text'})
-        self.send(200, {'id': self.store.add_say(clip(e.get('grp'), 20), text, 'normal')})
+        try:
+            sid = int(e.get('sid') or 0) or None
+        except (TypeError, ValueError):
+            sid = None
+        self.send(200, {'id': self.store.add_say('' if sid else clip(e.get('grp'), 20), text, 'normal', sid)})
 
     def admin_resetpin(self, e):
         self.store.reset_pin(int(e.get('id') or 0))

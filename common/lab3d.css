@@ -1800,46 +1800,6 @@ table.res td {
   }
 }
 
-/* снимки экрана: водяной знак и шторка, пока окно не активно */
-#wm {
-  position: fixed;
-  inset: 0;
-  z-index: 7;
-  pointer-events: none;
-  opacity: 0.07;
-  background-repeat: repeat;
-}
-#veil {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  background: #dcd6c9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-#veil div {
-  background: var(--paper);
-  border: 3px solid var(--ink);
-  box-shadow: 6px 6px 0 var(--ink);
-  border-radius: 8px;
-  padding: 18px 22px;
-  max-width: 420px;
-  font-size: 15px;
-  line-height: 1.45;
-}
-#veil b {
-  display: block;
-  font-size: 22px;
-  margin-bottom: 6px;
-}
-@media print {
-  #wm,
-  #veil {
-    display: none !important;
-  }
-}
-
 /* робот говорит: объявление преподавателя */
 #robotsay {
   position: fixed;

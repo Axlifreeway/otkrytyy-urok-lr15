@@ -154,7 +154,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(c.exception.code, 400)
 
     def test_robot_announcement_reaches_group(self):
-        ids = self.group(['Иванов Иван'])
+        ids = self.group()
         tok = self.login(ids['Иванов И.'])[1]['token']
         h = {'X-Labs-Token': tok}
         last = self.call('/api/say?since=-1', headers=h)[1]['last']
@@ -163,9 +163,12 @@ class ServerTest(unittest.TestCase):
         self.call('/api/admin/say', {'key': KEY, 'text': 'Всем: проверьте WHERE!', 'mode': 'scream'})  # режим игнорируется
         self.call('/api/admin/say', {'key': KEY, 'text': 'Другой группе', 'grp': 'Б-2'})
         self.call('/api/admin/say', {'key': KEY, 'text': 'Вашей группе', 'grp': 'ИИ-25'})
+        self.call('/api/admin/say', {'key': KEY, 'text': 'Лично Иванову', 'sid': ids['Иванов И.']})
+        self.call('/api/admin/say', {'key': KEY, 'text': 'Лично Петровой', 'sid': ids['Петрова А.']})
         items = self.call(f'/api/say?since={last}', headers=h)[1]['items']
-        self.assertEqual([(i['text'], i['mode']) for i in items], [('Всем: проверьте WHERE!', 'normal'), ('Вашей группе', 'normal')])
-        self.assertEqual(len(self.call('/api/admin/says', headers={'X-Labs-Key': KEY})[1]['items']), 3)
+        self.assertEqual([i['text'] for i in items], ['Всем: проверьте WHERE!', 'Вашей группе', 'Лично Иванову'])
+        recent = self.call('/api/admin/says', headers={'X-Labs-Key': KEY})[1]['items']
+        self.assertEqual((len(recent), recent[0]['to']), (5, 'Петрова Анна'))
 
     def test_report_sent_and_viewed(self):
         ids = self.group()

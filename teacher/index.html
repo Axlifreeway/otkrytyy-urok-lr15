@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Пульт преподавателя</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23ffc21a'/%3E%3Cpath d='M16 4l3 9 9 4v2l-9-2-1 7 3 2v2l-5-1-5 1v-2l3-2-1-7-9 2v-2l9-4z' fill='%2322252b'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
   :root { --ink: #22252b; --sun: #ffc21a; --teal: #2f6f73; --red: #d2483c; --green: #3f9a5a; --paper: #fffaf0; --mute: #6b6e75;
@@ -19,7 +19,6 @@
   header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px }
   header h1 { font-size: 20px; font-weight: 800; margin-right: 8px }
   header select { font-size: 14px; padding: 4px 8px; border: 2.5px solid var(--ink); border-radius: 6px; background: #fff }
-  #since { color: var(--mute); font-size: 12.5px }
   main { padding: 0 16px 24px }
   .top { display: grid; grid-template-columns: auto 1fr; gap: 12px; margin-bottom: 12px }
   .kpi { display: flex; gap: 0 } .kpi div { padding: 8px 14px; border-right: 2px solid var(--ink) } .kpi div:last-child { border: 0 }
@@ -48,7 +47,7 @@
   #drawer .bad { color: var(--red) } #drawer .ok { color: var(--green) } #drawer .t { color: var(--mute); font: 500 12px var(--mono); margin-right: 6px }
   #login { max-width: 420px; margin: 80px auto; padding: 20px } #login input { width: 100%; font: 600 18px var(--mono); padding: 8px; border: 3px solid var(--ink); border-radius: 6px; margin: 10px 0 }
   /* проектор: только прогресс, без ошибок */
-  body.proj { background: #22252b } body.proj header, body.proj .top, body.proj #tbl { display: none }
+  body.proj { background: #22252b } body.proj > *:not(#app):not(script), body.proj #app > *:not(#proj):not(#projX) { display: none !important }
   #proj { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; padding: 18px }
   #proj .card { background: var(--paper); border: 3px solid var(--ink); border-radius: 8px; padding: 10px 14px; box-shadow: 4px 4px 0 #000 }
   #proj .card b { font-size: 22px } #proj .card .lvl i { width: 22px; height: 26px } #proj .card .s { color: #c99700; font-size: 18px; margin-top: 4px }
@@ -62,8 +61,9 @@
   #sayBox h2 { font-size: 18px } #sayText { font: 500 16px var(--font); padding: 8px 10px; border: 2.5px solid var(--ink); border-radius: 6px; resize: vertical }
   .sayrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap } .sayrow select { font-size: 14px; padding: 3px 6px; border: 2.5px solid var(--ink); border-radius: 6px }
   #sayList div { padding: 3px 0; border-top: 1px dashed #d8d0bd }
-  .days { display: inline-flex; gap: 0 } .days .btn { padding: 5px 8px } .days input { font: 600 14px var(--font); padding: 3px 6px; border: 2.5px solid var(--ink); border-left: 0; border-right: 0; height: 32px }
-  #since.past { color: var(--red); font-weight: 700 }
+  .days { display: inline-flex; gap: 6px; align-items: center }
+  .days .btn { width: 34px; height: 34px; padding: 0; font-size: 13px; display: grid; place-items: center }
+  .days input { font: 700 15px var(--font); padding: 0 10px; height: 34px; border: 2.5px solid var(--ink); border-radius: 6px; box-shadow: 2px 2px 0 var(--ink); background: #fff; color: var(--ink) }
   #drawer pre .k { color: var(--sun); font-weight: 700 } #drawer pre .s { color: #9fdcae } #drawer pre .n { color: #8fc7ff }
   #drawer pre .t { color: #7fd1d6; font: inherit; margin: 0 } #drawer pre .c { color: #8a8d94; font-style: italic }
   #reports { margin: 0 16px 12px; padding: 12px 14px } #reports h2 { font-size: 18px; margin-bottom: 8px }
@@ -91,20 +91,17 @@
   <select id="labSel"><option value="">все ЛР</option><option value="lr13">ЛР-13 INSERT</option><option value="lr14">ЛР-14 UPDATE/DELETE</option></select>
   <select id="grpSel"><option value="">все группы</option></select>
   <span class="days"><button class="btn" id="prevDay" title="Предыдущий день">◀</button><input type="date" id="day" title="За какой день показывать"><button class="btn" id="nextDay" title="Следующий день">▶</button></span>
-  <button class="btn" id="yesterday">Вчера</button>
-  <button class="btn" id="today">Сегодня</button>
-  <button class="btn" id="newPair" title="Сегодня: показывать только события с этого момента">Новая пара</button>
-  <span id="since"></span>
+  <button class="btn" id="newPair" title="Показывать только события с этой минуты (ещё раз — снова весь день)">Новая пара</button>
   <span style="flex:1"></span>
   <button class="btn" id="repBtn" title="Отчёты, которые студенты отправили из протокола">📄 Отчёты <span id="repN"></span></button>
-  <button class="btn" id="sayBtn" title="Сообщение появится у студентов: робот на полэкрана">🤖 Робот скажет</button>
+  <button class="btn" id="sayBtn" title="Сообщение появится у студента: робот на полэкрана">🤖 Робот скажет</button>
   <button class="btn" id="grpBtn">Группы и списки</button>
   <button class="btn" id="projBtn">Проектор</button>
 </header>
 <div id="sayBox" class="panel" hidden>
   <h2>Робот скажет студентам</h2>
   <textarea id="sayText" rows="3" maxlength="300" placeholder="Например: «Не забудьте про IS NULL в уровне 2!»"></textarea>
-  <div class="sayrow"><label>Кому <select id="sayGrp"><option value="">всем группам</option></select></label>
+  <div class="sayrow"><label>Кому <select id="sayTo"><option value="">всем</option></select></label>
     <button class="btn on" id="sayGo">Отправить</button><span id="sayMsg" class="mu"></span></div>
   <div id="sayList" class="mu"></div>
 </div>
@@ -203,9 +200,9 @@ function render() {
   $('grpSel').innerHTML = '<option value="">все группы</option>' + groups.map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
   let ps = data.people.filter(p => !g || p.grp === g);
   const R = range();
-  $('since').textContent = R.isToday ? (R.pair ? 'с ' + hm(data.since) + ' (новая пара)' : 'сегодня') : 'за ' + new Date(data.since).toLocaleDateString('ru-RU', {weekday: 'short', day: 'numeric', month: 'long'});
-  $('since').className = R.isToday ? '' : 'past';
   $('day').value = day;
+  $('newPair').classList.toggle('on', R.pair);
+  $('newPair').hidden = !R.isToday;
   const online = R.isToday ? ps.filter(p => p.idle < 60000).length : '—', stuck = ps.filter(p => p.stuck.length).length, sub = ps.filter(p => p.submit).length;
   $('kpi').innerHTML = `<div><b>${ps.length}</b><span>студентов</span></div><div><b>${online}</b><span>активны сейчас</span></div><div><b style="color:var(--red)">${stuck}</b><span>застряли</span></div><div><b>${sub}</b><span>сдали</span></div><div><b>${new Set(reportsData.filter(r => !g || r.grp === g).map(r => r.client)).size}</b><span>прислали отчёт</span></div>`;
   // где сейчас группа и сколько ошибок на каждом уровне
@@ -263,7 +260,7 @@ async function showLog(client, quiet) {
   const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', rollback: 'не совпало — откат', done: 'уровень пройден', paste: 'вставка заблокирована', shot: 'нажат Print Screen', away: 'ушёл со вкладки', submit: 'сдал'};
   const keep = $('drawer').scrollTop;
   $('drawer').hidden = false;
-  $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button><h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · № ${p.seed ?? ''} · ${esc((p.lab || '').toUpperCase())}</span></h2>
+  $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button>${/^s\d+$/.test(client) ? `<button class="btn" id="dSay" style="float:right;margin-right:8px" title="Робот скажет только этому студенту">🤖 Сказать</button>` : ''}<h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · № ${p.seed ?? ''} · ${esc((p.lab || '').toUpperCase())}</span></h2>
     <p style="margin:6px 0 10px">${R.isToday ? 'Сейчас' : 'На конец дня'}: уровень ${p.lv} «${esc(names[p.lv - 1] || '')}», ${mins(p.onLevel)}; пройдено ${p.doneN}, баллов ${String(p.pts).replace('.', ',')}</p>
     ${reps.items.length ? `<p style="margin:0 0 10px"><b>Отчёты:</b> ${reps.items.map(x => `<button class="btn" data-rep="${x.id}" style="margin:2px">📄 ${dhm(x.ts)} · ${esc(LABN[x.lab] || x.lab)} · ${String(x.pts).replace('.', ',')} б.</button>`).join('')}</p>` : ''}
     ${r.events.slice().reverse().map(e => {
@@ -279,6 +276,7 @@ async function showLog(client, quiet) {
   if (quiet) $('drawer').scrollTop = keep;
   $('dx').onclick = () => { open = null; $('drawer').hidden = true; };
   $('drawer').querySelectorAll('[data-rep]').forEach(b => b.onclick = () => openReport(+b.dataset.rep));
+  if ($('dSay')) $('dSay').onclick = () => { open = null; $('drawer').hidden = true; openSay(+client.slice(1)); };
 }
 // ── отчёты студентов ──
 const lastReport = client => reportsData.find(r => r.client === client);   // список отсортирован от новых
@@ -293,7 +291,8 @@ function renderReports() {
   }
   const list = [...by.values()].sort((a, b) => (a[0].grp + a[0].fio).localeCompare(b[0].grp + b[0].fio, 'ru'));
   $('repN').textContent = list.length ? '· ' + list.length : '';
-  $('repWhen').textContent = $('since').textContent;
+  const R = range();
+  $('repWhen').textContent = R.pair ? 'с ' + hm(R.since) : new Date(R.since).toLocaleDateString('ru-RU', {day: 'numeric', month: 'long'});
   $('repList').innerHTML = list.length ? `<table><tr><th>Студент</th><th>Группа</th><th>Работа</th><th>Баллы</th><th>Уровней</th><th>Отправлен</th><th>Версии</th></tr>
     ${list.map(v => { const r = v[0]; return `<tr class="row" data-rep="${r.id}"><td><b>${esc(r.fio)}</b></td><td>${esc(r.grp)}</td><td>${esc(LABN[r.lab] || r.lab)}</td><td>${String(r.pts).replace('.', ',')}</td><td>${r.done}</td><td>${dhm(r.ts)}</td>
       <td class="vers">${v.length > 1 ? v.map((x, i) => `<a data-rep="${x.id}">${i ? hm(x.ts) : 'последняя'}</a>`).join('') : ''}</td></tr>`; }).join('')}</table>`
@@ -321,16 +320,23 @@ $('repBtn').onclick = () => { const on = $('reports').hidden; $('reports').hidde
 let started = false;
 // робот скажет: объявление студентам
 async function loadSays() {
-  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.grp ? esc(x.grp) : 'всем'} — ${esc(x.text)}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
+  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.to ? esc(x.to) : x.grp ? esc(x.grp) : 'всем'} — ${esc(x.text)}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
 }
 $('sayBtn').onclick = () => {
   const on = $('sayBox').hidden; $('sayBox').hidden = !on; $('sayBtn').classList.toggle('on', on);
-  if (on) { $('sayGrp').innerHTML = '<option value="">всем группам</option>' + groupsData.map(g => `<option>${esc(g.name)}</option>`).join(''); $('sayText').focus(); loadSays(); }
+  if (on) openSay();
 };
+// кому: всем или одному студенту (списки групп — подгруппами)
+function openSay(sid) {
+  $('sayBox').hidden = false; $('sayBtn').classList.add('on');
+  $('sayTo').innerHTML = '<option value="">всем</option>' + groupsData.map(g => `<optgroup label="${esc(g.name)}">${g.students.filter(s => s.idx).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</optgroup>`).join('');
+  if (sid) $('sayTo').value = String(sid);
+  $('sayText').focus(); loadSays();
+}
 $('sayGo').onclick = async () => {
   const text = $('sayText').value.trim(); if (!text) { $('sayText').focus(); return; }
   try {
-    await post('/api/admin/say', {text, grp: $('sayGrp').value});
+    await post('/api/admin/say', {text, sid: +$('sayTo').value || 0});
     $('sayMsg').textContent = 'Отправлено — появится у студентов в течение 4 секунд'; $('sayText').value = ''; loadSays();
   } catch (e) { $('sayMsg').textContent = 'Ошибка: ' + e.message; }
 };
@@ -356,9 +362,7 @@ const shift = n => { const [y, m, d] = day.split('-').map(Number); setDay(dstr(n
 $('day').onchange = () => setDay($('day').value);
 $('prevDay').onclick = () => shift(-1);
 $('nextDay').onclick = () => shift(1);
-$('yesterday').onclick = () => setDay(dstr(Date.now() - 864e5));
-$('newPair').onclick = () => { since = Date.now(); store('labs-since', since); setDay(); };
-$('today').onclick = () => { since = 0; store('labs-since', 0); setDay(); };
+$('newPair').onclick = () => { since = range().pair ? 0 : Date.now(); store('labs-since', since); setDay(); };
 $('day').value = day;
 document.querySelectorAll('th[data-s]').forEach(th => th.onclick = () => { sortBy = sortBy === th.dataset.s ? 'problems' : th.dataset.s; render(); });
 $('projBtn').onclick = () => { document.body.classList.add('proj'); $('proj').hidden = false; $('projX').hidden = false; render(); };

@@ -14,7 +14,17 @@ export function createWorld(stage) {
   const seatZ = s => (seatRow(s) <= 2 ? ZB : ZS)[seatL(s)];
   const validSeat = s => /^[1-6][A-F]$/.test(String(s || ''));
   // ряды — номера на полу у прохода
-  for (let r = 1; r <= ROWS; r++) label(String(r), 'rown', root, seatX(r), 0.05, -0.62);
+  for (let r = 1; r <= ROWS; r++)
+    E.flatLabel(String(r), root, {
+      x: seatX(r),
+      y: 0.015,
+      z: -0.62,
+      rx: -Math.PI / 2,
+      h: 0.36,
+      color: 'rgba(255,255,255,.8)',
+      bg: null,
+      mono: true,
+    });
   // полки над рядами (по два ряда на полку)
   const BIN_Y = 1.55,
     BIN_Z = -2.55,
@@ -32,7 +42,9 @@ export function createWorld(stage) {
     at(dv, k === SHELVES ? shelfX1(k) : shelfX0(k + 1), BIN_Y + 0.31, BIN_Z);
     root.add(dv);
   }
-  for (let k = 1; k <= SHELVES; k++) label(`полка ${k}`, 'tag3', root, (shelfX0(k) + shelfX1(k)) / 2, BIN_Y + 0.78, BIN_Z + 0.2);
+  // подписи лежат на крышке полок
+  for (let k = 1; k <= SHELVES; k++)
+    E.flatLabel(`полка ${k}`, root, {x: (shelfX0(k) + shelfX1(k)) / 2, y: BIN_Y + 0.66, z: BIN_Z + 0.05, rx: -Math.PI / 2, h: 0.42});
   const {board, show: showBoard} = E.flightBoard();
 
   // ════════════════════════════════════════════════ трап и тележка ══
@@ -62,7 +74,7 @@ export function createWorld(stage) {
     at(l, x, -0.75, z);
     scene.add(l);
   });
-  label('трап · очередь на посадку', 'tag3', scene, DOOR.x, 0.1, BR.z1 + 0.1);
+  E.flatLabel('ТРАП', scene, {x: (BR.x0 + BR.x1) / 2, y: 0.02, z: BR.z1 - 0.4, rx: -Math.PI / 2, h: 0.5});
   const cartPos = V(DOOR.x + 1.35, 0, 4.4);
   const cart = new THREE.Group();
   scene.add(cart);
@@ -86,7 +98,7 @@ export function createWorld(stage) {
       w.castShadow = true;
       cart.add(w);
     });
-    label('багаж к рейсу', 'tag3', cart, 0, 0.05, 0.95);
+    E.flatLabel('багаж к рейсу', cart, {x: 0, y: 0.02, z: 1.05, rx: -Math.PI / 2, h: 0.28});
   }
   cart.visible = false;
   // статичный корпус и трап — по одному мешу на всё
