@@ -1,6 +1,6 @@
 // ЛР-15 · «Посадка по запросу» — выборка данных. Общий ход лаб на запросы — common/qlab.js,
-// вход, прогресс, вердикты, протокол — common/shell.js, сцена — салон ЛР-14.
-import {createWorld, sleep} from '../../lr14-3d/src/scene.js';
+// вход, прогресс, вердикты, протокол — common/shell.js, сцена — зал ожидания у выхода (common/three/terminal.js).
+import {createTerminal, sleep} from '../../common/three/terminal.js';
 import {makeData, baseSql, levels, TABLES, COLS, FLIGHT} from './data.js';
 import {$} from '../../common/util.js';
 import {initShell, boot, G} from '../../common/shell.js';
@@ -23,7 +23,7 @@ const PTS = {
   top: 0.5,
   final: 1.25,
 };
-const W = createWorld($('stage'));
+const W = createTerminal($('stage'), {kind: 'gate'}); // зал ожидания у выхода C15
 W.setSpeed(3);
 const Q = queryLab({
   W,

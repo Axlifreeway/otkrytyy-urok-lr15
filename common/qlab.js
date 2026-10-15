@@ -1,5 +1,5 @@
 // Лабы на запросы (ЛР-15 SELECT, ЛР-16 JOIN): выполнение команд пульта, показ отбора и соединения в сцене, проверка уровня.
-// Сцена — салон ЛР-14 (пассажиры, багаж на полках, таблички программ, табло рейсов).
+// Сцена — зал аэропорта (common/three/terminal.js): пассажиры, багаж, таблички программ, табло рейсов.
 // Виды уровней: lv.ask — эталонный запрос (ответ сверяется с результатом студента);
 // lv.check 'schema' — доводка схемы (ограничения lv.need, автогенерация lv.identity, данные — по эталону lv.ref);
 // lv.check 'cross' — соединение без условия: строк должно быть произведение.
@@ -162,6 +162,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     W.clearLinks();
     W.hideCard();
     W.clearSay();
+    if (W.calm) await W.calm(); // зал ожидания: все снова на местах
     try {
       for (let i = 0; i < st.length; i++) {
         G.stmtTag = st.length > 1 ? `команда ${i + 1} из ${st.length} · ` : '';
@@ -195,8 +196,9 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   async function runSelect(sql) {
     const p = parseSelect(sql);
     const info = {kind: 'SELECT', p};
+    let yes = null;
     try {
-      if (known(p) && p.tables.length === 1) await showScan(p);
+      if (known(p) && p.tables.length === 1) yes = await showScan(p);
       else if (known(p)) await showJoin(p);
     } catch (e) {
       /* показ не получился (сложное условие) — сам запрос всё равно выполним */
@@ -218,9 +220,12 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     info.res = res;
     const n = res.rows.length;
     const tag = `(${n} ${plural(n, 'строка', 'строки', 'строк')})`;
-    if (known(p) && p.tables.length === 1 && (p.order || p.limit != null)) await numberRows(p).catch(() => {});
+    let ordered = null;
+    if (known(p) && p.tables.length === 1 && (p.order || p.limit != null)) ordered = await numberRows(p).catch(() => null);
     $('result').innerHTML = `<span class="ok">${esc(tag)}</span>${table(res)}`;
     journal(sql, tag);
+    // зал ожидания: отобранные встают, а с ORDER BY / LIMIT — идут в очередь к выходу в порядке ответа
+    if (W.answer && (ordered || yes)) await W.answer(p.tables[0].t, ordered || yes, !!ordered);
     await W.robotGo(W.HOME.x, 0);
     W.face(-Math.PI / 2);
     W.camS.follow = false;
@@ -250,6 +255,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     const wcols = colsIn(t, p.where);
     let done = 0,
       yes = 0;
+    const keys = [];
     hud(0, 0, rows.length);
     for (const row of rows) {
       const k = String(row[pk]);
@@ -276,11 +282,15 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       }
       W.chip(t, k, kind, kind === 'yes' ? '✓' : kind === 'no' ? '' : '?');
       done++;
-      if (v === true) yes++;
+      if (v === true) {
+        yes++;
+        keys.push(k);
+      }
       hud(done, yes, rows.length, 'проверено', 'в ответ');
     }
     W.beamOff();
     W.fadeNo();
+    return keys;
   }
   // ORDER BY / LIMIT: на отобранных строках — их номер в ответе
   async function numberRows(p) {
@@ -299,6 +309,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     }
     keys.forEach((k, i) => W.chip(t, k, 'yes', String(i + 1)));
     W.fadeNo();
+    return keys;
   }
   // JOIN: для каждой строки первой таблицы — стержни к её парам; без пары — «∅»
   async function showJoin(p) {

@@ -1,6 +1,6 @@
 // ЛР-16 · «Зал выдачи багажа» — соединение таблиц. Общий ход лаб на запросы — common/qlab.js,
-// вход, прогресс, вердикты, протокол — common/shell.js, сцена — салон ЛР-14 (со стойкой на четыре программы).
-import {createWorld, sleep} from '../../lr14-3d/src/scene.js';
+// вход, прогресс, вердикты, протокол — common/shell.js, сцена — зал выдачи багажа (common/three/terminal.js).
+import {createTerminal, sleep} from '../../common/three/terminal.js';
 import {makeData, baseSql, levels, TABLES, COLS, FLIGHT, TIERS} from './data.js';
 import {$} from '../../common/util.js';
 import {initShell, boot, G} from '../../common/shell.js';
@@ -8,7 +8,7 @@ import {queryLab} from '../../common/qlab.js';
 import {SELECT_REF, JOIN_REF, ALTER_REF} from '../../common/sqlref.js';
 
 const PTS = {links: 1, owner: 0.75, dest: 0.75, city: 0.75, disc: 0.75, cross: 0.75, three: 1, empty: 1, nobag: 0.75, final: 1.5};
-const W = createWorld($('stage'), {tiers: TIERS});
+const W = createTerminal($('stage'), {kind: 'claim', tiers: TIERS}); // зал выдачи багажа
 W.setSpeed(3);
 const Q = queryLab({
   W,
