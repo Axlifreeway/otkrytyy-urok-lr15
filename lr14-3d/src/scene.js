@@ -12,7 +12,7 @@ export function createWorld(stage, opts = {}) {
   const E = createEngine(stage, {home: {tx: 2.3, tz: 0}, sunTarget: [3.5, 0, 0], viewH: 6.8, followZoom: 1.45, apronZ: 0});
   const {root, rbox, at, label, mat} = E;
   const {LEN0, DOOR} = E.airframe({rows: ROWS, wing: [3.2, 4.6, 5.6, 3.7], wingRow: 2.2, engRow: 3.3, engZ: 4.7, dashes: 14});
-  E.flatLabel('выход', root, {x: DOOR.x, y: 0.19, z: 3.04, h: 0.3}); // на борту у двери
+  E.flatLabel('выход', root, {x: DOOR.x, y: 0.24, z: 3.13, h: 0.3}); // на борту у двери
   // полки для багажа над рядами (по два ряда на полку)
   const BIN_Y = 1.55,
     BIN_Z = -2.55;
@@ -88,7 +88,7 @@ export function createWorld(stage, opts = {}) {
     plates = new Map();
   const seatPos = (seat, kid) => V(seatX(seatRow(seat)) - 0.02, kid ? 0.08 : 0, ZS[seatL(seat)] ?? 0);
   const validSeat = s => seatRow(s) >= 1 && seatRow(s) <= ROWS && ZS[seatL(s)] !== undefined && /^\d+[A-F]$/.test(s);
-  const wingSpot = id => V(seatX(3) + (id % 4) * 0.5, -0.75, 3.6 + (id % 3) * 0.45);
+  const wingSpot = id => V(seatX(3) + (id % 4) * 0.5, -0.66, 3.6 + (id % 3) * 0.45);
   function makePerson(p, r) {
     const g = E.makePerson(p, r);
     g.traverse(o => {
