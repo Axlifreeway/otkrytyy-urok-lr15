@@ -25,7 +25,8 @@ ls "$BAK"/labs-"$(date +%Y%m%d)"-*.db >/dev/null 2>&1 || backup ""
 cd "$SRC"
 git fetch -q origin "$BRANCH"
 NEW=$(git rev-parse "origin/$BRANCH")
-[ "$(git rev-parse HEAD)" = "$NEW" ] && exit 0      # нового нет
+# FORCE=1 — выложить текущую версию, даже если нового нет (первый запуск сразу после git clone)
+[ "${FORCE:-}" != 1 ] && [ "$(git rev-parse HEAD)" = "$NEW" ] && exit 0      # нового нет
 
 OLD=$(git rev-parse HEAD)
 git reset -q --hard "$NEW"
@@ -39,7 +40,7 @@ for d in $PARTS; do
   rm -rf "$WWW/.$d.old"
 done
 cp index.html "$WWW/.index.html.new" && mv "$WWW/.index.html.new" "$WWW/index.html"
-if ! git diff --quiet "$OLD" "$NEW" -- server/labsrv.py; then
+if [ "${FORCE:-}" = 1 ] || ! git diff --quiet "$OLD" "$NEW" -- server/labsrv.py; then
   backup "-before-$(git rev-parse --short "$NEW")"      # перед новой версией сервера — копия базы
   cp server/labsrv.py /opt/labsrv/labsrv.py
   systemctl restart labsrv

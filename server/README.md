@@ -86,7 +86,10 @@
        sudo cp /opt/labs-src/server/labs-deploy.service /opt/labs-src/server/labs-deploy.timer /etc/systemd/system/
        sudo systemctl daemon-reload && sudo systemctl enable --now labs-deploy.timer
 
-3. Проверка: `sudo systemctl start labs-deploy.service && journalctl -t labs-deploy -n 5` — строка «выложено …».
+3. Первая выкладка (сразу после клона «нового» для скрипта нет — выкладываем принудительно):
+
+       sudo FORCE=1 /opt/labs-src/server/deploy.sh && journalctl -t labs-deploy -n 5    # строка «выложено …»
+
    Что и когда выкладывалось: `journalctl -t labs-deploy`.
 
 Ручная выкладка (раздел 1) после этого не нужна. Откатить: `git revert` неудачного коммита в `main` — через минуту сервер вернётся к рабочей версии.
