@@ -1,4 +1,4 @@
-// Вход студента: группа → фамилия → PIN. Прогресс хранится на сервере, поэтому можно начать на паре и закончить дома.
+// Вход студента: группа → фамилия (вписывает сам: списков группы сервер наружу не отдаёт) → PIN. Прогресс хранится на сервере, поэтому можно начать на паре и закончить дома.
 // Если сервера нет (файл открыт с диска) — старый вход: ФИО, группа, номер в журнале.
 import {esc, ls} from './util.js';
 import {isTeacherCode} from './teacher.js';
@@ -56,42 +56,19 @@ export async function loginScreen(m, {head, onGo, legacy}) {
   m.innerHTML = `<div class="dlg panel start">${head}
     <div class="lg">
       <label>Группа<select id="lgG">${groups.map(g => `<option ${g === lastG ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
-      <label>Студент<select id="lgS"><option>…</option></select></label>
+      <label>Фамилия<input id="lgS" autocomplete="family-name" placeholder="например: Иванов" value="${esc(ls('air-name') || '')}"></label>
       <label>PIN<input id="lgP" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="4 цифры"></label>
     </div>
-    <div id="lgNote" class="mu"></div><div id="lgErr" class="bad"></div>
+    <div id="lgNote" class="mu">Входите впервые — придумайте PIN из 4 цифр и запомните его: с ним вы продолжите дома или на другом компьютере.</div><div id="lgErr" class="bad"></div>
     <div class="btns"><button class="nextBtn" id="lgGo">Войти</button><button class="btn sm" id="lgT">Преподаватель</button></div>
     <div id="lgTeach" hidden class="lg"><label>Код<input id="lgCode" autocomplete="off"></label><label>Вариант<input id="lgSeed" value="0"></label><button class="btn" id="lgDemo">Демо</button></div></div>`;
   const $ = id => m.querySelector('#' + id);
-  let roster = [];
-  const note = () => {
-    const s = roster.find(x => String(x.id) === $('lgS').value);
-    $('lgNote').textContent = !s
-      ? ''
-      : s.pin
-        ? 'Введите свой PIN.'
-        : 'Вы входите впервые: придумайте PIN из 4 цифр и запомните его — с ним вы продолжите дома или на другом компьютере.';
-  };
-  const loadRoster = async () => {
-    $('lgS').innerHTML = '<option>загрузка…</option>';
-    try {
-      roster = (await api('/api/roster?grp=' + encodeURIComponent($('lgG').value))).students;
-    } catch (e) {
-      roster = [];
-    }
-    $('lgS').innerHTML =
-      '<option value="">— выберите себя —</option>' + roster.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
-    note();
-  };
-  $('lgG').onchange = () => {
-    ls('air-grp', $('lgG').value);
-    loadRoster();
-  };
-  $('lgS').onchange = note;
+  $('lgG').onchange = () => ls('air-grp', $('lgG').value);
   const go = async () => {
     $('lgErr').textContent = '';
-    if (!$('lgS').value) {
-      $('lgErr').textContent = 'Выберите себя в списке.';
+    if (!$('lgS').value.trim()) {
+      $('lgErr').textContent = 'Впишите свою фамилию.';
+      $('lgS').focus();
       return;
     }
     if (!/^\d{4}$/.test($('lgP').value)) {
@@ -100,10 +77,11 @@ export async function loginScreen(m, {head, onGo, legacy}) {
       return;
     }
     try {
-      const r = await api('/api/login', {id: +$('lgS').value, pin: $('lgP').value, dev: clientId()});
+      const r = await api('/api/login', {grp: $('lgG').value, name: $('lgS').value, pin: $('lgP').value, dev: clientId()});
       const s = {token: r.token, sid: r.sid, fio: r.fio, grp: r.grp, seed: r.seed};
       session.set(s);
       ls('air-grp', r.grp);
+      ls('air-name', $('lgS').value.trim());
       m.hidden = true;
       onGo(s);
     } catch (e) {
@@ -125,7 +103,6 @@ export async function loginScreen(m, {head, onGo, legacy}) {
     m.hidden = true;
     onGo({seed: parseInt($('lgSeed').value, 10) || 0, fio: 'Преподаватель', grp: '', demo: true});
   };
-  loadRoster();
 }
 
 // объединение прогресса с двух устройств (как на сервере): пройденное не теряется
