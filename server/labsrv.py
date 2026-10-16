@@ -2,7 +2,7 @@
 """Сервер событий лабораторных ОПЦ.07.
 
 Студентские страницы шлют события (запуск команды, ошибка, уровень пройден, ушёл со вкладки…),
-хранят прогресс (можно начать на паре и закончить дома), студенты входят по группе и PIN.
+хранят прогресс (можно начать на паре и закончить дома), студенты входят по группе, фамилии и PIN (списков групп наружу сервер не отдаёт).
 Преподавательская панель /teacher/ получает сводку и ведёт списки групп.
 Только стандартная библиотека Python, база — SQLite.
 
@@ -78,6 +78,11 @@ def clip(v, n):
 def short(name):
     w = str(name).split()
     return w[0] + (' ' + w[1][0] + '.' if len(w) > 1 else '')
+
+
+def words(name):
+    """«Иванов  И.» → ['иванов', 'и']: для сравнения введённой фамилии со списком группы."""
+    return re.sub(r'[^\w\- ]', ' ', str(name).lower().replace('ё', 'е')).split()
 
 
 # ═══════════════════════════════════════════════════════════ прогресс ══
@@ -262,21 +267,43 @@ class Store:
         with self.lock:
             return [r[0] for r in self.con.execute('SELECT name FROM grp ORDER BY ord')]
 
-    def roster(self, grp):
-        with self.lock:
-            rows = self.con.execute('SELECT id, name, pin IS NOT NULL FROM student WHERE grp = ? AND idx > 0 ORDER BY name', (grp,)).fetchall()
-        return [{'id': r[0], 'name': short(r[1]), 'pin': bool(r[2])} for r in rows]
-
     def _recent_fails(self, key, now):
         ts = [t for t in self.fails.get(key, []) if now - t < FAIL_WINDOW_MS]
         self.fails[key] = ts
         return len(ts)
 
+    def _limited(self, dev, ip, now):
+        return (dev and self._recent_fails('d:' + dev, now) >= FAILS_PER_DEVICE) or (ip and self._recent_fails('i:' + ip, now) >= FAILS_PER_IP)
+
+    def _fail(self, dev, ip, now):
+        for k in (['d:' + dev] if dev else []) + (['i:' + ip] if ip else []):
+            self.fails.setdefault(k, []).append(now)
+
+    def find(self, grp, name, dev='', ip=''):
+        """Студент группы по введённой фамилии (можно с именем или инициалом) → (номер, None) или (None, (код, тело)).
+        Списков групп наружу сервер не отдаёт, поэтому промахи считаются как неверные PIN — перебирать фамилии долго."""
+        want, now = words(name), now_ms()
+        with self.lock:
+            if self._limited(dev, ip, now):
+                return None, (429, {'err': 'С этого компьютера слишком много неудачных попыток входа. Подождите 10 минут или подойдите к преподавателю.'})
+            if not want:
+                return None, (400, {'err': 'Впишите свою фамилию'})
+            rows = self.con.execute('SELECT id, name FROM student WHERE grp = ? AND idx > 0', (grp,)).fetchall()
+            hit = [sid for sid, n in rows
+                   if len(words(n)) >= len(want) and words(n)[0] == want[0] and all(a.startswith(b) for a, b in zip(words(n)[1:], want[1:]))]
+            if not hit:
+                self._fail(dev, ip, now)
+        if not hit:
+            return None, (404, {'err': 'В этой группе нет такой фамилии. Проверьте группу и написание, например: Иванов.'})
+        if len(hit) > 1:
+            return None, (409, {'err': 'В группе несколько студентов с такой фамилией — впишите ещё и имя, например: Иванов Пётр.'})
+        return hit[0], None
+
     def login(self, sid, pin, dev='', ip=''):
         """→ (код ответа, тело). dev — номер устройства (браузера), ip — адрес."""
         now = now_ms()
         with self.lock:
-            if (dev and self._recent_fails('d:' + dev, now) >= FAILS_PER_DEVICE) or (ip and self._recent_fails('i:' + ip, now) >= FAILS_PER_IP):
+            if self._limited(dev, ip, now):
                 return 429, {'err': 'С этого компьютера слишком много неверных PIN. Подождите 10 минут или подойдите к преподавателю.'}
             r = self.con.execute('SELECT s.id, s.grp, s.name, s.idx, s.pin, s.fails, s.lock_until, g.ord FROM student s JOIN grp g ON g.name = s.grp WHERE s.id = ?', (sid,)).fetchone()
             if not r or not r[3]:
@@ -294,8 +321,7 @@ class Store:
                 self.claims[dev] = (now, sid)
                 self.con.execute('UPDATE student SET pin = ?, fails = 0, pin_dev = ? WHERE id = ?', (self.pin_hash(sid, pin), dev or None, sid))
             elif not hmac.compare_digest(ph, self.pin_hash(sid, pin)):
-                for k in (['d:' + dev] if dev else []) + (['i:' + ip] if ip else []):
-                    self.fails.setdefault(k, []).append(now)
+                self._fail(dev, ip, now)
                 fails = (fails or 0) + 1
                 locked = fails >= PIN_TRIES
                 self.con.execute('UPDATE student SET fails = ?, lock_until = ? WHERE id = ?', (0 if locked else fails, now + PIN_LOCK_MS if locked else 0, sid))
@@ -542,9 +568,6 @@ class Handler(BaseHTTPRequestHandler):
     def get_groups(self, q):
         self.send(200, {'groups': self.store.groups()})
 
-    def get_roster(self, q):
-        self.send(200, {'students': self.store.roster(q.get('grp', ''))})
-
     def get_progress(self, q):
         sid = self.sid(q)
         if not sid:
@@ -626,11 +649,12 @@ class Handler(BaseHTTPRequestHandler):
         pin = str(e.get('pin') or '')
         if not re.fullmatch(r'\d{4}', pin):
             return self.send(400, {'err': 'PIN — ровно 4 цифры'})
-        try:
-            sid = int(e.get('id') or 0)
-        except (TypeError, ValueError):
-            sid = 0
-        self.send(*self.store.login(sid, pin, clip(e.get('dev'), 40), self.ip()))
+        dev = clip(e.get('dev'), 40)
+        # входят только по группе и фамилии: по номеру нельзя — номера идут подряд, и чужой ещё не занятый аккаунт нашёлся бы перебором
+        sid, err = self.store.find(clip(e.get('grp'), 20), clip(e.get('name'), 60), dev, self.ip())
+        if err:
+            return self.send(*err)
+        self.send(*self.store.login(sid, pin, dev, self.ip()))
 
     def post_progress(self, e):
         sid = self.sid(e)
@@ -711,7 +735,6 @@ class Handler(BaseHTTPRequestHandler):
 GET_ROUTES = {
     '/api/ping': (Handler.ping, False),
     '/api/groups': (Handler.get_groups, False),
-    '/api/roster': (Handler.get_roster, False),
     '/api/progress': (Handler.get_progress, False),
     '/api/admin/groups': (Handler.admin_groups, True),
     '/api/say': (Handler.get_says, False),

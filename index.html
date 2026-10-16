@@ -43,6 +43,7 @@
   .checkin label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: #6b6e75 }
   .checkin select, .checkin input { font: 600 15px var(--font); padding: 6px 8px; border: 2.5px solid var(--ink); border-radius: 6px; background: #fff; min-width: 150px; color: var(--ink) }
   .checkin input { width: 110px; min-width: 0; font-family: var(--mono) }
+  .checkin #lgS { width: 200px; font-family: var(--font) }
   .checkin button { background: var(--sun); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); border-radius: 6px; font: 800 15px var(--font); padding: 6px 16px; cursor: pointer }
   .checkin .note { width: 100%; font-size: 13px; color: #4a4d55; min-height: 1em } .checkin .err { color: var(--red); font-weight: 700 }
   .who { text-align: right; font-size: 14px; min-width: 190px }
@@ -138,7 +139,7 @@
   <section class="checkin panel" id="checkin" hidden aria-label="Регистрация">
     <h2><span class="tag">Регистрация на рейс</span>Войдите один раз — дальше лабы откроются сразу</h2>
     <label>Группа<select id="lgG"></select></label>
-    <label>Студент<select id="lgS"><option value="">…</option></select></label>
+    <label>Фамилия<input id="lgS" autocomplete="family-name" placeholder="например: Иванов"></label>
     <label>PIN<input id="lgP" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="4 цифры"></label>
     <button id="lgGo">Войти</button>
     <div class="note" id="lgNote"></div>
@@ -264,35 +265,26 @@ async function checkin() {
   $('checkin').hidden = false;
   const lastG = localStorage.getItem('air-grp');
   $('lgG').innerHTML = groups.map(g => `<option ${g === lastG ? 'selected' : ''}>${esc(g)}</option>`).join('');
-  let roster = [];
+  $('lgS').value = localStorage.getItem('air-name') || '';
   const note = (t, err) => { $('lgNote').textContent = t; $('lgNote').className = 'note' + (err ? ' err' : ''); };
-  const hint = () => {
-    const s = roster.find(x => String(x.id) === $('lgS').value);
-    note(!s ? '' : s.pin ? 'Введите свой PIN.' : 'Вы входите впервые: придумайте PIN из 4 цифр и запомните его.');
-  };
-  const load = async () => {
-    $('lgS').innerHTML = '<option value="">загрузка…</option>';
-    try { roster = (await api('/api/roster?grp=' + encodeURIComponent($('lgG').value))).students || []; } catch (e) { roster = []; }
-    $('lgS').innerHTML = '<option value="">— выберите себя —</option>' + roster.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
-    hint();
-  };
-  $('lgG').onchange = () => { localStorage.setItem('air-grp', $('lgG').value); load(); };
-  $('lgS').onchange = hint;
+  const hint = () => note('Входите впервые — придумайте PIN из 4 цифр и запомните его.');
+  $('lgG').onchange = () => localStorage.setItem('air-grp', $('lgG').value);
   const go = async () => {
-    if (!$('lgS').value) return note('Выберите себя в списке.', true);
+    if (!$('lgS').value.trim()) { $('lgS').focus(); return note('Впишите свою фамилию.', true); }
     if (!/^\d{4}$/.test($('lgP').value)) { $('lgP').focus(); return note('PIN — ровно 4 цифры.', true); }
     try {
-      const r = await api('/api/login', {id: +$('lgS').value, pin: $('lgP').value, dev: clientId()});
+      const r = await api('/api/login', {grp: $('lgG').value, name: $('lgS').value, pin: $('lgP').value, dev: clientId()});
       sess = {token: r.token, sid: r.sid, fio: r.fio, grp: r.grp, seed: r.seed};
       localStorage.setItem('air-session', JSON.stringify(sess));
       localStorage.setItem('air-grp', r.grp);
+      localStorage.setItem('air-name', $('lgS').value.trim());
       $('checkin').hidden = true;
       showWho(); render(); pullProgress();
     } catch (e) { note(e.message, true); }
   };
   $('lgGo').onclick = go;
-  $('lgP').onkeydown = e => { if (e.key === 'Enter') go(); };
-  load();
+  $('lgS').onkeydown = $('lgP').onkeydown = e => { if (e.key === 'Enter') go(); };
+  hint();
 }
 checkin();
 

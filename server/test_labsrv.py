@@ -37,10 +37,11 @@ class ServerTest(unittest.TestCase):
 
     def group(self, names=('Иванов Иван', 'Петрова Анна')):
         self.assertEqual(self.call('/api/admin/group', {'key': KEY, 'name': 'ИИ-25', 'names': list(names)})[0], 200)
-        return {s['name']: s['id'] for s in self.call('/api/roster?grp=' + quote('ИИ-25'))[1]['students']}
+        g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
+        return {labsrv.short(s['name']): s['id'] for s in g['students']}
 
-    def login(self, sid, pin='1234'):
-        return self.call('/api/login', {'id': sid, 'pin': pin})
+    def login(self, name, pin='1234', dev=''):
+        return self.call('/api/login', {'grp': 'ИИ-25', 'name': name, 'pin': pin, 'dev': dev})
 
     def test_ping(self):
         self.assertEqual(self.call('/api/ping'), (200, {'ok': True, 'auth': True}))
@@ -54,60 +55,82 @@ class ServerTest(unittest.TestCase):
 
     def test_login_pin_and_seed(self):
         ids = self.group()
-        st, r = self.login(ids['Иванов И.'])
+        st, r = self.login('Иванов')
         self.assertEqual(st, 200)
         self.assertTrue(r['first'])
+        self.assertEqual(r['sid'], ids['Иванов И.'])
         self.assertEqual(r['seed'], 101)                       # группа 1, строка 1
-        self.assertEqual(self.login(ids['Иванов И.'], '0000')[0], 403)
-        self.assertEqual(self.login(ids['Иванов И.'])[1]['token'], r['token'])
-        self.assertEqual(self.call('/api/login', {'id': 'abc', 'pin': '1234'})[0], 404)
-        self.assertEqual(self.call('/api/login', {'id': 1, 'pin': '12'})[0], 400)
+        self.assertEqual(self.login('Иванов', '0000')[0], 403)
+        self.assertEqual(self.login(' иванов  и. ')[1]['token'], r['token'])   # регистр, пробелы, инициал
+        self.assertEqual(self.login('Сидоров')[0], 404)
+        self.assertEqual(self.login('Иванов', '12')[0], 400)
+        self.assertEqual(self.login('')[0], 400)
+
+    def test_no_public_roster(self):
+        self.group()
+        self.assertEqual(self.call('/api/roster?grp=' + quote('ИИ-25'))[0], 404)
+        self.assertEqual(self.call('/api/login', {'grp': 'ИИ-25', 'id': 1, 'pin': '1234'})[0], 400)   # по номеру не входят
+        self.assertNotIn('Иванов', json.dumps(self.call('/api/groups')[1], ensure_ascii=False))
+
+    def test_namesakes_need_first_name(self):
+        self.group(['Иванов Иван', 'Иванов Пётр', 'Ёлкина Анна'])
+        self.assertEqual(self.login('Иванов')[0], 409)
+        self.assertEqual(self.login('Иванов П')[0], 200)
+        self.assertEqual(self.login('Иванов Иван')[1]['fio'], 'Иванов Иван')
+        self.assertEqual(self.login('елкина')[0], 200)          # ё = е
+
+    def test_guessing_names_limited(self):
+        self.group()
+        for i in range(labsrv.FAILS_PER_DEVICE):
+            self.assertEqual(self.login(f'Нетакой{i}', dev='bad')[0], 404)
+        self.assertEqual(self.login('Иванов', dev='bad')[0], 429)
+        self.assertEqual(self.login('Иванов', dev='good')[0], 200)
 
     def test_one_device_cannot_claim_many_accounts(self):
-        ids = self.group(['Иванов Иван', 'Петрова Анна', 'Сидоров Пётр'])
-        claim = lambda sid, dev: self.call('/api/login', {'id': sid, 'pin': '1111', 'dev': dev})
-        self.assertEqual(claim(ids['Иванов И.'], 'pc1')[0], 200)
-        self.assertEqual(claim(ids['Иванов И.'], 'pc1')[0], 200)                 # свой аккаунт — сколько угодно
-        st, r = claim(ids['Петрова А.'], 'pc1')
+        self.group(['Иванов Иван', 'Петрова Анна', 'Сидоров Пётр'])
+        claim = lambda name, dev: self.login(name, '1111', dev)
+        self.assertEqual(claim('Иванов', 'pc1')[0], 200)
+        self.assertEqual(claim('Иванов', 'pc1')[0], 200)                         # свой аккаунт — сколько угодно
+        st, r = claim('Петрова', 'pc1')
         self.assertEqual(st, 403)
         self.assertIn('Иванов И.', r['err'])
-        self.assertEqual(claim(ids['Петрова А.'], 'pc2')[0], 200)               # с другого компьютера — можно
+        self.assertEqual(claim('Петрова', 'pc2')[0], 200)               # с другого компьютера — можно
         g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
         self.assertEqual({s['name']: s['sameDev'] for s in g['students']}['Иванов Иван'], [])
 
     def test_shared_device_is_flagged(self):
-        ids = self.group(['Иванов Иван', 'Петрова Анна'])
+        self.group(['Иванов Иван', 'Петрова Анна'])
         srv = self.srv.RequestHandlerClass.store
-        self.call('/api/login', {'id': ids['Иванов И.'], 'pin': '1111', 'dev': 'pc9'})
+        self.login('Иванов', '1111', 'pc9')
         srv.claims.clear()                                                       # прошло полчаса
-        self.call('/api/login', {'id': ids['Петрова А.'], 'pin': '2222', 'dev': 'pc9'})
+        self.login('Петрова', '2222', 'pc9')
         g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
         self.assertEqual({s['name']: s['sameDev'] for s in g['students']}['Иванов Иван'], ['Петрова Анна'])
 
     def test_wrong_pins_limited_per_device(self):
         ids = self.group(['Иванов Иван', 'Петрова Анна', 'Сидоров Пётр'])
         for name in ids:
-            self.call('/api/login', {'id': ids[name], 'pin': '1111', 'dev': 'own-' + name})
+            self.login(name, '1111', 'own-' + name)
         codes = []
         for i in range(labsrv.FAILS_PER_DEVICE + 1):
-            sid = list(ids.values())[i % 3]                                     # перебор по разным аккаунтам
-            codes.append(self.call('/api/login', {'id': sid, 'pin': '9999', 'dev': 'bad'})[0])
+            name = list(ids)[i % 3]                                             # перебор по разным аккаунтам
+            codes.append(self.login(name, '9999', 'bad')[0])
         self.assertEqual(codes[-1], 429)
-        self.assertEqual(self.call('/api/login', {'id': ids['Иванов И.'], 'pin': '1111', 'dev': 'good'})[0], 200)
+        self.assertEqual(self.login('Иванов', '1111', 'good')[0], 200)
 
     def test_pin_lockout(self):
         sid = self.group()['Петрова А.']
-        self.login(sid)
+        self.login('Петрова')
         for _ in range(labsrv.PIN_TRIES):
-            st, r = self.login(sid, '9999')
+            st, r = self.login('Петрова', '9999')
         self.assertIn('закрыт', r['err'])
-        self.assertEqual(self.login(sid)[0], 429)
+        self.assertEqual(self.login('Петрова')[0], 429)
         self.call('/api/admin/resetpin', {'key': KEY, 'id': sid})
-        self.assertEqual(self.login(sid, '5555')[0], 200)
+        self.assertEqual(self.login('Петрова', '5555')[0], 200)
 
     def test_progress_merge_and_token(self):
         sid = self.group()['Иванов И.']
-        tok = self.login(sid)[1]['token']
+        tok = self.login('Иванов')[1]['token']
         self.assertEqual(self.call('/api/progress', {'token': 'bad', 'lab': 'lr13', 'data': {}})[0], 403)
         self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'a': {'done': True}}}})
         self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'b': {'runs': 1}}}})
@@ -118,7 +141,7 @@ class ServerTest(unittest.TestCase):
 
     def test_events_identity_comes_from_token(self):
         sid = self.group()['Иванов И.']
-        tok = self.login(sid)[1]['token']
+        tok = self.login('Иванов')[1]['token']
         ev = {'type': 'run', 'client': 'fake', 'lab': 'lr13', 'fio': 'Кто-то другой', 'grp': 'X', 'seed': 5, 'data': {'lv': 1, 'ok': False, 'out': 'ERROR'}}
         self.assertEqual(self.call('/api/ev', ev)[0], 403)            # списки есть — без входа нельзя
         self.assertEqual(self.call('/api/ev', {**ev, 'token': tok})[0], 200)
@@ -136,7 +159,7 @@ class ServerTest(unittest.TestCase):
 
     def test_group_edit_keeps_progress(self):
         ids = self.group()
-        tok = self.login(ids['Петрова А.'])[1]['token']
+        tok = self.login('Петрова А.')[1]['token']
         self.call('/api/progress', {'token': tok, 'lab': 'lr14', 'data': {'lv': {'a': {'done': True}}}})
         self.group(['Петрова Анна', 'Сидоров Пётр'])                 # Иванов убран, Петрова — первая
         g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
@@ -155,7 +178,7 @@ class ServerTest(unittest.TestCase):
 
     def test_robot_announcement_reaches_group(self):
         ids = self.group()
-        tok = self.login(ids['Иванов И.'])[1]['token']
+        tok = self.login('Иванов И.')[1]['token']
         h = {'X-Labs-Token': tok}
         last = self.call('/api/say?since=-1', headers=h)[1]['last']
         self.assertEqual(self.call('/api/admin/say', {'key': KEY, 'text': ''})[0], 400)
@@ -172,7 +195,7 @@ class ServerTest(unittest.TestCase):
 
     def test_report_sent_and_viewed(self):
         ids = self.group()
-        tok = self.login(ids['Иванов И.'])[1]['token']
+        tok = self.login('Иванов И.')[1]['token']
         A = {'X-Labs-Key': KEY}
         body = {'lab': 'lr13', 'html': '<!doctype html><p>Протокол</p>', 'pts': 7.5, 'done': 11, 'fio': 'Подделка'}
         self.assertEqual(self.call('/api/report', body)[0], 403)                      # без входа — нельзя
