@@ -24,7 +24,6 @@ const head = more => `<span class="tag">ЛР-16</span><h2>Соединение �
     <p class="mu">10 уровней: связи базы, две таблицы, три таблицы, строки без пары. Перед каждым запросом — вопрос, после — число строк. ${more}</p>`;
 initShell({
   lab: 'lr16',
-  gated: true,
   storeKey: 'air3d-lr16-',
   world: W,
   makeData,

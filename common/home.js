@@ -152,13 +152,11 @@
     lr15: {
       lab: 'lr15',
       store: 'air3d-lr15-',
-      gated: true,
       levels: ['pk', 'fk', 'ident', 'cols', 'eq', 'range', 'inlist', 'like', 'order2', 'paren', 'null', 'distinct', 'top', 'final'],
     },
     lr16: {
       lab: 'lr16',
       store: 'air3d-lr16-',
-      gated: true,
       levels: ['links', 'owner', 'dest', 'city', 'disc', 'cross', 'three', 'empty', 'nobag', 'final'],
     },
     lr17: {lab: 'lr17', store: 'pizza-lr17-', gated: true, levels: lv('s', 13)},

@@ -39,7 +39,6 @@ const head = more => `<span class="tag">ЛР-15</span><h2>Выборка дан�
     <p class="mu">14 уровней: готовность базы, шесть запросов, условия посложнее и ответ заказчику. Перед каждым запросом — вопрос, после — число строк. ${more}</p>`;
 initShell({
   lab: 'lr15',
-  gated: true,
   storeKey: 'air3d-lr15-',
   world: W,
   makeData,

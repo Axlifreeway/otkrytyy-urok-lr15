@@ -256,18 +256,18 @@ class ServerTest(unittest.TestCase):
         ids = self.group()
         tok = self.login('Иванов')[1]['token']
         h = {'X-Labs-Token': tok}
-        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': False, 'lr16': False, 'lr17': False, 'lr18': False})
-        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr15'}, h)[0], 403)
-        self.assertEqual(self.call('/api/progress', {'lab': 'lr15', 'data': {'lv': {}}}, h)[0], 403)
-        self.assertEqual(self.call('/api/report', {'lab': 'lr16', 'html': '<p>x</p>'}, h)[0], 403)
-        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr14'}, h)[0], 200)   # открытые — как раньше
-        self.assertEqual(self.call('/api/admin/labs', {'lab': 'lr15', 'open': True})[0], 403)               # только с ключом
-        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr13', 'open': False})[0], 400)  # 13 и 14 не закрываются
-        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr15', 'open': True})[1]['open']['lr15'], True)
-        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr15'}, h)[0], 200)
-        self.assertEqual(self.call('/api/progress', {'lab': 'lr15', 'data': {'lv': {}}}, h)[0], 200)
-        self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr15', 'open': False})
-        self.assertEqual(self.call('/api/labs')[1]['open']['lr15'], False)
+        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': True, 'lr16': True, 'lr17': False, 'lr18': False})
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr17'}, h)[0], 403)
+        self.assertEqual(self.call('/api/progress', {'lab': 'lr17', 'data': {'lv': {}}}, h)[0], 403)
+        self.assertEqual(self.call('/api/report', {'lab': 'lr18', 'html': '<p>x</p>'}, h)[0], 403)
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr16'}, h)[0], 200)   # аэропорт открыт всегда
+        self.assertEqual(self.call('/api/admin/labs', {'lab': 'lr17', 'open': True})[0], 403)               # только с ключом
+        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr15', 'open': False})[0], 400)  # ЛР-13…16 не закрываются
+        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr17', 'open': True})[1]['open']['lr17'], True)
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr17'}, h)[0], 200)
+        self.assertEqual(self.call('/api/progress', {'lab': 'lr17', 'data': {'lv': {}}}, h)[0], 200)
+        self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr17', 'open': False})
+        self.assertEqual(self.call('/api/labs')[1]['open']['lr17'], False)
 
 
 class RateLimitTest(unittest.TestCase):

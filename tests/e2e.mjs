@@ -364,34 +364,22 @@ async function practiceRun(lab, dir) {
   await page.close();
 }
 
-// ЛР-15 и ЛР-16 закрыты, пока преподаватель не откроет: на главной их нет, лаба показывает «Рейс задержан»
+// ЛР-15 и ЛР-16 открыты без преподавателя: талоны на главной активны, лаба не «задержана»
 async function gate() {
-  const post = (path, body) =>
-    fetch(BASE + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(r => r.json());
   const errors = [];
   for (const lab of ['lr15', 'lr16']) {
     const {page, errors: e} = await open(`/${lab}-3d/index.html`);
-    await page.waitForSelector('.closed', {timeout: 60000}).catch(() => fails.push(`gate: ${lab} открылась без разрешения`));
+    await page.waitForSelector('#modal:not([hidden]) .dlg', {timeout: 60000});
+    if (await page.$('.closed')) fails.push(`gate: ${lab} «задержана», хотя открыта по умолчанию`);
     await page.close();
     errors.push(...e);
   }
   const home = await open('/airport/');
   await sleep(1500);
-  const shut = () => home.page.evaluate(() => [...document.querySelectorAll('.pass.shut')].map(x => x.getAttribute('href')));
-  const before = await shut();
-  if (before.join() !== '../lr15-3d/,../lr16-3d/') fails.push('gate: у закрытых лаб нет талона «задержан»: ' + before);
-  await post('/api/admin/labs', {key: KEY, lab: 'lr15', open: true});
-  await home.page.reload();
-  await sleep(1500);
-  const after = await shut();
-  if (after.join() !== '../lr16-3d/') fails.push('gate: открытая ЛР-15 всё ещё «задержана» на главной');
-  const {page} = await open('/lr15-3d/index.html');
-  await page.waitForSelector('#modal:not([hidden]) .dlg', {timeout: 60000});
-  if (await page.$('.closed')) fails.push('gate: открытая ЛР-15 всё ещё закрыта');
-  await page.close();
+  const shut = await home.page.evaluate(() => [...document.querySelectorAll('.pass.shut')].map(x => x.getAttribute('href')));
+  if (shut.length) fails.push('gate: на главной аэропорта есть «задержанные» талоны: ' + shut);
   await home.page.close();
-  await post('/api/admin/labs', {key: KEY, lab: 'lr15', open: false});
-  out.gate = {before, after, errors: errors.concat(home.errors)};
+  out.gate = {shut, errors: errors.concat(home.errors)};
   errors.concat(home.errors).forEach(e => fails.push('gate: ' + e));
 }
 
