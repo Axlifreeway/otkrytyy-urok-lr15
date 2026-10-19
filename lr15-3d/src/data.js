@@ -1,6 +1,5 @@
 // ЛР-15 · «Посадка по запросу» — выборка данных: SELECT, WHERE, ORDER BY.
-// Тот же салон, что в ЛР-14, но база «разошлась с моделью»: у багажа нет первичного и внешнего ключа,
-// номер пассажира вводят руками. Сначала база доводится до состояния, когда ответам можно верить, потом — запросы.
+// Тот же рейс, что в ЛР-14: база готова, студент только задаёт вопросы.
 import {rng} from '../../common/rng.js';
 export {rng};
 export const ROWS = 8,
@@ -102,27 +101,19 @@ export function makeData(seed) {
     .forEach((b, i) => {
       b.weight_kg = 32 - i * 2 - (i > 2 ? 1 : 0);
     });
-  // «чужие» чемоданы: владелец снят с рейса вчера, а багаж остался — номера такого пассажира нет
-  const used = new Set(P.map(p => p.id));
-  let gone = 2;
-  while (used.has(gone)) gone++;
-  const orphans = [0, 1].map(() => ({tag: tag(), passenger_id: gone, shelf: r.int(1, 4), weight_kg: r.int(6, 20)}));
-  B.push(...orphans);
   B.splice(0, B.length, ...r.take(B, B.length));
-  // новый пассажир для проверки автогенерации ключа
-  const occ = new Set(P.map(p => p.seat));
-  const freeSeat = r.pick(seats.filter(s => !occ.has(s)));
-  const maxId = Math.max(...P.map(p => p.id));
-  const fem = r() < 0.5;
-  const newP = {
-    id: maxId + 1,
-    flight_no: FLIGHT,
-    seat: freeSeat,
-    full_name: `${r.pick(SURN)}${fem ? 'а' : ''} ${INI[r.int(0, 15)]}. ${INI[r.int(0, 15)]}.`,
-    birth_year: r.int(1970, 2000),
-    city: r.pick(['Сургут', 'Омск', 'Ишим']),
-  };
-  const all = [...P, {...newP, loyalty: null, meal: null, kid: false}];
+  const all = P;
+  // порог веса: тяжелее него — от 3 до 7 чемоданов
+  const ws = B.map(b => b.weight_kg).sort((a, b) => b - a);
+  let heavy = 20;
+  for (let k = 0; k < 30; k++) {
+    const w = r.int(15, 26),
+      n = cnt(ws, x => x > w);
+    if (n >= 3 && n <= 7) {
+      heavy = w;
+      break;
+    }
+  }
   // город для отбора по равенству: 3–6 пассажиров
   const byCity = c => cnt(all, p => p.city === c);
   const cities = [...new Set(all.map(p => p.city))];
@@ -173,10 +164,9 @@ export function makeData(seed) {
     ['детское', 'ресторан'],
   ]);
   const upto = r.int(3, 5);
-  return {seed, P, B, FLIGHT, gone, orphans, newP, maxId, city, two, y1, y2, letter, paren, meals, upto};
+  return {seed, P, B, FLIGHT, heavy, city, two, y1, y2, letter, paren, meals, upto};
 }
 
-// база разошлась с моделью: у baggage нет ни первичного, ни внешнего ключа; passenger.id вводят руками
 export const SCHEMA = `
 CREATE TABLE flight (
   flight_no varchar(7)  CONSTRAINT pk_flight PRIMARY KEY,
@@ -198,8 +188,8 @@ CREATE TABLE passenger (
   active     boolean     NOT NULL DEFAULT true
 );
 CREATE TABLE baggage (
-  tag          varchar(6) NOT NULL,
-  passenger_id integer    NOT NULL,
+  tag          varchar(6) CONSTRAINT pk_baggage PRIMARY KEY,
+  passenger_id integer    NOT NULL CONSTRAINT fk_baggage_passenger REFERENCES passenger (id) ON DELETE CASCADE,
   shelf        integer    NOT NULL,
   weight_kg    integer    NOT NULL CONSTRAINT ck_baggage_weight CHECK (weight_kg BETWEEN 1 AND 32)
 );`;
@@ -232,71 +222,26 @@ export const COLS = {
   flight: ['flight_no', 'dest'],
 };
 
-const ALL = ['ALTER', 'SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 export function levels(D) {
-  const n = D.newP;
   const rowsLike = Array.from({length: D.upto}, (_, i) => `seat LIKE '${i + 1}%'`).join(' OR ');
   return [
-    // ═══════════════════════════════ часть 1 · готовность базы к запросам
+    // ═══════════════════════════════ часть 1 · первые запросы
     {
-      key: 'pk',
-      title: 'Паспорт багажа',
-      lab: 'ч. 1 · первичный ключ к готовой таблице',
-      text: 'Прежде чем спрашивать базу, проверьте, можно ли ей верить. Откройте «Структуру базы» под заданием: у таблицы baggage нет первичного ключа — две строки с одной биркой база бы приняла. Объявите его командой ALTER TABLE.',
-      goals: ['Первичный ключ baggage по бирке (tag)', 'Имя по правилу: pk_baggage'],
-      check: 'schema',
-      allow: ALL,
-      need: [{t: 'baggage', type: 'p', cols: 'tag', label: 'первичный ключ baggage (tag)'}],
-      ref: ['ALTER TABLE baggage ADD CONSTRAINT pk_baggage PRIMARY KEY (tag)'],
-      cmds: 'Одна команда ALTER TABLE … ADD CONSTRAINT …',
-      hint: 'ALTER TABLE [таблица] ADD CONSTRAINT [имя] PRIMARY KEY ([столбец]);',
-      ok: 'У каждого чемодана теперь своя бирка — повтор база не примет.',
+      key: 'star',
+      title: 'Весь рейс',
+      lab: 'ч. 1 · все строки и все столбцы',
+      text: 'Начнём с самого простого вопроса: кто вообще летит этим рейсом? Попросите у базы всю таблицу passenger — все строки, все столбцы. Робот обойдёт каждого пассажира.',
+      q: 'Кто летит этим рейсом?',
+      goals: ['Таблица passenger', 'Все столбцы — звёздочка *'],
+      ask: 'SELECT * FROM passenger',
+      star: true,
+      hint: 'SELECT * FROM [таблица]; — звёздочка значит «все столбцы».',
+      ok: 'Без WHERE в ответ попадают все строки. Звёздочка — все столбцы.',
     },
-    {
-      key: 'fk',
-      hard: true,
-      title: 'Чемоданы без хозяина',
-      lab: 'сложный · внешний ключ со второй попытки',
-      text: `Связь «чемодан → пассажир» есть в модели, но в базе не объявлена. Объявите внешний ключ baggage.passenger_id → passenger.id (при удалении пассажира его багаж удаляется). СУБД откажет: вчера с рейса сняли пассажира, а его багаж остался. Найдите эти строки запросом и снимите их с борта — потом повторите ту же команду.`,
-      goals: ['Внешний ключ fk_baggage_passenger, ON DELETE CASCADE', 'Строки без пары найдены и удалены', 'Остальной багаж на месте'],
-      check: 'schema',
-      allow: ALL,
-      tables: ['baggage'],
-      need: [{t: 'baggage', type: 'f', cols: 'passenger_id', ref: 'passenger', label: 'внешний ключ baggage.passenger_id → passenger'}],
-      ref: [
-        `DELETE FROM baggage WHERE passenger_id = ${D.gone}`,
-        'ALTER TABLE baggage ADD CONSTRAINT fk_baggage_passenger FOREIGN KEY (passenger_id) REFERENCES passenger (id) ON DELETE CASCADE',
-      ],
-      cmds: 'ALTER TABLE → отказ → SELECT мешающих строк → исправление → ALTER TABLE ещё раз',
-      hint: 'Отказ называет мешающее значение: Key (passenger_id)=(…). Посмотрите эти строки: SELECT tag, passenger_id FROM baggage WHERE passenger_id = …',
-      ok: 'Правило введено после того, как данные ему соответствуют. Чемоданов «в никуда» больше не будет.',
-    },
-    {
-      key: 'ident',
-      hard: true,
-      title: 'Номер выдаёт СУБД',
-      lab: 'сложный · автогенерация ключа',
-      text: `Номер пассажира вводят руками — так и до повторов недалеко. Передайте выдачу номера СУБД (GENERATED ALWAYS AS IDENTITY) и сдвиньте счётчик выше наибольшего номера: иначе первая же вставка упрётся в занятое значение. Проверьте одной вставкой, где id не указан.`,
-      goals: ['passenger.id — GENERATED ALWAYS AS IDENTITY', 'Счётчик — с наибольшего номера + 1', `Новый пассажир — без id в команде`],
-      doc: `<table class="doc"><tr><th>место</th><th>пассажир</th><th>г. р.</th><th>город</th><th>рейс</th></tr><tr><td>${n.seat}</td><td>${n.full_name}</td><td>${n.birth_year}</td><td>${n.city}</td><td>${FLIGHT}</td></tr></table>`,
-      check: 'schema',
-      allow: ALL,
-      tables: ['passenger'],
-      identity: {t: 'passenger', col: 'id'},
-      ref: [
-        'ALTER TABLE passenger ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY',
-        `ALTER TABLE passenger ALTER COLUMN id RESTART WITH ${D.maxId + 1}`,
-        `INSERT INTO passenger (flight_no, seat, full_name, birth_year, city) VALUES (${lit(FLIGHT)}, ${lit(n.seat)}, ${lit(n.full_name)}, ${n.birth_year}, ${lit(n.city)})`,
-      ],
-      cmds: 'Наибольший номер — SELECT … ORDER BY id DESC LIMIT 1; потом ALTER COLUMN … и INSERT без id',
-      hint: 'ALTER TABLE passenger ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY; затем ALTER COLUMN id RESTART WITH [наибольший + 1];',
-      ok: `Номер ${D.maxId + 1} выдала СУБД. Руками ключ больше не вводится.`,
-    },
-    // ═══════════════════════════════ часть 2 · шесть запросов
     {
       key: 'cols',
       title: 'Посадочная ведомость',
-      lab: 'ч. 2 · перечень столбцов',
+      lab: 'ч. 1 · перечень столбцов',
       text: 'Бригадиру нужен список: кто где сидит. Только эти два столбца — без «звёздочки»: в ответе ровно то, о чём спрашивали.',
       q: 'Кто из пассажиров на каком месте?',
       goals: ['Столбцы: full_name, seat', 'Все пассажиры'],
@@ -304,6 +249,7 @@ export function levels(D) {
       hint: 'SELECT [столбец], [столбец] FROM [таблица];',
       ok: 'Ровно два столбца — ровно то, о чём спрашивали.',
     },
+    // ═══════════════════════════════ часть 2 · отбор строк
     {
       key: 'eq',
       title: `Земляки из города ${D.city}`,
@@ -314,6 +260,17 @@ export function levels(D) {
       ask: `SELECT full_name, seat FROM passenger WHERE city = ${lit(D.city)}`,
       hint: "WHERE столбец = 'значение' — текст в одинарных кавычках.",
       ok: 'Робот проверил каждого — в ответ попали только земляки.',
+    },
+    {
+      key: 'cmp',
+      title: 'Тяжёлый багаж',
+      lab: 'ч. 2 · отбор по сравнению',
+      text: `Грузчики просят заранее показать чемоданы тяжелее ${D.heavy} кг — их снимают вдвоём. Бирка и вес.`,
+      q: `Какие чемоданы тяжелее ${D.heavy} кг?`,
+      goals: [`weight_kg больше ${D.heavy}`, 'Столбцы: tag, weight_kg'],
+      ask: `SELECT tag, weight_kg FROM baggage WHERE weight_kg > ${D.heavy}`,
+      hint: 'WHERE [столбец] > [число] — число без кавычек. «Тяжелее» — строго больше.',
+      ok: `Робот взвесил каждый чемодан — в ответе только те, что тяжелее ${D.heavy} кг.`,
     },
     {
       key: 'range',

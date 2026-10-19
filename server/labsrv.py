@@ -30,7 +30,7 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 14, 'lr16': 10, 'lr17': 13, 'lr18': 10}   # число уровней в лабе — для панели преподавателя
+LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10}   # число уровней в лабе — для панели преподавателя
 GATED = ('lr17', 'lr18')                    # лабы, которые открывает преподаватель (по умолчанию закрыты)
 MAX_BODY = 400000
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ

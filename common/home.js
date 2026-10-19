@@ -152,7 +152,7 @@
     lr15: {
       lab: 'lr15',
       store: 'air3d-lr15-',
-      levels: ['pk', 'fk', 'ident', 'cols', 'eq', 'range', 'inlist', 'like', 'order2', 'paren', 'null', 'distinct', 'top', 'final'],
+      levels: ['star', 'cols', 'eq', 'cmp', 'range', 'inlist', 'like', 'order2', 'paren', 'null', 'distinct', 'top', 'final'],
     },
     lr16: {
       lab: 'lr16',
