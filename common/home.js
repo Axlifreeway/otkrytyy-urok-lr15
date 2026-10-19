@@ -95,42 +95,28 @@
     $('checkin').hidden = false;
     const lastG = localStorage.getItem('air-grp');
     $('lgG').innerHTML = groups.map(g => `<option ${g === lastG ? 'selected' : ''}>${esc(g)}</option>`).join('');
-    let roster = [];
+    $('lgS').value = localStorage.getItem('air-name') || '';
     const note = (t, err) => {
       $('lgNote').textContent = t;
       $('lgNote').className = 'note' + (err ? ' err' : '');
     };
-    const hint = () => {
-      const s = roster.find(x => String(x.id) === $('lgS').value);
-      note(!s ? '' : s.pin ? 'Введите свой PIN.' : 'Вы входите впервые: придумайте PIN из 4 цифр и запомните его.');
-    };
-    const load = async () => {
-      $('lgS').innerHTML = '<option value="">загрузка…</option>';
-      try {
-        roster = (await H.api('/api/roster?grp=' + encodeURIComponent($('lgG').value))).students || [];
-      } catch (e) {
-        roster = [];
-      }
-      $('lgS').innerHTML =
-        '<option value="">— выберите себя —</option>' + roster.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
-      hint();
-    };
-    $('lgG').onchange = () => {
-      localStorage.setItem('air-grp', $('lgG').value);
-      load();
-    };
-    $('lgS').onchange = hint;
+    const hint = () => note('Входите впервые — придумайте PIN из 4 цифр и запомните его.');
+    $('lgG').onchange = () => localStorage.setItem('air-grp', $('lgG').value);
     const go = async () => {
-      if (!$('lgS').value) return note('Выберите себя в списке.', true);
+      if (!$('lgS').value.trim()) {
+        $('lgS').focus();
+        return note('Впишите свою фамилию.', true);
+      }
       if (!/^\d{4}$/.test($('lgP').value)) {
         $('lgP').focus();
         return note('PIN — ровно 4 цифры.', true);
       }
       try {
-        const r = await H.api('/api/login', {id: +$('lgS').value, pin: $('lgP').value, dev: H.clientId()});
+        const r = await H.api('/api/login', {grp: $('lgG').value, name: $('lgS').value, pin: $('lgP').value, dev: H.clientId()});
         H.sess = {token: r.token, sid: r.sid, fio: r.fio, grp: r.grp, seed: r.seed};
         localStorage.setItem('air-session', JSON.stringify(H.sess));
         localStorage.setItem('air-grp', r.grp);
+        localStorage.setItem('air-name', $('lgS').value.trim());
         $('checkin').hidden = true;
         onLogin(H.sess);
       } catch (e) {
@@ -138,10 +124,10 @@
       }
     };
     $('lgGo').onclick = go;
-    $('lgP').onkeydown = e => {
+    $('lgS').onkeydown = $('lgP').onkeydown = e => {
       if (e.key === 'Enter') go();
     };
-    load();
+    hint();
   };
   H.clock = el => {
     const tick = () => {

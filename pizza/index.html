@@ -36,6 +36,7 @@
   .checkin label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: #7a6a58 }
   .checkin select, .checkin input { font: 600 15px var(--font); padding: 6px 8px; border: 2.5px solid var(--ink); border-radius: 6px; background: #fff; min-width: 150px; color: var(--ink) }
   .checkin input { width: 110px; min-width: 0; font-family: var(--mono) }
+  .checkin #lgS { width: 200px; font-family: var(--font) }
   .checkin button { background: var(--cheese); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); border-radius: 6px; font: 800 15px var(--font); padding: 6px 16px; cursor: pointer }
   .checkin .note { width: 100%; font-size: 13px; color: #4a4d55; min-height: 1em } .checkin .err { color: var(--tomato); font-weight: 700 }
 
@@ -106,7 +107,7 @@
   <section class="checkin panel" id="checkin" hidden aria-label="Вход">
     <h2><span class="tag">На смену</span>Войдите один раз — дальше лабы откроются сразу</h2>
     <label>Группа<select id="lgG"></select></label>
-    <label>Студент<select id="lgS"><option value="">…</option></select></label>
+    <label>Фамилия<input id="lgS" autocomplete="family-name" placeholder="например: Иванов"></label>
     <label>PIN<input id="lgP" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="4 цифры"></label>
     <button id="lgGo">Войти</button>
     <div class="note" id="lgNote"></div>

@@ -257,10 +257,8 @@ async function serverFlow() {
     fetch(BASE + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(r => r.json());
   await post('/api/admin/group', {key: KEY, name: 'E2E-1', names: ['Тестов Тест', 'Проверкина Анна']});
   const {page, errors} = await open('/lr14-3d/index.html');
-  await page.waitForFunction(() => document.getElementById('lgS') && document.getElementById('lgS').options.length > 1, null, {
-    timeout: 60000,
-  });
-  await page.selectOption('#lgS', {label: 'Тестов Т.'});
+  await page.waitForSelector('#lgS', {timeout: 60000});
+  await page.fill('#lgS', 'Тестов');
   await page.fill('#lgP', '4321');
   await page.click('#lgGo');
   await page.waitForFunction(() => window.LAB && window.LAB.G && window.LAB.G.lv === 0 && !window.LAB.running, null, {timeout: 60000});
