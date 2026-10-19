@@ -46,7 +46,11 @@ for (let i = 0; i < 50; i++) {
   await sleep(100);
 }
 
-const browser = await chromium.launch({args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']});
+// E2E_CHANNEL=chrome — взять установленный Chrome, если браузеры Playwright не скачаны
+const browser = await chromium.launch({
+  channel: process.env.E2E_CHANNEL,
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+});
 const out = {};
 const fails = [];
 
@@ -118,7 +122,7 @@ async function lab3d(lab, dir) {
   for (let i = 0; i < n; i++) {
     const lv = await page.evaluate(i => {
       const l = window.LAB.L[i];
-      return {key: l.key, ref: l.ref, prefill: l.prefill, needCount: l.needCount, check: l.check};
+      return {key: l.key, ref: l.ask ? [l.ask] : l.ref, prefill: l.prefill, needCount: l.needCount, check: l.check};
     }, i);
     await page.evaluate(i => window.LAB.startLevel(i), i);
     await page.waitForFunction(() => !window.LAB.running);
@@ -141,6 +145,7 @@ async function lab3d(lab, dir) {
     const D = await page.evaluate(async lab => {
       const db = await window.__pg,
         q = async s => (await db.query(s)).rows;
+      if (lab === 'lr15' || lab === 'lr16') return {};
       if (lab === 'lr14')
         return {
           FLIGHT: (await q('SELECT flight_no FROM passenger LIMIT 1'))[0].flight_no,
@@ -359,6 +364,25 @@ async function practiceRun(lab, dir) {
   await page.close();
 }
 
+// ЛР-15 и ЛР-16 открыты без преподавателя: талоны на главной активны, лаба не «задержана»
+async function gate() {
+  const errors = [];
+  for (const lab of ['lr15', 'lr16']) {
+    const {page, errors: e} = await open(`/${lab}-3d/index.html`);
+    await page.waitForSelector('#modal:not([hidden]) .dlg', {timeout: 60000});
+    if (await page.$('.closed')) fails.push(`gate: ${lab} «задержана», хотя открыта по умолчанию`);
+    await page.close();
+    errors.push(...e);
+  }
+  const home = await open('/airport/');
+  await sleep(1500);
+  const shut = await home.page.evaluate(() => [...document.querySelectorAll('.pass.shut')].map(x => x.getAttribute('href')));
+  if (shut.length) fails.push('gate: на главной аэропорта есть «задержанные» талоны: ' + shut);
+  await home.page.close();
+  out.gate = {shut, errors: errors.concat(home.errors)};
+  errors.concat(home.errors).forEach(e => fails.push('gate: ' + e));
+}
+
 // телефон (iPhone 13, стоя и боком): страница не шире экрана, панели 3D-лабы не налезают друг на друга
 async function mobile() {
   const {devices} = (() => {
@@ -378,7 +402,7 @@ async function mobile() {
         /* нет */
       }
     }, SEED);
-    for (const path of ['/', '/labs/lr13.html', '/labs/lr14.html', '/labs/lr16.html', '/teacher/?key=' + KEY]) {
+    for (const path of ['/airport/', '/?map', '/pizza/', '/labs/lr13.html', '/labs/lr14.html', '/labs/lr16.html', '/teacher/?key=' + KEY]) {
       const page = await ctx.newPage();
       await page.goto(BASE + path);
       await sleep(2500);
@@ -424,10 +448,44 @@ async function mobile() {
 const jobs = {
   lr13: () => lab3d('lr13', 'lr13-3d'),
   lr14: () => lab3d('lr14', 'lr14-3d'),
-  home: async () => {
+  lr15: () => lab3d('lr15', 'lr15-3d'),
+  lr16: () => lab3d('lr16', 'lr16-3d'),
+  // город: пока ЛР-17/18 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии два заказа
+  city: async () => {
     const {page, errors} = await open('/');
+    await page
+      .waitForURL(/\/airport\/$/, {timeout: 15000})
+      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17/18 закрыты'));
+    await page.goto(BASE + '/?map');
+    await page
+      .waitForFunction(
+        () => document.querySelectorAll('#city .bld').length === 3 && document.querySelectorAll('.world').length === 2,
+        null,
+        {timeout: 15000},
+      )
+      .catch(() => fails.push('city: карта не нарисовалась'));
+    // у ссылок внутри SVG href — не строка: берём атрибут
+    for (const href of await page.evaluate(() =>
+      [...document.querySelectorAll('a[href]')].map(a => new URL(a.getAttribute('href'), location.href).href),
+    ))
+      if (!(await fetch(href)).ok) errors.push(`карта: ссылка ${href} не открывается`);
+    await page.goto(BASE + '/pizza/');
+    await page
+      .waitForFunction(
+        () => document.querySelectorAll('#tickets .ticket').length === 2 && document.querySelectorAll('.receipt').length === 2,
+        null,
+        {timeout: 15000},
+      )
+      .catch(() => fails.push('city: страница пиццерии пустая'));
+    if (SHOTS) await page.screenshot({path: join(SHOTS, 'pizza.png'), fullPage: true});
+    out.city = {errors};
+    errors.forEach(e => fails.push(`city: ${e}`));
+    await page.close();
+  },
+  home: async () => {
+    const {page, errors} = await open('/airport/');
     await page.waitForFunction(
-      () => document.querySelectorAll('#rows .row').length === 4 && document.querySelectorAll('.pass').length === 2,
+      () => document.querySelectorAll('#rows .row').length === 4 && document.querySelectorAll('.pass').length === 4,
     );
     for (const href of await page.evaluate(() => [...document.querySelectorAll('a[href]')].map(a => a.href))) {
       const r = await fetch(href);
@@ -445,6 +503,7 @@ const jobs = {
   mobile,
   'lr13-practice': () => practiceRun('lr13', 'lr13-3d'),
   'lr14-practice': () => practiceRun('lr14', 'lr14-3d'),
+  gate,
   'server-flow': serverFlow,
   teacher: () =>
     plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),

@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -150,6 +151,19 @@ class ServerTest(unittest.TestCase):
         p = people[0]
         self.assertEqual((p['client'], p['fio'], p['grp'], p['seed'], p['errors']), (f's{sid}', 'Иванов Иван', 'ИИ-25', 101, 1))
 
+    def test_delayed_event_keeps_its_time(self):
+        self.group()
+        tok = self.login('Иванов')[1]['token']
+        ev = {'type': 'run', 'client': 'x', 'lab': 'lr13', 'token': tok, 'data': {'lv': 1, 'ok': True}}
+        t0 = int(time.time() * 1000)
+        self.assertEqual(self.call('/api/ev', {**ev, 'age': 25 * 60000})[0], 200)       # пролежало в очереди 25 минут
+        self.assertEqual(self.call('/api/ev', {**ev, 'age': 10 ** 12})[0], 200)         # не дальше полусуток
+        self.assertEqual(self.call('/api/ev', {**ev, 'age': -5000})[0], 200)            # из будущего — не бывает
+        ts = [r[0] for r in self.srv.RequestHandlerClass.store.con.execute("SELECT ts FROM ev ORDER BY id")]
+        self.assertAlmostEqual(ts[0], t0 - 25 * 60000, delta=3000)
+        self.assertAlmostEqual(ts[1], t0 - labsrv.MAX_AGE, delta=3000)
+        self.assertAlmostEqual(ts[2], t0, delta=3000)
+
     def test_events_without_groups_and_rollback(self):
         for typ, data in (('level', {'lv': 2}), ('rollback', {'lv': 2, 'msg': 'не совпало'}), ('done', {'lv': 2, 'key': 'k', 'pts': 1.5})):
             self.assertEqual(self.call('/api/ev', {'type': typ, 'client': 'c1', 'lab': 'lr14', 'fio': 'Без входа', 'data': data})[0], 200)
@@ -169,6 +183,28 @@ class ServerTest(unittest.TestCase):
         self.assertTrue(by['Петрова Анна']['pin'])
         self.call('/api/admin/delgroup', {'key': KEY, 'name': 'ИИ-25'})
         self.assertEqual(self.call('/api/groups')[1], {'groups': []})
+
+    def test_group_rename_keeps_students_and_variants(self):
+        ids = self.group()
+        self.login('Петрова')
+        self.call('/api/admin/group', {'key': KEY, 'name': 'ИИ-26', 'names': ['Х'], 'old': ''})
+        st, r = self.call('/api/admin/group', {'key': KEY, 'name': 'ИИ-26', 'names': ['Петрова Анна'], 'old': 'ИИ-25'})
+        self.assertEqual(st, 409)                                    # такое название уже занято
+        self.call('/api/admin/delgroup', {'key': KEY, 'name': 'ИИ-26'})
+        st, r = self.call('/api/admin/group', {'key': KEY, 'name': 'ИИ-26', 'names': ['Иванов Иван', 'Петрова Анна'], 'old': 'ИИ-25'})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.call('/api/groups')[1], {'groups': ['ИИ-26']})
+        g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
+        by = {s['name']: s for s in g['students']}
+        self.assertEqual((by['Петрова Анна']['id'], by['Петрова Анна']['seed'], by['Петрова Анна']['pin']), (ids['Петрова А.'], 102, True))
+        self.assertEqual(self.call('/api/login', {'grp': 'ИИ-26', 'name': 'Петрова', 'pin': '1234'})[0], 200)
+
+    def test_show_pin(self):
+        ids = self.group()
+        self.login('Петрова', '0427')
+        self.assertEqual(self.call('/api/admin/showpin', {'key': KEY, 'id': ids['Петрова А.']}), (200, {'pin': '0427'}))
+        self.assertEqual(self.call('/api/admin/showpin', {'key': KEY, 'id': ids['Иванов И.']})[0], 404)
+        self.assertEqual(self.call('/api/admin/showpin', {'id': ids['Петрова А.']})[0], 403)
 
     def test_bad_body(self):
         req = urllib.request.Request(self.base + '/api/ev', data=b'[1,2]', headers={'Content-Type': 'application/json'})
@@ -229,6 +265,23 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.call(f'/api/state?since={t0 - 1000}&until={t0 + 1000}', headers=A)[1]['people'][0]['errors'], 0)
         ev = self.call(f'/api/log?client=c1&since={t0 - 1000}&until={t0 + day}', headers=A)[1]['events']
         self.assertEqual([e['type'] for e in ev], ['level', 'run'])
+
+    def test_gated_labs_closed_until_teacher_opens(self):
+        ids = self.group()
+        tok = self.login('Иванов')[1]['token']
+        h = {'X-Labs-Token': tok}
+        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': True, 'lr16': True, 'lr17': False, 'lr18': False})
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr17'}, h)[0], 403)
+        self.assertEqual(self.call('/api/progress', {'lab': 'lr17', 'data': {'lv': {}}}, h)[0], 403)
+        self.assertEqual(self.call('/api/report', {'lab': 'lr18', 'html': '<p>x</p>'}, h)[0], 403)
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr16'}, h)[0], 200)   # аэропорт открыт всегда
+        self.assertEqual(self.call('/api/admin/labs', {'lab': 'lr17', 'open': True})[0], 403)               # только с ключом
+        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr15', 'open': False})[0], 400)  # ЛР-13…16 не закрываются
+        self.assertEqual(self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr17', 'open': True})[1]['open']['lr17'], True)
+        self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr17'}, h)[0], 200)
+        self.assertEqual(self.call('/api/progress', {'lab': 'lr17', 'data': {'lv': {}}}, h)[0], 200)
+        self.call('/api/admin/labs', {'key': KEY, 'lab': 'lr17', 'open': False})
+        self.assertEqual(self.call('/api/labs')[1]['open']['lr17'], False)
 
 
 class RateLimitTest(unittest.TestCase):

@@ -464,8 +464,40 @@ function submitDialog() {
 }
 
 // ═══════════════════════════════════════════════════════════ вход ══
-function startScreen() {
+async function startScreen() {
+  if (cfg.gated && (await labClosed())) return closedScreen();
   loginScreen($('modal'), {head: cfg.head, legacy: legacyScreen, onGo: s => begin(s.seed, !!s.demo, s.fio, s.grp, s)});
+}
+// лабу открывает преподаватель (панель → «Группы и списки»); без сервера (файлом) — открыта
+async function labClosed() {
+  if (!/^https?:$/.test(location.protocol)) return false;
+  try {
+    const r = await fetch('/api/labs');
+    if (!r.ok) return false;
+    return (await r.json()).open[cfg.lab] === false;
+  } catch (e) {
+    return false;
+  }
+}
+function closedScreen() {
+  const m = $('modal');
+  m.hidden = false;
+  m.innerHTML = `<div class="dlg panel start">${cfg.head}
+    <div class="closed"><b>Рейс задержан</b>Эта лабораторная ещё не открыта. Преподаватель откроет её на занятии — тогда обновите страницу.</div>
+    <div class="btns"><a class="btn" href="../">На главную</a><button class="btn sm" id="clT">Преподаватель</button></div>
+    <div id="clTeach" hidden class="lg"><label>Код<input id="clCode" autocomplete="off"></label><label>Вариант<input id="clSeed" value="0"></label><button class="btn" id="clGo">Демо</button></div>
+    <div id="clErr" class="bad"></div></div>`;
+  $('clT').onclick = () => {
+    $('clTeach').hidden = !$('clTeach').hidden;
+  };
+  $('clGo').onclick = () => {
+    if (!isTeacherCode($('clCode').value)) {
+      $('clErr').textContent = 'Код не подошёл.';
+      return;
+    }
+    m.hidden = true;
+    begin(parseInt($('clSeed').value, 10) || 0, true);
+  };
 }
 // без сервера: ФИО, группа и номер в журнале (код преподавателя вместо номера — демо-режим, «код N» — вариант N)
 function legacyScreen() {

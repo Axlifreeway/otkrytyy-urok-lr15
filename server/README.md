@@ -14,7 +14,7 @@
 
 ## 1. С компьютера (PowerShell)
     cd D:\GIT\otkrytyy-urok-lr15
-    scp -r index.html lr13-3d lr14-3d labs teacher common vendor user@адрес:/var/www/labs/
+    scp -r index.html airport pizza lr13-3d lr14-3d lr15-3d lr16-3d labs teacher common vendor user@адрес:/var/www/labs/
 
 Раньше PGlite лежал в `mvp/vendor/pglite/` — после первой заливки `vendor/` старую папку `/var/www/labs/mvp/vendor` можно удалить.
     scp server\labsrv.py server\labsrv.service user@адрес:/tmp/

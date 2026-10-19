@@ -30,11 +30,13 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 12, 'lr14': 12}           # число уровней в лабе — для панели преподавателя
+LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10}   # число уровней в лабе — для панели преподавателя
+GATED = ('lr17', 'lr18')                    # лабы, которые открывает преподаватель (по умолчанию закрыты)
 MAX_BODY = 400000
+MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
 REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
-REPORT_LABS = {'lr13', 'lr14', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
+REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
 PIN_TRIES = 8
 # защита от «захвата» чужих аккаунтов: первый вход задаёт PIN, поэтому с одного устройства
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS report (
   id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, fio TEXT, grp TEXT, seed INTEGER, pts REAL, done INTEGER, html TEXT);
 CREATE INDEX IF NOT EXISTS report_ts ON report(ts);
 CREATE INDEX IF NOT EXISTS report_client ON report(client, lab, ts);
+CREATE TABLE IF NOT EXISTS setting (k TEXT PRIMARY KEY, v TEXT);
 '''
 # столбцы, добавленные позже: (таблица, столбец, тип) — для баз, созданных старой версией
 COLUMNS = [
@@ -376,6 +379,17 @@ class Store:
             return [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4], 'to': r[5]}
                     for r in self.con.execute('SELECT s.id, s.ts, s.grp, s.text, s.mode, st.name FROM say s LEFT JOIN student st ON st.id = s.sid ORDER BY s.id DESC LIMIT 10')]
 
+    # ── какие лабы открыты студентам ──
+    def labs_open(self):
+        with self.lock:
+            on = {k[5:] for (k,) in self.con.execute("SELECT k FROM setting WHERE k LIKE 'open:%' AND v = '1'")}
+        return {lab: lab not in GATED or lab in on for lab in LEVELS}
+
+    def set_lab_open(self, lab, on):
+        with self.lock:
+            self.con.execute('INSERT OR REPLACE INTO setting (k, v) VALUES (?, ?)', ('open:' + lab, '1' if on else '0'))
+            self.con.commit()
+
     # ── отчёты: снимок протокола, который студент отправил преподавателю ──
     def add_report(self, client, lab, fio, grp, seed, pts, done, html):
         with self.lock:
@@ -437,10 +451,20 @@ class Store:
                 out.append({'name': name, 'students': st})
         return out
 
-    def save_group(self, name, names):
-        """Сохранить список. Порядок строк задаёт варианты; PIN и прогресс оставшихся сохраняются."""
+    def save_group(self, name, names, old=''):
+        """Сохранить список. Порядок строк задаёт варианты; PIN и прогресс оставшихся сохраняются.
+        old — прежнее название, если группу переименовали (номер группы и варианты не меняются).
+        Возвращает текст ошибки или None."""
         with self.lock:
             con = self.con
+            if old and old != name:
+                if not con.execute('SELECT 1 FROM grp WHERE name = ?', (old,)).fetchone():
+                    return f'Группы {old} уже нет'
+                if con.execute('SELECT 1 FROM grp WHERE name = ?', (name,)).fetchone():
+                    return f'Группа {name} уже есть — выберите другое название'
+                con.execute('UPDATE grp SET name = ? WHERE name = ?', (name, old))
+                for t in ('student', 'ev', 'say', 'report'):
+                    con.execute(f'UPDATE {t} SET grp = ? WHERE grp = ?', (name, old))
             if not con.execute('SELECT 1 FROM grp WHERE name = ?', (name,)).fetchone():
                 o = (con.execute('SELECT max(ord) FROM grp').fetchone()[0] or 0) + 1
                 con.execute('INSERT INTO grp (name, ord) VALUES (?, ?)', (name, o))
@@ -461,6 +485,15 @@ class Store:
                 else:
                     con.execute('DELETE FROM student WHERE id = ?', (sid,))
             con.commit()
+        return None
+
+    def show_pin(self, sid):
+        """PIN хранится хешем, но цифр всего четыре: перебор 10 000 вариантов — доли секунды."""
+        with self.lock:
+            r = self.con.execute('SELECT pin FROM student WHERE id = ?', (sid,)).fetchone()
+        if not r or not r[0]:
+            return None
+        return next((p for p in (f'{i:04d}' for i in range(10000)) if hmac.compare_digest(r[0], self.pin_hash(sid, p))), None)
 
     def reset_pin(self, sid):
         with self.lock:
@@ -627,7 +660,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, r) if r else self.send(404, {'err': 'not found'})
 
     # POST
+    def closed(self, lab):
+        return lab in GATED and not self.store.labs_open().get(lab)
+
     def ev(self, e):
+        if self.closed(e.get('lab')):
+            return self.send(403, {'err': 'closed'})
         typ = e.get('type')
         if typ not in TYPES or not e.get('client'):
             return self.send(400, {'err': 'type'})
@@ -642,7 +680,10 @@ class Handler(BaseHTTPRequestHandler):
             client = f's{sid}'
         elif self.store.has_groups():           # есть списки групп — события только от вошедших
             return self.send(403, {'err': 'token'})
-        self.store.add_event(now_ms(), client, e.get('lab'), fio, grp, seed, typ, e.get('data'), self.ip())
+        # событие, досланное после обрыва связи, — со своим временем: age — сколько оно ждало в очереди у студента
+        age = e.get('age') if isinstance(e.get('age'), int) and not isinstance(e.get('age'), bool) else 0
+        ts = now_ms() - min(max(age, 0), MAX_AGE)
+        self.store.add_event(ts, client, e.get('lab'), fio, grp, seed, typ, e.get('data'), self.ip())
         self.send(200, {'ok': True})
 
     def login(self, e):
@@ -659,6 +700,8 @@ class Handler(BaseHTTPRequestHandler):
     def post_progress(self, e):
         sid = self.sid(e)
         lab = clip(e.get('lab'), 10)
+        if self.closed(lab):
+            return self.send(403, {'err': 'closed'})
         if not sid or not lab or not isinstance(e.get('data'), dict):
             return self.send(403, {'err': 'token'})
         self.send(200, {'data': self.store.save_progress(sid, lab, e['data'])})
@@ -667,6 +710,8 @@ class Handler(BaseHTTPRequestHandler):
         html, lab = e.get('html'), clip(e.get('lab'), 10)
         if not isinstance(html, str) or not html.strip() or lab not in REPORT_LABS:
             return self.send(400, {'err': 'html'})
+        if self.closed(lab):
+            return self.send(403, {'err': 'Лаба ещё закрыта'})
         if len(html) > MAX_REPORT:
             return self.send(413, {'err': 'Отчёт слишком большой'})
         seed = e.get('seed') if isinstance(e.get('seed'), int) else None
@@ -692,7 +737,9 @@ class Handler(BaseHTTPRequestHandler):
         name = clip(e.get('name'), 20).strip()
         if not name:
             return self.send(400, {'err': 'name'})
-        self.store.save_group(name, [clip(x, 60).strip() for x in (e.get('names') or []) if str(x).strip()])
+        err = self.store.save_group(name, [clip(x, 60).strip() for x in (e.get('names') or []) if str(x).strip()], clip(e.get('old'), 20).strip())
+        if err:
+            return self.send(409, {'err': err})
         self.send(200, {'ok': True})
 
     def admin_say(self, e):
@@ -705,9 +752,25 @@ class Handler(BaseHTTPRequestHandler):
             sid = None
         self.send(200, {'id': self.store.add_say('' if sid else clip(e.get('grp'), 20), text, 'normal', sid)})
 
+    def get_labs(self, q):
+        self.send(200, {'open': self.store.labs_open(), 'gated': list(GATED)})
+
+    def admin_labs(self, e):
+        lab = clip(e.get('lab'), 10)
+        if lab not in GATED:
+            return self.send(400, {'err': 'lab'})
+        self.store.set_lab_open(lab, bool(e.get('open')))
+        self.send(200, {'open': self.store.labs_open()})
+
     def admin_resetpin(self, e):
         self.store.reset_pin(int(e.get('id') or 0))
         self.send(200, {'ok': True})
+
+    def admin_showpin(self, e):
+        pin = self.store.show_pin(int(e.get('id') or 0))
+        if pin is None:
+            return self.send(404, {'err': 'PIN ещё не задан'})
+        self.send(200, {'pin': pin})
 
     def admin_delgroup(self, e):
         self.store.delete_group(clip(e.get('name'), 20))
@@ -742,6 +805,7 @@ GET_ROUTES = {
     '/api/state': (Handler.state, True),
     '/api/log': (Handler.log, True),
     '/api/admin/reports': (Handler.admin_reports, True),
+    '/api/labs': (Handler.get_labs, False),
     '/api/admin/report': (Handler.admin_report, True),
 }
 POST_ROUTES = {
@@ -751,14 +815,21 @@ POST_ROUTES = {
     '/api/report': (Handler.post_report, False),
     '/api/admin/group': (Handler.admin_group, True),
     '/api/admin/resetpin': (Handler.admin_resetpin, True),
+    '/api/admin/showpin': (Handler.admin_showpin, True),
     '/api/admin/say': (Handler.admin_say, True),
     '/api/admin/delgroup': (Handler.admin_delgroup, True),
+    '/api/admin/labs': (Handler.admin_labs, True),
 }
+
+
+class Server(ThreadingHTTPServer):
+    request_queue_size = 128     # по умолчанию 5: группа, разом приславшая события, получала отказ в подключении (у nginx — 502)
+    daemon_threads = True
 
 
 def make_server(port=PORT, db=DB, key=KEY, static=STATIC, host='127.0.0.1'):
     h = type('H', (Handler,), {'store': Store(db, key), 'rate': RateLimit(RATE_PER_SEC), 'static_root': static})
-    return ThreadingHTTPServer((host, port), h)
+    return Server((host, port), h)
 
 
 if __name__ == '__main__':

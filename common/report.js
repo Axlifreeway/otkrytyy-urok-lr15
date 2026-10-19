@@ -48,9 +48,12 @@ body { padding: 20px 28px !important; margin: 0; }
 export async function sendReport({lab, html, pts, done, token, client, fio, grp, seed}) {
   if (!/^https?:$/.test(location.protocol))
     return {ok: false, msg: 'Лаба открыта файлом, а не с сервера — отправить нельзя, распечатайте протокол.'};
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null; // зависший запрос — не ждать вечно
+  const t = ac && setTimeout(() => ac.abort(), 30000);
   try {
     const r = await fetch('/api/report', {
       method: 'POST',
+      signal: ac ? ac.signal : undefined,
       headers: {'Content-Type': 'application/json', ...(token ? {'X-Labs-Token': token} : {})},
       body: JSON.stringify({lab, html, pts, done, client, fio, grp, seed}),
     });
@@ -62,5 +65,7 @@ export async function sendReport({lab, html, pts, done, token, client, fio, grp,
     return {ok: false, msg: 'Не отправлено: ' + (j.err || r.status)};
   } catch (e) {
     return {ok: false, msg: 'Нет связи с сервером — попробуйте ещё раз.'};
+  } finally {
+    clearTimeout(t);
   }
 }

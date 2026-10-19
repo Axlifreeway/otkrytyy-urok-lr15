@@ -8,6 +8,9 @@ import {CSS2DRenderer, CSS2DObject} from 'three/examples/jsm/renderers/CSS2DRend
 import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {CHAR_GLB, COLORMAP} from './robot-asset.js';
 import {esc} from '../util.js';
+import {buildExterior, CABIN} from './airframe.js';
+
+const GROUND_Y = -2.12; // перрон под самолётом на шасси
 
 export {THREE, CSS2DObject};
 export {sleep} from '../util.js';
@@ -258,11 +261,14 @@ export function createEngine(stage, o) {
   ground.receiveShadow = true;
   scene.add(ground);
   // разметка перрона
+  const apron = new THREE.Group();
+  apron.position.y = ground.position.y;
+  scene.add(apron);
   for (let i = -6; i < 14; i++) {
     const d = rbox(1.4, 0.02, 0.14, 0.02, 0xf2c230);
-    at(d, i * 2.4, -1.33, o.apronZ);
+    at(d, i * 2.4, 0.02, o.apronZ);
     d.castShadow = false;
-    scene.add(d);
+    apron.add(d);
   }
 
   const root = new THREE.Group();
@@ -277,54 +283,10 @@ export function createEngine(stage, o) {
       MID = (LEN0 + LEN1) / 2,
       LEN = LEN1 - LEN0;
     Object.assign(geo, {LEN0, LEN1, MID, LEN, DOOR: {x: LEN0 + 2.3, z: 2.75}});
-    const hull = rbox(LEN + 0.5, 1.3, 6.1, 0.45, 0xfbf8f2);
-    at(hull, MID, -0.66, 0);
-    root.add(hull);
-    [-1, 1].forEach(s => {
-      const st = rbox(LEN + 0.52, 0.16, 0.06, 0.03, 0xffc21a);
-      at(st, MID, -0.45, s * 3.04);
-      root.add(st);
-      const [w0, w1, h, w2] = p.wing;
-      const sh = new THREE.Shape();
-      sh.moveTo(0, 0);
-      sh.lineTo(w0, 0);
-      sh.lineTo(w1, h);
-      sh.lineTo(w2, h);
-      sh.lineTo(0, 0);
-      const wing = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(sh, {depth: 0.12, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2}),
-        mat(0xeef0f2),
-      );
-      wing.castShadow = true;
-      wing.receiveShadow = true;
-      wing.rotation.x = (s * Math.PI) / 2;
-      wing.position.set(seatX(p.wingRow), -0.9, s * 2.95);
-      root.add(wing);
-      const eng = rbox(1.5, 0.6, 0.6, 0.28, 0xd8dde1);
-      at(eng, seatX(p.engRow), -1.1, s * p.engZ);
-      root.add(eng);
-      const tail = new THREE.Shape();
-      tail.moveTo(0, 0);
-      tail.lineTo(1.4, 0);
-      tail.lineTo(2.1, 2.0);
-      tail.lineTo(1.5, 2.0);
-      tail.lineTo(0, 0);
-      const tg = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(tail, {depth: 0.1, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2}),
-        mat(0xeef0f2),
-      );
-      tg.castShadow = true;
-      tg.rotation.x = (s * Math.PI) / 2;
-      tg.position.set(LEN1 - 1.5, -0.7, s * 2.95);
-      root.add(tg);
-    });
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(3.05, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat(0xfbf8f2));
-    nose.scale.set(0.213, 0.55, 1);
-    nose.rotation.z = Math.PI / 2;
-    at(nose, LEN0 - 0.1, -0.66, 0);
-    nose.castShadow = true;
-    root.add(nose);
-    const floor = rbox(LEN, 0.12, 5.9, 0.05, 0xeee8da);
+    buildExterior({root, mat, rbox, at, flatLabel}, p, geo, seatX);
+    // самолёт стоит на шасси — перрон опускается под колёса
+    ground.position.y = apron.position.y = GROUND_Y;
+    const floor = rbox(LEN, 0.12, 5.8, 0.05, 0xeee8da);
     at(floor, MID, -0.06, 0);
     root.add(floor);
     const carpet = rbox(LEN - 0.2, 0.02, 1.05, 0.01, 0x4a5684);
@@ -344,23 +306,11 @@ export function createEngine(stage, o) {
         r.castShadow = false;
         root.add(r);
       });
-    const wallFar = rbox(LEN, 2.25, 0.16, 0.06, 0xf7f4ee);
-    at(wallFar, MID, 1.07, -2.95);
-    root.add(wallFar);
-    const wallNear = rbox(LEN, 0.42, 0.16, 0.06, 0xf7f4ee);
-    at(wallNear, MID, 0.17, 2.95);
-    root.add(wallNear);
     for (let r = 1; r <= p.rows; r++) {
       const w = rbox(0.42, 0.46, 0.04, 0.14, 0x9fc3d8, {r: 0.25, emissive: 0x24384a, emissiveIntensity: 0.25});
-      at(w, seatX(r) - 0.1, 0.8, -2.86);
+      at(w, seatX(r) - 0.1, 0.8, -CABIN.inner + 0.03);
       root.add(w);
     }
-    const trim = rbox(LEN, 0.08, 0.2, 0.03, 0xffc21a);
-    at(trim, MID, 2.2, -2.95);
-    root.add(trim);
-    const endWall = rbox(0.16, 1.55, 5.9, 0.06, 0xf7f4ee);
-    at(endWall, LEN1, 0.72, 0);
-    root.add(endWall);
     const galley = rbox(0.9, 1.0, 1.5, 0.08, 0xdcd6c8);
     at(galley, LEN0 + 0.55, 0.5, -2.05);
     root.add(galley);
@@ -763,6 +713,45 @@ export function createEngine(stage, o) {
     chips.forEach(drop);
     chips.clear();
   }
+  // связи соединения (JOIN): стержень от одной строки к другой — видно, какие пары собрал запрос
+  const linksG = new THREE.Group();
+  scene.add(linksG);
+  const linkGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 6).translate(0, 0.5, 0);
+  const LINKC = {ok: 0xffc21a, many: 0xd2483c, path: 0x2f6f73};
+  const anchor = (t, obj) => {
+    const p = obj.getWorldPosition(new THREE.Vector3());
+    p.y += t === 'passenger' ? 0.95 * (obj.userData.s || 1) : t === 'flight' ? 0 : 0.18;
+    return p;
+  };
+  function link(t1, k1, t2, k2, kind = 'ok', anim = true) {
+    const a = objOf(t1, k1),
+      b = objOf(t2, k2);
+    if (!a || !b) return null;
+    const pa = anchor(t1, a),
+      d = anchor(t2, b).sub(pa),
+      L = d.length();
+    if (L < 0.01) return null;
+    const m = new THREE.Mesh(
+      linkGeo,
+      new THREE.MeshBasicMaterial({color: LINKC[kind] || LINKC.ok, transparent: true, opacity: 0.85, depthWrite: false}),
+    );
+    m.position.copy(pa);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    m.raycast = () => {};
+    m.renderOrder = 3;
+    linksG.add(m);
+    if (anim) {
+      m.scale.set(1, 0.01, 1);
+      tween(m.scale, {y: L}, 240 / SPD + 60, 'out');
+    } else m.scale.set(1, L, 1);
+    return m;
+  }
+  function clearLinks() {
+    linksG.children.slice().forEach(m => {
+      m.material.dispose();
+      linksG.remove(m);
+    });
+  }
   function fadeNo() {
     chips.forEach(c => {
       if (c.inner.classList.contains('no')) c.inner.animate([{opacity: 1}, {opacity: 0}], {duration: 600, fill: 'forwards'});
@@ -1077,6 +1066,8 @@ export function createEngine(stage, o) {
     makeBag,
     dispose,
     sweepLabels,
+    link,
+    clearLinks,
     resolve,
     sayAt,
     robotHome,

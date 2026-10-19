@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQL Pizza · Основы проектирования баз данных</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23d2483c'/%3E%3Cpath d='M6 8 Q16 3 26 8 L16 28Z' fill='%23ffd36b' stroke='%2322252b' stroke-width='2'/%3E%3Ccircle cx='13' cy='11' r='2' fill='%2322252b'/%3E%3Ccircle cx='19' cy='13' r='2' fill='%2322252b'/%3E%3Ccircle cx='16' cy='18' r='2' fill='%2322252b'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #22252b; --tomato: #d2483c; --tomato2: #b5523b; --cheese: #ffd36b; --crust: #e8b866; --basil: #3f7d4a; --cream: #fff6e5; --sun: #ffc21a;
+    --font: 'Rubik', 'Segoe UI', Arial, sans-serif; --mono: 'JetBrains Mono', Consolas, monospace }
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+  [hidden] { display: none !important }
+  /* скатерть в клетку */
+  body { font-family: var(--font); color: var(--ink); min-height: 100vh; overflow-x: hidden; background-color: #f3e6cc;
+    background-image: linear-gradient(90deg, rgba(210, 72, 60, .09) 50%, transparent 50%), linear-gradient(rgba(210, 72, 60, .09) 50%, transparent 50%);
+    background-size: 56px 56px }
+  a { color: inherit }
+  main { max-width: 1120px; margin: 0 auto; padding: 22px 16px 48px }
+  .panel { background: var(--cream); border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); border-radius: 8px }
+  .tag { display: inline-block; background: var(--ink); color: var(--cheese); font-weight: 700; font-size: 12px; letter-spacing: .14em; padding: 3px 9px; border-radius: 3px; text-transform: uppercase }
+  .hero { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; padding: 16px 20px }
+  .logo { width: 74px; height: 74px; background: var(--tomato); border: 3px solid var(--ink); border-radius: 50%; display: grid; place-items: center; box-shadow: 3px 3px 0 var(--ink) }
+  .logo svg { width: 48px }
+  .hero h1 { font-size: clamp(26px, 4.4vw, 44px); font-weight: 800; line-height: 1; margin: 6px 0 4px }
+  .motto { font: 700 15px var(--mono); color: #7a6a58 }
+  .who { text-align: right; font-size: 14px; min-width: 190px }
+  .who b { display: block; font-size: 17px }
+  .who .mu { color: #7a6a58; font-size: 13px }
+  .who a { font-size: 13px; color: #7a6a58; cursor: pointer }
+  .clock { font: 800 30px var(--mono); letter-spacing: .04em }
+  .tocity { display: inline-block; margin-bottom: 4px; font: 700 13px var(--font); text-decoration: none; background: var(--ink); color: var(--cheese); padding: 3px 9px; border-radius: 4px }
+  .checkin { margin-top: 22px; padding: 14px 20px; display: flex; gap: 12px 16px; align-items: flex-end; flex-wrap: wrap }
+  .checkin h2 { width: 100%; font-size: 18px; font-weight: 800; display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
+  .checkin label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: #7a6a58 }
+  .checkin select, .checkin input { font: 600 15px var(--font); padding: 6px 8px; border: 2.5px solid var(--ink); border-radius: 6px; background: #fff; min-width: 150px; color: var(--ink) }
+  .checkin input { width: 110px; min-width: 0; font-family: var(--mono) }
+  .checkin #lgS { width: 200px; font-family: var(--font) }
+  .checkin button { background: var(--cheese); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); border-radius: 6px; font: 800 15px var(--font); padding: 6px 16px; cursor: pointer }
+  .checkin .note { width: 100%; font-size: 13px; color: #4a4d55; min-height: 1em } .checkin .err { color: var(--tomato); font-weight: 700 }
+
+  /* экран заказов на кухне — вместо табло вылетов */
+  .kds { margin-top: 22px; background: #1d1f24; border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); border-radius: 8px; color: #f6f1e3; overflow: hidden }
+  .kds-hd { display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background: var(--tomato); border-bottom: 3px solid var(--ink) }
+  .kds-hd h2 { font: 800 22px var(--mono); color: #fff; letter-spacing: .12em }
+  .kds-hd span { font: 700 12px var(--mono); color: #ffe3d0; letter-spacing: .14em }
+  .ticket { display: grid; grid-template-columns: 110px 1fr 120px 170px 150px; align-items: center; gap: 12px; padding: 12px 18px; border-top: 1px dashed #4a4d55; font: 700 16px var(--mono) }
+  .ticket.head { font-size: 11px; color: #9a9488; letter-spacing: .14em; padding-top: 8px; padding-bottom: 8px; border-top: none }
+  .no { color: var(--cheese) }
+  .dish b { display: block; font: 700 17px var(--font); color: #fff }
+  .dish small { font: 500 12px var(--mono); color: #9a9488; letter-spacing: .06em }
+  .st { font-size: 13px; letter-spacing: .1em }
+  .st.ok { color: #7fe39a } .st.wait { color: var(--cheese) } .st.cook { color: #ff9a7a }
+  .blink { animation: blink 1.4s steps(2, start) infinite } @keyframes blink { to { visibility: hidden } }
+  .prog { font-size: 13px; color: #c9c3b5 } .prog .bar { height: 8px; background: #33363d; border-radius: 4px; margin-top: 5px; overflow: hidden } .prog .bar i { display: block; height: 100%; background: var(--basil) }
+
+  /* чеки — вместо посадочных талонов */
+  .receipts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 26px; margin-top: 26px; align-items: start }
+  .receipt { display: block; text-decoration: none; background: #fffdf7; border: 3px solid var(--ink); border-bottom: 0; box-shadow: 6px 6px 0 var(--ink); padding: 16px 18px 26px; font: 500 14px var(--mono); position: relative; transition: transform .15s;
+    --zz: radial-gradient(circle at 8px 0, transparent 8px, #fffdf7 8.5px) }
+  .receipt::after { content: ''; position: absolute; left: -3px; right: -3px; bottom: -14px; height: 14px; background: linear-gradient(-45deg, transparent 9px, #fffdf7 9px) 0 0 / 18px 14px, linear-gradient(45deg, transparent 9px, #fffdf7 9px) 0 0 / 18px 14px; border-left: 3px solid var(--ink); border-right: 3px solid var(--ink) }
+  a.receipt:hover { transform: translateY(-3px) rotate(-.3deg) }
+  .receipt .rh { text-align: center; border-bottom: 2px dashed var(--ink); padding-bottom: 8px; margin-bottom: 8px }
+  .receipt .rh b { display: block; font: 800 20px var(--font) }
+  .receipt .rh small { color: #7a6a58; letter-spacing: .12em; font-size: 11px }
+  .receipt h3 { font: 800 21px var(--font); margin: 6px 0 2px }
+  .receipt p { font: 400 14px/1.4 var(--font); color: #4a4d55; margin: 4px 0 10px }
+  .line { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0 }
+  .line.tot { border-top: 2px dashed var(--ink); margin-top: 8px; padding-top: 8px; font-weight: 800; font-size: 16px }
+  .dots { display: flex; gap: 4px; margin: 8px 0 4px; flex-wrap: wrap }
+  .dots i { width: 20px; height: 20px; border: 2.5px solid var(--ink); border-radius: 50%; background: #fff; font: 800 10px/15px var(--mono); text-align: center; font-style: normal }
+  .dots i.d { background: var(--basil); color: #fff }
+  .cta { display: block; margin-top: 12px; text-align: center; background: var(--cheese); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); border-radius: 6px; font: 800 15px var(--font); padding: 7px 10px }
+  .receipt.closed { opacity: .85 } .receipt.closed .cta { background: #e3dccb; box-shadow: none }
+
+  .how { margin-top: 30px; padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px }
+  .step { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.4 }
+  .step .n { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--tomato); color: #fff; font: 800 15px/32px var(--mono); text-align: center; border: 2px solid var(--ink) }
+  .step b { display: block; font-size: 15px }
+  footer { margin-top: 22px; text-align: center; font-size: 13px; font-weight: 600; color: #4a4d55 }
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: auto 1fr } .who { grid-column: 1 / -1; text-align: left; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap }
+    .ticket { grid-template-columns: 70px 1fr; gap: 4px 12px } .ticket.head { display: none } .ticket .oven { display: none } .ticket .st, .ticket .prog { grid-column: 2 }
+  }
+  @media (max-width: 420px) { .logo { width: 56px; height: 56px } }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero panel">
+    <div class="logo" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M5 9 Q20 2 35 9 L20 37Z" fill="#ffd36b" stroke="#22252b" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M5 9 Q20 2 35 9" fill="none" stroke="#e8b866" stroke-width="5" stroke-linecap="round"/><path d="M5 9 Q20 2 35 9" fill="none" stroke="#22252b" stroke-width="2.5"/>
+      <circle cx="15" cy="14" r="3" fill="#d2483c" stroke="#22252b" stroke-width="1.5"/><circle cx="24" cy="16" r="3" fill="#d2483c" stroke="#22252b" stroke-width="1.5"/><circle cx="19" cy="24" r="3" fill="#d2483c" stroke="#22252b" stroke-width="1.5"/></svg></div>
+    <div>
+      <span class="tag">Основы проектирования баз данных</span>
+      <h1>SQL Pizza</h1>
+      <div class="motto">SELECT * FROM pizza WHERE hot = true;</div>
+    </div>
+    <div class="who">
+      <a class="tocity" href="../?map">← Город</a>
+      <div class="clock" id="clock">--:--</div>
+      <div id="who"></div>
+    </div>
+  </header>
+
+  <section class="checkin panel" id="checkin" hidden aria-label="Вход">
+    <h2><span class="tag">На смену</span>Войдите один раз — дальше лабы откроются сразу</h2>
+    <label>Группа<select id="lgG"></select></label>
+    <label>Фамилия<input id="lgS" autocomplete="family-name" placeholder="например: Иванов"></label>
+    <label>PIN<input id="lgP" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="4 цифры"></label>
+    <button id="lgGo">Войти</button>
+    <div class="note" id="lgNote"></div>
+  </section>
+
+  <section class="kds" aria-label="Заказы на кухне">
+    <div class="kds-hd"><h2>ЗАКАЗЫ</h2><span>КУХНЯ · ЛАБОРАТОРНЫЕ РАБОТЫ</span></div>
+    <div class="ticket head"><span>ЗАКАЗ</span><span>БЛЮДО</span><span class="oven">ПЕЧЬ</span><span>СТАТУС</span><span>ВАШ ПРОГРЕСС</span></div>
+    <div id="tickets"></div>
+  </section>
+
+  <section class="receipts" id="receipts" aria-label="Чеки"></section>
+
+  <section class="how panel" aria-label="Как проходит смена">
+    <div class="step"><span class="n">1</span><div><b>Смена</b>Вход по группе и PIN — тот же, что в аэропорту. Данные пиццерии у каждого свои.</div></div>
+    <div class="step"><span class="n">2</span><div><b>Заказы</b>Уровни по порядку. Вопрос по-русски — ответ одним запросом, робот считает прямо на кухне.</div></div>
+    <div class="step"><span class="n">3</span><div><b>Сверка</b>Итог по группам сходится с итогом по всей таблице, подзапрос выполняется и отдельно.</div></div>
+    <div class="step"><span class="n">4</span><div><b>Касса</b>Последний заказ — контрольный. Протокол уходит преподавателю одной кнопкой.</div></div>
+  </section>
+
+  <footer>Колледж ИИ · Тюменский государственный университет</footer>
+</main>
+
+<script src="../common/home.js"></script>
+<script>
+const {$, esc} = Home;
+// заказы-лабораторные; уровни и хранение прогресса — в common/home.js (Home.LABS)
+const ORDERS = [
+  {no: '№ 17', lab: 'lr17', code: 'GROUP BY', title: 'Итоги смены', sub: 'группировка и итоги', oven: 'ПЕЧЬ 1', href: '../lr17-3d/', soon: 'В ОЧЕРЕДИ',
+    text: 'Сколько пицц продано, на какую сумму, какая начинка в лидерах. Робот раскладывает заказы по группам, считает итоги и отсекает группы по HAVING.'},
+  {no: '№ 18', lab: 'lr18', code: 'ПОДЗАПРОС', title: 'Заказ в заказе', sub: 'подзапросы', oven: 'ПЕЧЬ 2', href: '../lr18-3d/', soon: 'В ОЧЕРЕДИ',
+    text: 'Дороже среднего чека, любимая пицца самого частого гостя, курьеры без единой доставки. Сначала внутренний запрос — потом внешний.'},
+].map(o => ({...o, ...Home.LABS[o.lab], no: o.no}));
+let OPEN = null;
+const live = o => Home.live(o.lab, OPEN);
+function render(prog = {}) {
+  $('tickets').innerHTML = ORDERS.map(o => {
+    const on = live(o),
+      p = on ? prog[o.lab] || Home.progress(o) : null,
+      n = o.levels.length;
+    const st = !on ? `<span class="st wait">${o.soon}</span>` : p.done === n ? '<span class="st ok">ГОТОВО ✓</span>' : `<span class="st cook"><span class="blink">●</span> ${p.done ? 'ГОТОВИТСЯ' : 'ПРИНЯТ'}</span>`;
+    const pr = p ? `<div class="prog">${p.done} / ${n} уровней<div class="bar"><i style="width:${(p.done / n) * 100}%"></i></div></div>` : '<div class="prog">—</div>';
+    return `<div class="ticket"><span class="no">${o.no}</span><span class="dish"><b>${esc(o.title)}</b><small>${o.code} · ${esc(o.sub)}</small></span><span class="oven">${o.oven}</span>${st}${pr}</div>`;
+  }).join('');
+  $('receipts').innerHTML = ORDERS.map(o => {
+    const on = live(o),
+      p = prog[o.lab] || Home.progress(o),
+      n = o.levels.length;
+    const dots = o.levels.map((k, i) => `<i class="${(p.lv[k] || {}).done ? 'd' : ''}">${i + 1}</i>`).join('');
+    const tag = on ? 'a href="' + o.href + '"' : 'div';
+    return `<${tag} class="receipt${on ? '' : ' closed'}">
+      <div class="rh"><b>SQL PIZZA</b><small>КАССА 1 · ЗАКАЗ ${o.no}</small></div>
+      <h3>${esc(o.title)}</h3><p>${esc(o.text)}</p>
+      <div class="line"><span>1 × ${o.code}</span><span>${n} ур.</span></div>
+      <div class="dots">${dots}</div>
+      <div class="line tot"><span>ИТОГО</span><span>${on ? `${p.done}/${n}${p.stars ? ' · ★ ' + p.stars : ''}` : 'скоро'}</span></div>
+      <span class="cta">${!on ? 'Откроется на занятии' : p.done === n ? 'Ещё раз' : p.done ? 'Продолжить смену' : 'Начать смену'} →</span>
+    </${on ? 'a' : 'div'}>`;
+  }).join('');
+}
+render();
+const pull = () => Home.pull(ORDERS.filter(live)).then(render);
+Home.labsOpen().then(o => {
+  OPEN = o;
+  render();
+  pull();
+});
+Home.showWho($('who'));
+Home.checkin(() => {
+  Home.showWho($('who'));
+  pull();
+});
+Home.clock($('clock'));
+</script>
+</body>
+</html>

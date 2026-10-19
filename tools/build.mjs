@@ -2,12 +2,12 @@
 // node tools/build.mjs          — собрать
 // node tools/build.mjs --check  — проверить, что game.js в репозитории собран из текущих исходников
 import {build} from 'esbuild';
-import {readFileSync} from 'node:fs';
+import {readFileSync, existsSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const LABS = ['lr13-3d', 'lr14-3d'];
+const LABS = ['lr13-3d', 'lr14-3d', 'lr15-3d', 'lr16-3d'].filter(l => existsSync(join(ROOT, l, 'src/main.js')));
 const check = process.argv.includes('--check');
 let stale = 0;
 for (const lab of LABS) {

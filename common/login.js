@@ -2,7 +2,7 @@
 // Если сервера нет (файл открыт с диска) — старый вход: ФИО, группа, номер в журнале.
 import {esc, ls} from './util.js';
 import {isTeacherCode} from './teacher.js';
-import {clientId} from './net.js';
+import {clientId, fetchT} from './net.js';
 async function api(path, body, headers = {}) {
   const r = await fetch(
     path,
@@ -175,7 +175,7 @@ function send(final) {
   clearTimeout(retry);
   onStatus('wait');
   const body = JSON.stringify({token: sess.token, lab, data: compact(last)});
-  fetch('/api/progress', {method: 'POST', headers: {'Content-Type': 'application/json'}, keepalive: final || body.length < 60000, body})
+  fetchT('/api/progress', {method: 'POST', headers: {'Content-Type': 'application/json'}, keepalive: final || body.length < 60000, body})
     .then(r => {
       if (r.ok) {
         tries = 0;

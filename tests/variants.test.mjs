@@ -10,6 +10,8 @@ const FILE = new URL('./fixtures/variants.json', import.meta.url);
 const LABS = {
   lr13: () => import('../lr13-3d/src/data.js'),
   lr14: () => import('../lr14-3d/src/data.js'),
+  lr15: () => import('../lr15-3d/src/data.js'),
+  lr16: () => import('../lr16-3d/src/data.js'),
 };
 const hash = v => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 

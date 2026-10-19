@@ -70,8 +70,8 @@ export function createWorld(stage) {
     [BR.x0 + 0.3, BR.z1 - 0.3],
     [BR.x1 - 0.3, BR.z1 - 0.3],
   ].forEach(([x, z]) => {
-    const l = rbox(0.24, 1.3, 0.24, 0.05, 0x8b857a);
-    at(l, x, -0.75, z);
+    const l = rbox(0.24, 2.05, 0.24, 0.05, 0x8b857a);
+    at(l, x, -1.1, z);
     scene.add(l);
   });
   E.flatLabel('ТРАП', scene, {x: (BR.x0 + BR.x1) / 2, y: 0.02, z: BR.z1 - 0.4, rx: -Math.PI / 2, h: 0.5});
@@ -105,7 +105,7 @@ export function createWorld(stage) {
   {
     root.updateMatrixWorld(true);
     scene.updateMatrixWorld(true);
-    const st = root.children.filter(o => o.isMesh && o !== board && !o.material.transparent);
+    const st = root.children.filter(o => o.isMesh && o !== board && !o.userData.keep && !o.material.transparent);
     root.add(E.bakeMeshes(st, o => o.matrix.clone()));
     st.forEach(o => root.remove(o));
     const s2 = scene.children.filter(o => o.isMesh && o !== E.ground && !o.material.transparent);
@@ -225,7 +225,7 @@ export function createWorld(stage) {
     v.y = kid ? 0.08 : 0;
     return v;
   };
-  const wingSpot = id => V(seatX(3) + (id % 4) * 0.5, -0.75, -3.6 - (id % 3) * 0.45); // не на свой рейс — стоит на крыле
+  const wingSpot = id => V(seatX(3) + (id % 4) * 0.5, -0.66, -3.6 - (id % 3) * 0.45); // не на свой рейс — стоит на крыле
   const targetOf = (row, kid) => (onBoard(row) ? seatPos(row.seat_no, kid) : wingSpot(row.id));
   async function boardWalk(P, to) {
     // от трапа через дверь к креслу

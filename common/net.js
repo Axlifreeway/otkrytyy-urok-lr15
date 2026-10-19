@@ -2,7 +2,19 @@
 const API = '/api/ev';
 const ctx = {lab: '', fio: '', grp: '', seed: null, client: '', demo: false, token: ''}; // token — кто это, сервер узнаёт по нему
 let enabled = typeof location !== 'undefined' && /^https?:$/.test(location.protocol),
-  miss404 = 0;
+  miss404 = 0,
+  okOnce = false; // сервер хоть раз принял событие — значит, он есть, и 404 дальше — временный сбой
+
+// запрос с пределом времени: зависший (сеть колледжа, прокси) иначе молча держит отправку навсегда
+export async function fetchT(url, opt = {}, ms = 12000) {
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const t = ac && setTimeout(() => ac.abort(), ms);
+  try {
+    return await fetch(url, ac ? {...opt, signal: ac.signal} : opt);
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 export function clientId() {
   try {
@@ -20,23 +32,83 @@ export function setCtx(o) {
   Object.assign(ctx, o);
 }
 
-// событие уходит «выстрелил и забыл»: если сервера нет, лаба работает как раньше
+// события копятся в очереди (и в localStorage — переживут перезагрузку) и уходят по одному, по порядку.
+// Пропала связь — очередь ждёт и повторяет; вернулась — досылает, с настоящим временем каждого события.
+// Если сервера нет совсем (лабы без панели), лаба работает как раньше.
+const QKEY = 'air-evq',
+  QMAX = 500;
+let queue = [],
+  sending = false,
+  fails = 0,
+  timer = 0;
+try {
+  queue = JSON.parse(localStorage.getItem(QKEY) || '[]');
+  if (!Array.isArray(queue)) queue = [];
+} catch (e) {
+  queue = [];
+}
+const saveQ = () => {
+  try {
+    localStorage.setItem(QKEY, JSON.stringify(queue));
+  } catch (e) {
+    /* нет места — очередь останется в памяти */
+  }
+};
+async function flush() {
+  if (sending || !enabled || !queue.length) return;
+  sending = true;
+  clearTimeout(timer);
+  while (queue.length) {
+    const e = queue[0];
+    let r = null;
+    try {
+      // age, а не время компьютера: часы на рабочих местах бывают сбиты
+      r = await fetchT(API, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...e.b, age: Date.now() - e.ts}),
+      });
+    } catch (x) {
+      /* сеть или предел времени */
+    }
+    const st = r ? r.status : 0;
+    if (st === 200 || st === 400 || st === 403 || st === 413) {
+      // принято — или повтор не поможет (неверное событие, вход устарел, лаба закрыта)
+      if (st === 200) okOnce = true;
+      const i = queue.indexOf(e);
+      if (i >= 0) queue.splice(i, 1);
+      fails = 0;
+      saveQ();
+      continue;
+    }
+    if ((st === 404 || st === 405) && !okOnce && ++miss404 >= 3) {
+      enabled = false; // сервера событий здесь нет
+      queue = [];
+      saveQ();
+      break;
+    }
+    fails++; // 2 с, 4 с … не реже раза в 30 с
+    timer = setTimeout(flush, Math.min(30000, 2000 * 2 ** Math.min(fails - 1, 4)));
+    break;
+  }
+  sending = false;
+}
 export function report(type, data = {}) {
   if (!enabled || ctx.demo) return;
-  const body = JSON.stringify({...ctx, type, data, ts: Date.now()});
-  try {
-    fetch(API, {method: 'POST', headers: {'Content-Type': 'application/json'}, body, keepalive: body.length < 60000})
-      .then(r => {
-        if (r.status === 404 || r.status === 405) {
-          if (++miss404 >= 3) enabled = false;
-        }
-      })
-      .catch(() => {
-        /* сеть — пропускаем */
-      });
-  } catch (e) {
-    /* нет fetch */
-  }
+  if (type === 'hb') queue = queue.filter((e, i) => e.b.type !== 'hb' || (sending && i === 0)); // пульс — нужен только последний
+  queue.push({b: {...ctx, type, data}, ts: Date.now()});
+  if (queue.length > QMAX) queue.splice(0, queue.length - QMAX);
+  saveQ();
+  flush();
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    fails = 0;
+    flush();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) flush();
+  });
 }
 
 // уходы со вкладки/окна дольше 3 секунд
