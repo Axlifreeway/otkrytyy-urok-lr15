@@ -2,6 +2,7 @@
 // большой робот выезжает снизу на полэкрана, печатает реплику и уезжает.
 import {esc} from './util.js';
 import {SFX} from './sfx.js';
+import {fetchT} from './net.js';
 
 const ROBOT = `<svg viewBox="0 0 220 260" aria-hidden="true"><g stroke="#22252b" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
   <line x1="110" y1="34" x2="110" y2="12"/><circle cx="110" cy="10" r="9" fill="#8b5cf6"/>
@@ -61,13 +62,16 @@ export function robotSay(msg) {
 export function listenRobot(getToken) {
   if (!/^https?:$/.test(location.protocol)) return;
   let since = -1,
-    fails = 0;
+    fails = 0,
+    seen = false;
   const poll = async () => {
     try {
       const t = getToken();
-      const r = await fetch(`/api/say?since=${since}`, {headers: t ? {'X-Labs-Token': t} : {}});
-      if (r.status === 404) return; // сервера нет — лаба работает и так
+      const r = await fetchT(`/api/say?since=${since}`, {headers: t ? {'X-Labs-Token': t} : {}});
+      if (r.status === 404 && !seen) return; // сервера нет — лаба работает и так
+      if (!r.ok) throw new Error(r.status); // сбой связи — опрос продолжится
       const j = await r.json();
+      seen = true;
       if (since >= 0) j.items.forEach(robotSay);
       since = j.last;
       fails = 0;

@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -149,6 +150,19 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(len(people), 1)
         p = people[0]
         self.assertEqual((p['client'], p['fio'], p['grp'], p['seed'], p['errors']), (f's{sid}', 'Иванов Иван', 'ИИ-25', 101, 1))
+
+    def test_delayed_event_keeps_its_time(self):
+        self.group()
+        tok = self.login('Иванов')[1]['token']
+        ev = {'type': 'run', 'client': 'x', 'lab': 'lr13', 'token': tok, 'data': {'lv': 1, 'ok': True}}
+        t0 = int(time.time() * 1000)
+        self.assertEqual(self.call('/api/ev', {**ev, 'age': 25 * 60000})[0], 200)       # пролежало в очереди 25 минут
+        self.assertEqual(self.call('/api/ev', {**ev, 'age': 10 ** 12})[0], 200)         # не дальше полусуток
+        self.assertEqual(self.call('/api/ev', {**ev, 'age': -5000})[0], 200)            # из будущего — не бывает
+        ts = [r[0] for r in self.srv.RequestHandlerClass.store.con.execute("SELECT ts FROM ev ORDER BY id")]
+        self.assertAlmostEqual(ts[0], t0 - 25 * 60000, delta=3000)
+        self.assertAlmostEqual(ts[1], t0 - labsrv.MAX_AGE, delta=3000)
+        self.assertAlmostEqual(ts[2], t0, delta=3000)
 
     def test_events_without_groups_and_rollback(self):
         for typ, data in (('level', {'lv': 2}), ('rollback', {'lv': 2, 'msg': 'не совпало'}), ('done', {'lv': 2, 'key': 'k', 'pts': 1.5})):

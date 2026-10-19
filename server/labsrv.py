@@ -33,6 +33,7 @@ TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', '
 LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10}   # число уровней в лабе — для панели преподавателя
 GATED = ('lr17', 'lr18')                    # лабы, которые открывает преподаватель (по умолчанию закрыты)
 MAX_BODY = 400000
+MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
 REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
 REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
@@ -679,7 +680,10 @@ class Handler(BaseHTTPRequestHandler):
             client = f's{sid}'
         elif self.store.has_groups():           # есть списки групп — события только от вошедших
             return self.send(403, {'err': 'token'})
-        self.store.add_event(now_ms(), client, e.get('lab'), fio, grp, seed, typ, e.get('data'), self.ip())
+        # событие, досланное после обрыва связи, — со своим временем: age — сколько оно ждало в очереди у студента
+        age = e.get('age') if isinstance(e.get('age'), int) and not isinstance(e.get('age'), bool) else 0
+        ts = now_ms() - min(max(age, 0), MAX_AGE)
+        self.store.add_event(ts, client, e.get('lab'), fio, grp, seed, typ, e.get('data'), self.ip())
         self.send(200, {'ok': True})
 
     def login(self, e):
@@ -818,9 +822,14 @@ POST_ROUTES = {
 }
 
 
+class Server(ThreadingHTTPServer):
+    request_queue_size = 128     # по умолчанию 5: группа, разом приславшая события, получала отказ в подключении (у nginx — 502)
+    daemon_threads = True
+
+
 def make_server(port=PORT, db=DB, key=KEY, static=STATIC, host='127.0.0.1'):
     h = type('H', (Handler,), {'store': Store(db, key), 'rate': RateLimit(RATE_PER_SEC), 'static_root': static})
-    return ThreadingHTTPServer((host, port), h)
+    return Server((host, port), h)
 
 
 if __name__ == '__main__':
