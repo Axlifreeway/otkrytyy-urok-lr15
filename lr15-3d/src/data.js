@@ -5,6 +5,7 @@ export {rng};
 export const ROWS = 8,
   LET = ['A', 'B', 'C', 'D', 'E', 'F'];
 export const FLIGHT = 'ИИ-714';
+export const YEAR = 2026; // год для вычисления возраста
 const SURN = [
   'Иванов',
   'Петров',
@@ -80,6 +81,15 @@ export function makeData(seed) {
   r.take(adults, 2).forEach(p => {
     p.birth_year = null;
   });
+  // питание не выбрано хотя бы у двоих взрослых — для уровня с ловушкой NULL
+  const noMeal = adults.filter(p => p.meal === null).length;
+  if (noMeal < 2)
+    r.take(
+      adults.filter(p => p.meal !== null),
+      2 - noMeal,
+    ).forEach(p => {
+      p.meal = null;
+    });
   // багаж: на полке над рядом владельца
   const B = [];
   const tags = new Set();
@@ -94,35 +104,31 @@ export function makeData(seed) {
     const n = r() < 0.5 ? 1 : r() < 0.3 ? 2 : 0;
     for (let k = 0; k < n; k++) B.push({tag: tag(), passenger_id: p.id, shelf: shelfOf(seatRow(p.seat)), weight_kg: r.int(3, 27)});
   });
-  // десять самых тяжёлых — с разным весом (иначе порядок ответа неоднозначен)
-  B.slice()
+  // шесть самых тяжёлых — с разным весом (32, 30, 28, 25, 23, 21), остальные не тяжелее 20:
+  // иначе на границе «пяти самых тяжёлых» бывает ничья и ответ неоднозначен
+  const top6 = B.slice()
     .sort((a, b) => b.weight_kg - a.weight_kg)
-    .slice(0, 6)
-    .forEach((b, i) => {
-      b.weight_kg = 32 - i * 2 - (i > 2 ? 1 : 0);
-    });
+    .slice(0, 6);
+  top6.forEach((b, i) => {
+    b.weight_kg = 32 - i * 2 - (i > 2 ? 1 : 0);
+  });
+  B.forEach(b => {
+    if (!top6.includes(b)) b.weight_kg = Math.min(b.weight_kg, 20);
+  });
   B.splice(0, B.length, ...r.take(B, B.length));
   const all = P;
-  // порог веса: тяжелее него — от 3 до 7 чемоданов
-  const ws = B.map(b => b.weight_kg).sort((a, b) => b - a);
-  let heavy = 20;
-  for (let k = 0; k < 30; k++) {
-    const w = r.int(15, 26),
-      n = cnt(ws, x => x > w);
-    if (n >= 3 && n <= 7) {
-      heavy = w;
-      break;
-    }
-  }
+  // порог веса — вес одного из чемоданов: «тяжелее» (>) и «не легче» (>=) дают разный ответ; тяжелее — от 3 до 5
+  const heavy = r.pick([21, 23, 25]);
   // город для отбора по равенству: 3–6 пассажиров
   const byCity = c => cnt(all, p => p.city === c);
   const cities = [...new Set(all.map(p => p.city))];
-  const city = r.pick(
-    cities
-      .filter(c => byCity(c) >= 3 && byCity(c) <= 6)
-      .concat(cities.filter(c => byCity(c) >= 2))
-      .slice(0, 4),
-  );
+  const okCity = cities.filter(c => byCity(c) >= 3 && byCity(c) <= 6);
+  const city = okCity.length
+    ? r.pick(okCity)
+    : cities
+        .slice()
+        .sort((a, b) => byCity(a) - byCity(b))
+        .find(c => byCity(c) >= 2) || cities[0];
   // перечень: два «малых» города, отличных от первого
   const small = cities.filter(c => c !== city).sort((a, b) => byCity(a) - byCity(b));
   const two = [small[0], small[1]].sort();
@@ -133,8 +139,9 @@ export function makeData(seed) {
     .sort((a, b) => a - b);
   let y1 = 1975,
     y2 = 1985;
+  const ys0 = ys.filter(y => y >= 1965 && y <= 1993);
   for (let k = 0; k < 30; k++) {
-    const a = r.int(1965, 1995),
+    const a = ys0.length ? r.pick(ys0) : r.int(1965, 1995),
       b = a + r.int(6, 12);
     const n = cnt(ys, y => y >= a && y <= b);
     if (n >= 4 && n <= 9) {
@@ -241,13 +248,14 @@ export function levels(D) {
     {
       key: 'cols',
       title: 'Посадочная ведомость',
-      lab: 'ч. 1 · перечень столбцов',
-      text: 'Бригадиру нужен список: кто где сидит. Только эти два столбца — без «звёздочки»: в ответе ровно то, о чём спрашивали.',
-      q: 'Кто из пассажиров на каком месте?',
-      goals: ['Столбцы: full_name, seat', 'Все пассажиры'],
-      ask: 'SELECT full_name, seat FROM passenger',
-      hint: 'SELECT [столбец], [столбец] FROM [таблица];',
-      ok: 'Ровно два столбца — ровно то, о чём спрашивали.',
+      lab: 'ч. 1 · перечень столбцов и вычисляемый столбец',
+      text: `Бригадиру нужен список: фамилия, место и возраст пассажира в ${YEAR} году. Столбца с возрастом в таблице нет — его можно посчитать прямо в запросе из года рождения. Назовите этот столбец age.`,
+      q: 'Кто где сидит и сколько ему лет?',
+      goals: ['Столбцы: full_name, seat, age', `age — возраст в ${YEAR} году`, 'Все пассажиры'],
+      ask: `SELECT full_name, seat, ${YEAR} - birth_year AS age FROM passenger`,
+      names: true,
+      hint: `В списке столбцов можно считать: ${YEAR} - birth_year. Имя такому столбцу даёт AS: … AS age.`,
+      ok: 'Значения столбца age не хранятся в базе — СУБД посчитала их для каждой строки. У кого год не указан, возраст тоже пустой.',
     },
     // ═══════════════════════════════ часть 2 · отбор строк
     {
@@ -269,7 +277,7 @@ export function levels(D) {
       q: `Какие чемоданы тяжелее ${D.heavy} кг?`,
       goals: [`weight_kg больше ${D.heavy}`, 'Столбцы: tag, weight_kg'],
       ask: `SELECT tag, weight_kg FROM baggage WHERE weight_kg > ${D.heavy}`,
-      hint: 'WHERE [столбец] > [число] — число без кавычек. «Тяжелее» — строго больше.',
+      hint: 'WHERE [столбец] > [число] — число без кавычек. «Тяжелее» — строго больше: чемодан ровно на границе в ответ не входит.',
       ok: `Робот взвесил каждый чемодан — в ответе только те, что тяжелее ${D.heavy} кг.`,
     },
     {
@@ -287,8 +295,8 @@ export function levels(D) {
       key: 'inlist',
       title: 'Два города',
       lab: 'ч. 2 · отбор по перечню',
-      text: `Автобус после посадки развозит в ${D.two[0]} и ${D.two[1]}. Кто в нём поедет: фамилия и город.`,
-      q: `Кто из пассажиров едет в ${D.two[0]} или ${D.two[1]}?`,
+      text: `Авиакомпания дарит сувениры землякам из двух городов — ${D.two[0]} и ${D.two[1]}. Кому их вручить: фамилия и город.`,
+      q: `Кто из пассажиров из города ${D.two[0]} или ${D.two[1]}?`,
       goals: [`city — одно из: ${D.two.join(', ')}`, 'Столбцы: full_name, city'],
       ask: `SELECT full_name, city FROM passenger WHERE city IN (${D.two.map(lit).join(', ')})`,
       hint: "IN ('значение', 'значение') — короче, чем OR.",
@@ -296,14 +304,14 @@ export function levels(D) {
     },
     {
       key: 'like',
-      title: `Фамилии на «${D.letter}»`,
+      title: 'Места у окна',
       lab: 'ч. 2 · поиск по образцу',
-      text: `Стюард помнит только первую букву фамилии — «${D.letter}». Найдите таких пассажиров: фамилия и место.`,
-      q: `У кого фамилия начинается на «${D.letter}»?`,
-      goals: [`full_name начинается с «${D.letter}»`, 'Столбцы: full_name, seat'],
-      ask: `SELECT full_name, seat FROM passenger WHERE full_name LIKE '${D.letter}%'`,
-      hint: "LIKE 'А%' — знак % значит «дальше что угодно».",
-      ok: 'LIKE с % нашёл всех на нужную букву.',
+      text: 'Стюард раздаёт пледы пассажирам у окна — это места A и F в любом ряду. Найдите их: фамилия и место. Номер ряда в месте бывает любым, важна только последняя буква.',
+      q: 'Кто сидит у окна?',
+      goals: ['Место заканчивается на A или на F', 'Столбцы: full_name, seat'],
+      ask: "SELECT full_name, seat FROM passenger WHERE seat LIKE '%A' OR seat LIKE '%F'",
+      hint: "Знак % может стоять и в начале образца: LIKE '%A' — «что угодно, а в конце A». Буквы мест — латинские.",
+      ok: 'Знак % в начале образца — «заканчивается на». Два образца связаны через OR.',
     },
     {
       key: 'order2',
@@ -340,34 +348,36 @@ export function levels(D) {
     },
     {
       key: 'null',
-      title: 'Год не указан',
-      lab: 'ч. 3 · пустое значение',
-      text: 'У кого в анкете не указан год рождения? Фамилия и место.',
-      q: 'У кого не заполнен год рождения?',
-      goals: ['birth_year не заполнен', 'Столбцы: full_name, seat'],
-      ask: 'SELECT full_name, seat FROM passenger WHERE birth_year IS NULL',
+      hard: true,
+      title: 'Кого спросить о питании',
+      lab: 'сложный · пустое значение в условии',
+      text: 'Бортпроводник обходит салон с особым меню: ему нужны все, у кого питание не «стандарт», и те, у кого питание не выбрано вовсе — их нужно спросить. Фамилия, место и питание.',
+      q: 'К кому подойти с меню?',
+      goals: ['meal — не «стандарт»', 'И те, у кого meal не заполнен', 'Столбцы: full_name, seat, meal'],
+      ask: "SELECT full_name, seat, meal FROM passenger WHERE meal <> 'стандарт' OR meal IS NULL",
       pred: {
-        q: 'Что вернёт условие WHERE birth_year = NULL?',
+        q: "У пассажира питание не выбрано (meal пуст). Условие meal <> 'стандарт' для него…",
         choices: [
-          {k: 'rows', t: 'тех, у кого год не указан'},
-          {k: 'none', t: 'ни одной строки'},
-          {k: 'err', t: 'ошибку'},
+          {k: 'yes', t: 'истинно — он попадёт в ответ'},
+          {k: 'unk', t: 'неизвестно — в ответ он не попадёт'},
+          {k: 'err', t: 'вызовет ошибку'},
         ],
-        answer: 'none',
+        answer: 'unk',
       },
-      hint: 'Пустое значение не равно ничему — даже самому себе. Проверяется только так: IS NULL.',
-      ok: 'IS NULL — единственный способ найти пустое значение.',
+      hint: 'Любое сравнение с пустым значением даёт «неизвестно», и WHERE такую строку отбрасывает. Пустые добавьте отдельно: … OR meal IS NULL.',
+      ok: 'Сравнение с NULL — «неизвестно», поэтому пустые значения нужно звать по имени: IS NULL.',
     },
     {
       key: 'distinct',
-      title: 'Откуда мы',
-      lab: 'ч. 3 · различные значения',
-      text: 'Для статистики: из каких городов пассажиры этого рейса? Каждый город — один раз.',
-      q: 'Из каких городов пассажиры?',
-      goals: ['Столбец: city', 'Без повторов'],
-      ask: 'SELECT DISTINCT city FROM passenger',
-      hint: 'SELECT DISTINCT [столбец] FROM …',
-      ok: 'DISTINCT убрал повторы — каждый город один раз.',
+      title: 'Откуда летят дети',
+      lab: 'ч. 3 · различные значения и порядок',
+      text: 'Детской комнате аэропорта нужно знать, из каких городов летят дети — родившиеся в 2012 году и позже. Каждый город — один раз, по алфавиту.',
+      q: 'Из каких городов летят дети?',
+      goals: ['Столбец: city', 'Только родившиеся в 2012 году и позже', 'Без повторов, по алфавиту'],
+      ask: 'SELECT DISTINCT city FROM passenger WHERE birth_year >= 2012 ORDER BY city',
+      order: ['city'],
+      hint: 'SELECT DISTINCT … WHERE … ORDER BY … — DISTINCT убирает повторы уже среди отобранных строк.',
+      ok: 'WHERE отобрал детей, DISTINCT убрал повторы, ORDER BY расставил по алфавиту.',
     },
     {
       key: 'top',
@@ -388,11 +398,16 @@ export function levels(D) {
       final: true,
       title: 'Вопрос заказчика',
       lab: 'сложный · контрольный · без подсказок',
-      text: `Служба питания загружает тележки. Ей нужно знать, кому в рядах с 1 по ${D.upto} заказано питание «${D.meals[0]}» или «${D.meals[1]}»: место, фамилия и питание — по номеру места.`,
+      text: `Служба питания загружает тележки. Ей нужно знать, кому в рядах с 1 по ${D.upto} заказано питание «${D.meals[0]}» или «${D.meals[1]}»: место, фамилия и питание. Тележки грузят по видам питания — сначала по питанию, внутри — по номеру места.`,
       q: `Кому в рядах 1–${D.upto} нужно «${D.meals[0]}» или «${D.meals[1]}»?`,
-      goals: [`Ряды с 1 по ${D.upto}`, `meal — «${D.meals[0]}» или «${D.meals[1]}»`, 'Столбцы: seat, full_name, meal; по месту'],
-      ask: `SELECT seat, full_name, meal FROM passenger WHERE meal IN (${D.meals.map(lit).join(', ')}) AND (${rowsLike}) ORDER BY seat`,
-      order: ['seat'],
+      goals: [
+        `Ряды с 1 по ${D.upto}`,
+        `meal — «${D.meals[0]}» или «${D.meals[1]}»`,
+        'Столбцы: seat, full_name, meal',
+        'По питанию, внутри — по месту',
+      ],
+      ask: `SELECT seat, full_name, meal FROM passenger WHERE meal IN (${D.meals.map(lit).join(', ')}) AND (${rowsLike}) ORDER BY meal, seat`,
+      order: ['meal', 'seat'],
       ok: 'Ответ заказчику готов. Сверьте число строк с тем, сколько ожидали.',
     },
   ];

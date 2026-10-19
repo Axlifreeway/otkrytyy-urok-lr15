@@ -26,10 +26,12 @@ cd "$SRC"
 git fetch -q origin "$BRANCH"
 NEW=$(git rev-parse "origin/$BRANCH")
 # FORCE=1 — выложить текущую версию, даже если нового нет (первый запуск сразу после git clone)
-[ "${FORCE:-}" != 1 ] && [ "$(git rev-parse HEAD)" = "$NEW" ] && exit 0      # нового нет
+[ "${FORCE:-}" != 1 ] && [ -z "${LABS_OLD:-}" ] && [ "$(git rev-parse HEAD)" = "$NEW" ] && exit 0      # нового нет
 
-OLD=$(git rev-parse HEAD)
+OLD=${LABS_OLD:-$(git rev-parse HEAD)}
 git reset -q --hard "$NEW"
+# сам скрипт обновился — дальше работает уже новая версия (иначе выложится старый список PARTS)
+[ -z "${LABS_OLD:-}" ] && ! git diff --quiet "$OLD" "$NEW" -- server/deploy.sh && LABS_OLD=$OLD exec "$0"
 # каждую папку — копией рядом и подменой одним переименованием: студенты не увидят полувыложенную лабу
 for d in $PARTS; do
   rm -rf "$WWW/.$d.new" "$WWW/.$d.old"

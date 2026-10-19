@@ -97,9 +97,15 @@ export function makeData(seed) {
     const n = r() < 0.45 ? 1 : r() < 0.3 ? 2 : 0;
     for (let k = 0; k < n; k++) B.push({tag: tag(), passenger_id: p.id, shelf: shelfOf(seatRow(p.seat)), weight_kg: r.int(3, 30)});
   });
-  // у владельцев золотых карт — хотя бы два чемодана на борту
+  // золотых карт — хотя бы две, и у их владельцев есть багаж: в «Приоритетной выдаче» больше одной строки
   const gold = P.filter(p => p.loyalty === 'золото');
-  if (!gold.length) P.filter(p => !p.kid && !bronze.includes(p))[0].loyalty = 'золото';
+  if (gold.length < 2)
+    r.take(
+      P.filter(p => !p.kid && !bronze.includes(p) && p.loyalty !== 'золото'),
+      2 - gold.length,
+    ).forEach(p => {
+      p.loyalty = 'золото';
+    });
   P.filter(p => p.loyalty === 'золото')
     .slice(0, 2)
     .forEach(p => {
@@ -118,6 +124,11 @@ export function makeData(seed) {
   // вес для контрольного вопроса: 3–8 чемоданов тяжелее
   const ws = B.map(b => b.weight_kg).sort((a, b) => b - a);
   const heavy = ws[Math.min(ws.length - 1, r.int(3, 7))] - 1;
+  // в контрольном среди тяжёлых чемоданов есть чемодан владельца без карты — иначе обычный JOIN вместо LEFT пройдёт
+  if (!B.some(b => b.weight_kg > heavy && !all.find(p => p.id === b.passenger_id).loyalty)) {
+    const p = r.pick(all.filter(x => !x.loyalty));
+    B.push({tag: tag(), passenger_id: p.id, shelf: shelfOf(seatRow(p.seat)), weight_kg: Math.min(32, heavy + r.int(1, 3))});
+  }
   const noBag = cnt(all, p => !B.some(b => b.passenger_id === p.id));
   return {seed, P, B, FLIGHT, bronze: bronze.map(p => p.id), city, row, heavy, noBag, nP: P.length, nB: B.length};
 }
@@ -187,7 +198,7 @@ export function levels(D) {
       hard: true,
       title: 'Связи базы',
       lab: 'сложный · внешние ключи по самой базе',
-      text: 'Соединять можно и без внешнего ключа — но тогда внутреннее соединение молча теряет строки без пары. Откройте «Структуру базы»: у passenger не закреплены две связи — с программой лояльности (loyalty.tier) и с рейсом (flight.flight_no). Объявите оба внешних ключа. Программу «бронза» закрыли в прошлом году, её участникам выдали базовую карту — исправьте анкеты по смыслу, когда СУБД откажет.',
+      text: 'Соединять можно и без внешнего ключа, но тогда в столбце связи может лежать значение, которого нет в другой таблице, — и внутреннее соединение молча потеряет такую строку. Откройте «Структуру базы»: у passenger не закреплены две связи — с программой лояльности (loyalty.tier) и с рейсом (flight.flight_no). Объявите оба внешних ключа. Программу «бронза» закрыли в прошлом году, её участникам выдали базовую карту — исправьте анкеты по смыслу, когда СУБД откажет.',
       goals: [
         'fk_passenger_loyalty: passenger.loyalty → loyalty.tier',
         'fk_passenger_flight: passenger.flight_no → flight.flight_no',
@@ -207,7 +218,7 @@ export function levels(D) {
       ],
       cmds: 'ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY … — для каждой связи; при отказе — найти, исправить, повторить',
       hint: 'Отказ называет значение: Key (loyalty)=(бронза). Посмотрите, у кого оно: SELECT id, full_name, loyalty FROM passenger WHERE loyalty = …',
-      ok: 'Связи закреплены: у каждой строки теперь есть пара, и соединение ничего не потеряет молча.',
+      ok: 'Связи закреплены: ссылок «в никуда» больше нет. Пустое значение (у кого карты нет) внешний ключ не запрещает — такие строки обычное соединение по-прежнему выбросит.',
     },
     // ═══════════════════════════════ часть 2 · две таблицы
     {
@@ -219,7 +230,7 @@ export function levels(D) {
       goals: ['Столбцы: tag, weight_kg (из baggage), full_name (из passenger)', 'Условие соединения — по ключу связи', 'Псевдонимы таблиц'],
       ask: 'SELECT b.tag, b.weight_kg, p.full_name FROM baggage b JOIN passenger p ON p.id = b.passenger_id',
       alias: true,
-      hint: 'FROM baggage b JOIN passenger p ON p.id = b.passenger_id — дальше b.tag, p.full_name.',
+      hint: 'FROM baggage b JOIN passenger p ON … — какой столбец baggage хранит номер владельца? Дальше пишите b.tag, p.full_name.',
       ok: 'Каждый чемодан нашёл владельца — робот протянул связь от бирки к пассажиру.',
     },
     {
@@ -229,16 +240,17 @@ export function levels(D) {
       text: `Бортпроводнику ряда ${D.row} нужно знать, кто куда летит: фамилия и город назначения. Город — в таблице рейсов flight.`,
       q: `Куда летят пассажиры ряда ${D.row}?`,
       goals: ['Столбцы: full_name (passenger), dest (flight)', `Только ряд ${D.row}`],
+      minTables: 2,
       ask: `SELECT p.full_name, f.dest FROM passenger p JOIN flight f ON f.flight_no = p.flight_no WHERE p.seat LIKE '${D.row}%'`,
       alias: true,
-      hint: `JOIN flight f ON f.flight_no = p.flight_no; ряд — p.seat LIKE '${D.row}%'.`,
+      hint: 'Рейс пассажира записан в passenger, город назначения — в flight: соедините их по номеру рейса. Ряд — первая цифра места.',
       ok: 'Отбор в WHERE работает и после соединения.',
     },
     {
       key: 'city',
       title: `Багаж из города ${D.city}`,
       lab: 'ч. 2 · соединение и условие по второй таблице',
-      text: `Таможня проверяет багаж пассажиров из города ${D.city}: бирка, фамилия владельца и его место.`,
+      text: `Служба досмотра проверяет багаж пассажиров из города ${D.city}: бирка, фамилия владельца и его место.`,
       q: `Чьи чемоданы из города ${D.city}?`,
       goals: ['Столбцы: tag, full_name, seat', `Владелец — из города ${D.city}`],
       ask: `SELECT b.tag, p.full_name, p.seat FROM baggage b JOIN passenger p ON p.id = b.passenger_id WHERE p.city = ${lit(D.city)}`,
@@ -256,8 +268,8 @@ export function levels(D) {
       ask: 'SELECT p.full_name, l.tier, l.discount FROM passenger p JOIN loyalty l ON l.tier = p.loyalty ORDER BY l.discount DESC',
       order: ['discount'],
       alias: true,
-      hint: 'JOIN loyalty l ON l.tier = p.loyalty … ORDER BY l.discount DESC',
-      ok: 'Пассажиры без карты в ответ не попали: у них пары в loyalty нет.',
+      hint: 'Справочник loyalty присоединяется по названию программы: какой столбец passenger его хранит? Порядок — ORDER BY … DESC.',
+      ok: 'Пассажиры без карты в ответ не попали: у них loyalty пустой, пары в справочнике нет — внешний ключ этого не запрещает.',
     },
     {
       key: 'cross',
@@ -289,9 +301,10 @@ export function levels(D) {
       text: 'Чемоданы владельцев золотых и платиновых карт выдают первыми. Нужны бирка, фамилия владельца и его программа. Путь соединения: baggage → passenger → loyalty — каждая таблица присоединяется своим условием.',
       q: 'Чьи чемоданы выдать первыми?',
       goals: ['Столбцы: tag, full_name, tier', 'Только золото и платина', 'Три таблицы, два условия соединения'],
+      minTables: 3,
       ask: "SELECT b.tag, p.full_name, l.tier FROM baggage b JOIN passenger p ON p.id = b.passenger_id JOIN loyalty l ON l.tier = p.loyalty WHERE l.tier IN ('золото', 'платина')",
       alias: true,
-      hint: 'FROM baggage b JOIN passenger p ON … JOIN loyalty l ON l.tier = p.loyalty WHERE l.tier IN (…)',
+      hint: 'Сначала baggage с passenger, затем к ним loyalty — второй JOIN со своим ON. Отбор программ — в WHERE после всех соединений.',
       ok: 'Путь собран: чемодан → владелец → его программа.',
     },
     // ═══════════════════════════════ часть 4 · строки без пары
@@ -303,6 +316,7 @@ export function levels(D) {
       text: 'Отдел маркетинга спрашивает: какие программы лояльности есть в справочнике, но ни у одного пассажира этого рейса их нет? Обычное соединение такие строки выбросит — нужно левое и условие IS NULL.',
       q: 'Какие программы ни разу не использованы?',
       goals: ['Столбец: tier', 'LEFT JOIN и IS NULL по столбцу правой таблицы'],
+      minTables: 2,
       ask: 'SELECT l.tier FROM loyalty l LEFT JOIN passenger p ON p.loyalty = l.tier WHERE p.id IS NULL',
       alias: true,
       pred: {
@@ -314,7 +328,7 @@ export function levels(D) {
         ],
         answer: 'none',
       },
-      hint: 'FROM loyalty l LEFT JOIN passenger p ON p.loyalty = l.tier WHERE p.id IS NULL',
+      hint: 'Слева — справочник loyalty, справа — passenger: LEFT JOIN оставит все программы. У программы без пары столбцы passenger пустые — отберите такие строки через IS NULL.',
       ok: 'У «платины» пары нет: левое соединение оставило её с пустыми значениями, а IS NULL их и отобрал.',
     },
     {
@@ -335,7 +349,7 @@ export function levels(D) {
         ],
         answer: 'join',
       },
-      hint: 'FROM passenger p LEFT JOIN baggage b ON b.passenger_id = p.id WHERE b.tag IS NULL',
+      hint: 'Теперь слева passenger, справа baggage. У пассажира без чемодана столбцы baggage пустые — проверьте любой из них, который у настоящих чемоданов всегда заполнен.',
       ok: `Без багажа — ${D.noBag}. Пустые значения подставила СУБД: пары для них в baggage не нашлось.`,
     },
     // ═══════════════════════════════ контрольный
@@ -353,6 +367,7 @@ export function levels(D) {
         'Без карты — тоже в ответе',
         'По убыванию веса',
       ],
+      minTables: 3,
       ask: `SELECT b.tag, b.weight_kg, p.full_name, l.discount FROM baggage b JOIN passenger p ON p.id = b.passenger_id LEFT JOIN loyalty l ON l.tier = p.loyalty WHERE b.weight_kg > ${D.heavy} ORDER BY b.weight_kg DESC`,
       order: ['weight_kg'],
       alias: true,

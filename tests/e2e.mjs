@@ -213,7 +213,9 @@ async function workbook(name, path) {
   const n = await page.evaluate(() => W.api.S.levels.length);
   const res = [];
   for (let i = 0; i < n; i++) {
-    await page.evaluate(i => document.querySelector(`[data-l="${i}"]`).click(), i);
+    // кнопка уровня перерисовывается после каждого запуска — дождаться её, а не щёлкать наугад
+    await page.waitForSelector(`[data-l="${i}"]`, {timeout: 30000});
+    await page.click(`[data-l="${i}"]`);
     await sleep(200);
     await idle();
     const ref = await page.evaluate(i => W.api.S.levels[i].ref || null, i);
