@@ -7,7 +7,7 @@ import {$, esc, plural} from './util.js';
 import {statements} from './sql.js';
 import {SFX} from './sfx.js';
 import {judge, describe, keyHint} from './judge.js';
-import {parseSelect, compareResult, kindOf, shown} from './select.js';
+import {parseSelect, compareResult, kindOf, shown, layoutHint} from './select.js';
 import {
   db,
   D,
@@ -499,14 +499,24 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
             : `Строк ${info.res.rows.length}, а не ${counts.join(' × ')} = ${prod}: условие соединения всё ещё есть.`,
         );
       }
-      const c = compareResult(info.res, G.expect, {order: lv.order});
+      const c = compareResult(info.res, G.expect, {order: lv.order, names: lv.names});
+      if (c.ok && lv.minTables && info.p.tables.length < lv.minTables) {
+        // ответ совпал, но без соединения: промахом не считаем, просим запрос по заданию
+        verdict(
+          false,
+          `Ответ совпал, но вопрос — про соединение: в запросе ${info.p.tables.length} ${plural(info.p.tables.length, 'таблица', 'таблицы', 'таблиц')}, а нужно ${lv.minTables}. Соберите ответ через JOIN, как в задании.`,
+        );
+        renderMission();
+        return;
+      }
       if (c.ok) {
         rec.note = `получено строк: ${info.res.rows.length}`;
         return success(lv, rec);
       }
       rec.fails++;
       save();
-      verdict(false, c.msg);
+      const lh = lv.ask ? layoutHint(info.p.sql, lv.ask) : '';
+      verdict(false, c.msg + (lh ? ' ' + lh : ''));
       renderMission();
       return;
     }

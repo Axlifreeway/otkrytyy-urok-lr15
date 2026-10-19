@@ -1,6 +1,7 @@
 // Запросы на выборку (ЛР-15, ЛР-16): разбор SELECT на части и сверка результата с ответом задания.
 // Без DOM и базы — проверяется тестами (tests/select.test.mjs).
 import {findTop, splitTop} from './sql.js';
+import {lat} from './judge.js';
 
 const norm = sql =>
   sql
@@ -99,8 +100,9 @@ export const shown = v => (v === null || v === undefined ? 'NULL' : cell(v));
 const rowKey = r => JSON.stringify(r.map(cell));
 
 // got, exp: {fields: [имена], rows: [[значения]]}; order — важен ли порядок строк:
-// true — порядок всех строк, ['shelf', 'weight_kg'] — порядок по этим столбцам (равные значения могут идти в любом порядке)
-export function compareResult(got, exp, {order = false} = {}) {
+// true — порядок всех строк, ['shelf', 'weight_kg'] — порядок по этим столбцам (равные значения могут идти в любом порядке);
+// names — имена столбцов должны совпасть (вычисляемому столбцу нужно имя через AS)
+export function compareResult(got, exp, {order = false, names = false} = {}) {
   const gf = got.fields.map(f => f.toLowerCase()),
     ef = exp.fields.map(f => f.toLowerCase());
   const n = got.rows.length,
@@ -120,6 +122,14 @@ export function compareResult(got, exp, {order = false} = {}) {
   // столбцы сопоставляются по имени, если все имена совпали, иначе — по порядку
   const idx = ef.map(f => gf.indexOf(f));
   const byName = idx.every(i => i >= 0) && new Set(idx).size === idx.length;
+  if (names && !byName) {
+    const miss = ef.filter(f => !gf.includes(f));
+    return {
+      ok: false,
+      cols: true,
+      msg: `Столбцы ответа называются ${gf.join(', ')}, а нужно ${ef.join(', ')}. Нет имени: ${miss.join(', ')} — дайте его через AS.`,
+    };
+  }
   const pick = r => (byName ? idx.map(i => r[i]) : r);
   const G = got.rows.map(r => rowKey(pick(r))),
     E = exp.rows.map(rowKey);
@@ -156,6 +166,19 @@ export function compareResult(got, exp, {order = false} = {}) {
   if (miss.length) parts.push(`Не хватает (${miss.length}): ${miss.slice(0, 3).map(show).join('; ')}${miss.length > 3 ? '; …' : ''}.`);
   if (!byName && gf.join() !== ef.join()) parts.push(`Столбцы ответа: ${ef.join(', ')}.`);
   return {ok: false, msg: parts.join(' ')};
+}
+// буква в строковом значении набрана в другой раскладке: 'Е%' русская против 'E%' английской, '%А' против '%A'
+const literals = sql => (String(sql).match(/'(?:[^']|'')*'/g) || []).map(x => x.slice(1, -1));
+export function layoutHint(sql, ask) {
+  const want = literals(ask);
+  for (const s of literals(sql)) {
+    const w = want.find(x => x !== s && lat(x) === lat(s));
+    if (!w) continue;
+    const i = [...s].findIndex((c, k) => c !== [...w][k]),
+      ch = [...s][i];
+    return `В значении '${s}' буква «${ch}» набрана в ${/[А-яЁё]/.test(ch) ? 'русской' : 'английской'} раскладке — на экране она такая же, но для базы это другой символ.`;
+  }
+  return '';
 }
 function plural(n, a, b, c) {
   const m = n % 10,

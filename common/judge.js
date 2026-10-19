@@ -21,7 +21,7 @@ const HOMO = {
   х: 'x',
   у: 'y',
 };
-const lat = v => String(v ?? '').replace(/[АВСЕНКМОРТХасеорху]/g, c => HOMO[c]);
+export const lat = v => String(v ?? '').replace(/[АВСЕНКМОРТХасеорху]/g, c => HOMO[c]);
 const keyed = (rows, pk) => new Map(rows.map(r => [String(r[pk]), JSON.stringify(r)]));
 export const fmtv = v => (v === null || v === undefined ? 'NULL' : typeof v === 'string' ? `'${v}'` : String(v));
 

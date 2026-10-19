@@ -15,7 +15,11 @@ export const SELECT_REF = [
     "SELECT * FROM crew WHERE post = 'пилот' AND age >= 40;\nSELECT * FROM crew WHERE city = 'Казань' OR city = 'Омск';",
   ],
   ['Сравнения', 'age = 30   age <> 30   age > 30   age >= 30   age < 30   age <= 30'],
-  ['Пустое значение — только IS NULL (не «= NULL»)', 'SELECT * FROM crew WHERE base_id IS NULL;'],
+  [
+    'Пустое значение — только IS NULL (не «= NULL»)',
+    'SELECT * FROM crew WHERE base_id IS NULL;       -- пусто\nSELECT * FROM crew WHERE base_id IS NOT NULL;   -- заполнено',
+  ],
+  ['Вычисляемый столбец и его имя — AS', 'SELECT name, age + 5 AS age_later FROM crew;   -- возраст через 5 лет'],
 ];
 export const WHERE_REF = [
   [
