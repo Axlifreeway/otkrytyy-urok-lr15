@@ -196,10 +196,11 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   async function runSelect(sql) {
     const p = parseSelect(sql);
     const info = {kind: 'SELECT', p};
-    let yes = null;
+    let yes = null,
+      claims = null;
     try {
       if (known(p) && p.tables.length === 1) yes = await showScan(p);
-      else if (known(p)) await showJoin(p);
+      else if (known(p)) claims = await showJoin(p);
     } catch (e) {
       /* показ не получился (сложное условие) — сам запрос всё равно выполним */
       W.beamOff();
@@ -226,6 +227,8 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     journal(sql, tag);
     // зал ожидания: отобранные встают, а с ORDER BY / LIMIT — идут в очередь к выходу в порядке ответа
     if (W.answer && (ordered || yes)) await W.answer(p.tables[0].t, ordered || yes, !!ordered);
+    // зал выдачи: каждый, кому соединение нашло чемодан, забирает его с ленты
+    if (W.claim && claims && claims.length) await W.claim(claims);
     await W.robotGo(W.HOME.x, 0);
     W.face(-Math.PI / 2);
     W.camS.follow = false;
@@ -361,6 +364,11 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     if (total > 0 && links >= MAXL)
       $('cmd').insertAdjacentHTML('beforeend', `<span class="n">показаны первые ${MAXL} связей из ${total}</span>`);
     W.fadeNo();
+    // пары «чемодан — владелец»; без условия соединения пары случайные — никто ничего не забирает
+    const ib = T.findIndex(x => x.t === 'baggage'),
+      ip = T.findIndex(x => x.t === 'passenger');
+    if (p.cross || ib < 0 || ip < 0) return null;
+    return pairs.filter(r => r[ib] !== null && r[ip] !== null).map(r => [r[ib], r[ip]]);
   }
 
   // ═══════════════════════════════════ ALTER, INSERT, UPDATE, DELETE ══

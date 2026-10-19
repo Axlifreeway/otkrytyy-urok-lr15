@@ -47,7 +47,10 @@ for (let i = 0; i < 50; i++) {
 }
 
 // E2E_CHANNEL=chrome — взять установленный Chrome, если браузеры Playwright не скачаны
-const browser = await chromium.launch({channel: process.env.E2E_CHANNEL, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']});
+const browser = await chromium.launch({
+  channel: process.env.E2E_CHANNEL,
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+});
 const out = {};
 const fails = [];
 
@@ -494,7 +497,7 @@ const jobs = {
   home: async () => {
     const {page, errors} = await open('/airport/');
     await page.waitForFunction(
-      () => document.querySelectorAll('#rows .row').length === 4 && document.querySelectorAll('.pass').length === 2,
+      () => document.querySelectorAll('#rows .row').length === 4 && document.querySelectorAll('.pass').length === 4,
     );
     for (const href of await page.evaluate(() => [...document.querySelectorAll('a[href]')].map(a => a.href))) {
       const r = await fetch(href);

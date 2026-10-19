@@ -563,8 +563,112 @@ export function createTerminal(stage, {kind = 'gate', tiers = ['золото', '
     });
     await Promise.all(jobs);
   }
+  // ═════════════════ ответ JOIN в зале выдачи: пассажир подходит к ленте и забирает свой багаж ══
+  // pairs — [бирка, номер пассажира] из соединения; ходят по дорожке между лентой и первым рядом ожидающих
+  const LANE = C.R + 0.4;
+  const ms = t => t / Math.min(Math.max(E.speed, 1), 4);
+  const paramOf = (x, z, r) => {
+    let best = 0,
+      bd = Infinity;
+    for (let i = 0; i < 360; i++) {
+      const q = track(i / 360, r),
+        d = (q.x - x) ** 2 + (q.z - z) ** 2;
+      if (d < bd) [bd, best] = [d, i / 360];
+    }
+    return best;
+  };
+  const lanePath = (t0, t1) => {
+    let d = t1 - t0;
+    d -= Math.round(d); // в обход ленты — коротким путём
+    const n = Math.max(1, Math.ceil(Math.abs(d) / 0.015));
+    return Array.from({length: n}, (_, i) => {
+      const q = track(t0 + (d * (i + 1)) / n, LANE);
+      return V(q.x, 0, q.z);
+    });
+  };
+  const faceBelt = P => {
+    const p = P.g.position,
+      cx = Math.max(C.x - C.half, Math.min(C.x + C.half, p.x));
+    return E.turn(P.g, Math.atan2(C.z - p.z, -(cx - p.x)));
+  };
+  async function fetchBags(P, list) {
+    P.away = true;
+    P.held = [];
+    const home = P.g.position.clone(),
+      tHome = paramOf(home.x, home.z, LANE);
+    const q0 = track(tHome, LANE);
+    await E.walk(P.g, [V(q0.x, 0, q0.z)], 3);
+    let t = tHome;
+    for (let k = 0; k < list.length; k++) {
+      const B = list[k],
+        bp = B.g.position,
+        tb = paramOf(bp.x, bp.z, LANE);
+      await E.walk(P.g, lanePath(t, tb), 3);
+      t = tb;
+      await faceBelt(P);
+      // снять с ленты и поставить у ног: первый чемодан — справа, второй — слева
+      const p = P.g.position,
+        dx = bp.x - p.x,
+        dz = bp.z - p.z,
+        n = Math.hypot(dx, dz) || 1,
+        side = k % 2 ? -1 : 1,
+        h = bagSize(B.row.weight_kg).h;
+      await tween(bp, {y: bp.y + 0.3}, ms(220), 'out');
+      await tween(
+        bp,
+        {x: p.x + (dx / n) * 0.12 - (dz / n) * 0.32 * side, y: h / 2, z: p.z + (dz / n) * 0.12 + (dx / n) * 0.32 * side},
+        ms(340),
+        'io',
+      );
+      P.g.attach(B.g);
+      P.held.push(B);
+    }
+    await E.walk(P.g, [...lanePath(t, tHome), home], 3);
+    await faceBelt(P);
+  }
+  async function claim(pairs) {
+    if (GATE) return;
+    const by = new Map();
+    pairs.forEach(([tag, id]) => {
+      const B = bags.get(String(tag)),
+        P = people.get(+id);
+      if (!B || !P || B.held) return;
+      B.held = true;
+      if (!by.has(P)) by.set(P, []);
+      by.get(P).push(B);
+    });
+    if (!by.size) return;
+    await sleep(ms(500));
+    E.focus(null);
+    E.home(); // весь зал в кадре: к ленте идут сразу многие
+    E.clearLinks(); // пары собраны — дальше их видно по тому, кто с каким чемоданом
+    await Promise.all([...by].map(([P, list], i) => sleep(ms(i * 90)).then(() => fetchBags(P, list))));
+  }
+  // чемоданы — обратно на ленту, каждый на своё место
+  async function dropBags(anim) {
+    const slots = bagSlots([...bags.values()].map(B => B.row));
+    const jobs = [];
+    people.forEach(P => {
+      (P.held || []).forEach(B => {
+        B.held = false;
+        root.attach(B.g);
+        const s = slots.get(B.row.tag);
+        if (!s) return;
+        if (anim) jobs.push(tween(B.g.position, {x: s.p.x, y: s.p.y, z: s.p.z}, ms(450), 'io').then(() => putBag(B.g, s)));
+        else putBag(B.g, s);
+      });
+      P.held = null;
+    });
+    await Promise.all(jobs);
+  }
+
   // все — обратно на места
   async function calm(anim = true) {
+    if (!GATE) {
+      await dropBags(anim);
+      people.forEach(P => P.away && placePerson(P));
+      return;
+    }
     const back = [...people.values()].filter(P => P.away);
     await Promise.all(
       back.map(async P => {
@@ -676,6 +780,7 @@ export function createTerminal(stage, {kind = 'gate', tiers = ['золото', '
     }
   }
   async function sync(state, anim = true) {
+    if (!GATE) await calm(false);
     try {
       const jobs = [];
       const want = new Map(state.passenger.map(r => [r.id, r]));
@@ -744,6 +849,7 @@ export function createTerminal(stage, {kind = 'gate', tiers = ['золото', '
       return;
     }
     // лента делает круг — чемоданы едут
+    await calm(true);
     const list = [...bags.values()].map(B => B.row);
     const t0 = performance.now();
     await new Promise(res => {
@@ -771,6 +877,7 @@ export function createTerminal(stage, {kind = 'gate', tiers = ['золото', '
     applyBag,
     applyLoyalty,
     answer,
+    claim,
     calm,
     takeoff,
     resetRoot: () => {
