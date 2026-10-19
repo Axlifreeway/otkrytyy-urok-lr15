@@ -170,6 +170,28 @@ class ServerTest(unittest.TestCase):
         self.call('/api/admin/delgroup', {'key': KEY, 'name': 'ИИ-25'})
         self.assertEqual(self.call('/api/groups')[1], {'groups': []})
 
+    def test_group_rename_keeps_students_and_variants(self):
+        ids = self.group()
+        self.login('Петрова')
+        self.call('/api/admin/group', {'key': KEY, 'name': 'ИИ-26', 'names': ['Х'], 'old': ''})
+        st, r = self.call('/api/admin/group', {'key': KEY, 'name': 'ИИ-26', 'names': ['Петрова Анна'], 'old': 'ИИ-25'})
+        self.assertEqual(st, 409)                                    # такое название уже занято
+        self.call('/api/admin/delgroup', {'key': KEY, 'name': 'ИИ-26'})
+        st, r = self.call('/api/admin/group', {'key': KEY, 'name': 'ИИ-26', 'names': ['Иванов Иван', 'Петрова Анна'], 'old': 'ИИ-25'})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.call('/api/groups')[1], {'groups': ['ИИ-26']})
+        g = self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]
+        by = {s['name']: s for s in g['students']}
+        self.assertEqual((by['Петрова Анна']['id'], by['Петрова Анна']['seed'], by['Петрова Анна']['pin']), (ids['Петрова А.'], 102, True))
+        self.assertEqual(self.call('/api/login', {'grp': 'ИИ-26', 'name': 'Петрова', 'pin': '1234'})[0], 200)
+
+    def test_show_pin(self):
+        ids = self.group()
+        self.login('Петрова', '0427')
+        self.assertEqual(self.call('/api/admin/showpin', {'key': KEY, 'id': ids['Петрова А.']}), (200, {'pin': '0427'}))
+        self.assertEqual(self.call('/api/admin/showpin', {'key': KEY, 'id': ids['Иванов И.']})[0], 404)
+        self.assertEqual(self.call('/api/admin/showpin', {'id': ids['Петрова А.']})[0], 403)
+
     def test_bad_body(self):
         req = urllib.request.Request(self.base + '/api/ev', data=b'[1,2]', headers={'Content-Type': 'application/json'})
         with self.assertRaises(urllib.error.HTTPError) as c:

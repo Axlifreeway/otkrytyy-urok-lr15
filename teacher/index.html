@@ -53,6 +53,7 @@
   #proj .card b { font-size: 22px } #proj .card .lvl i { width: 22px; height: 26px } #proj .card .s { color: #c99700; font-size: 18px; margin-top: 4px }
   #groups { padding: 0 16px 24px; display: grid; grid-template-columns: 380px 1fr; gap: 14px; align-items: start }
   .gform { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px } .gform h2 { font-size: 18px } .mu { color: var(--mute); font-size: 12.5px }
+  .gform.editing { outline: 4px solid var(--sun); outline-offset: 2px } .pinv { font: 700 15px var(--mono); letter-spacing: 2px; margin-right: 4px }
   .gform input, .gform textarea { width: 100%; font: 500 14px var(--font); padding: 6px 8px; border: 2.5px solid var(--ink); border-radius: 5px }
   .gcard { margin-bottom: 14px } #labGate { margin-bottom: 14px } .gate { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px dashed #d8d0bd } .gate b { min-width: 60px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
   tr.absent td { color: #9a9488; background: #f4f1ea }
@@ -112,11 +113,11 @@
     <th data-s="errs">Ошибок на ур.</th><th>Последняя ошибка</th><th data-s="time">На уровне</th><th>Уходы / вставки</th><th>Сдал</th></tr></thead><tbody id="rows"></tbody></table>
 </main>
 <div id="groups" hidden>
-  <div class="panel gform"><h2>Список группы</h2>
+  <div class="panel gform" id="gForm"><h2 id="gTitle">Новая группа</h2>
     <p class="mu">Одна строка — один студент: «Фамилия Имя». Порядок строк задаёт варианты. Если группа уже есть, список обновится: PIN и прогресс тех, кто остался в списке, сохранятся.</p>
     <label>Группа <input id="gName" placeholder="например 2.1"></label>
     <textarea id="gList" rows="10" placeholder="Иванов Иван&#10;Петрова Анна&#10;…"></textarea>
-    <div><button class="btn on" id="gSave">Сохранить список</button> <span id="gMsg" class="mu"></span></div></div>
+    <div><button class="btn on" id="gSave">Сохранить список</button> <button class="btn" id="gNew" hidden>Отмена</button> <span id="gMsg" class="mu"></span></div></div>
   <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13 и ЛР-14 открыты всегда. ЛР-15 и ЛР-16 студенты не увидят, пока вы их не откроете.</div><div id="gateList"></div></div>
   <div id="gCards"></div></div>
 </div>
@@ -148,6 +149,7 @@ const urlKey = new URLSearchParams(location.search).get('key');
 if (urlKey) { store('labs-key', urlKey); history.replaceState(null, '', location.pathname); }
 let KEY = urlKey || store('labs-key') || '';
 let since = +store('labs-since') || 0, sortBy = 'problems', data = null, open = null, groupsData = [], reportsData = [];
+let editing = '', pins = {};   // какую группу правим (прежнее название); показанные PIN: id → цифры
 // период: выбранный день целиком; сегодня — можно «с начала пары»
 const dstr = t => { const x = new Date(t); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
 let day = dstr(Date.now());
@@ -193,11 +195,12 @@ function renderGroups() {
       <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
     <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th><th>ЛР-15</th><th>ЛР-16</th></tr>
     ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
-      <td>${s.pin ? 'задан <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>' : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
+      <td>${s.pin ? `${pins[s.id] ? `<span class="pinv">${pins[s.id]}</span>` : `задан <button class="btn" data-show="${s.id}">показать</button>`} <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>` : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
       ${['lr13', 'lr14', 'lr15', 'lr16'].map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
-  $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const g = groupsData.find(x => x.name === b.dataset.edit); $('gName').value = g.name; $('gList').value = g.students.filter(s => s.idx).map(s => s.name).join('\n'); });
+  $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editGroup(groupsData.find(x => x.name === b.dataset.edit)));
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
-  $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { await post('/api/admin/resetpin', {id: +b.dataset.pin}); loadGroups(); });
+  $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { if (!confirm('Сбросить PIN? Студент придумает новый при следующем входе.')) return; await post('/api/admin/resetpin', {id: +b.dataset.pin}); delete pins[b.dataset.pin]; loadGroups(); });
+  $('gCards').querySelectorAll('[data-show]').forEach(b => b.onclick = async () => { try { pins[b.dataset.show] = (await post('/api/admin/showpin', {id: +b.dataset.show})).pin; } catch (e) { b.textContent = e.message; return; } renderGroups(); });
 }
 async function tick() {
   try {
@@ -368,8 +371,21 @@ $('grpBtn').onclick = () => { const on = $('groups').hidden; $('groups').hidden 
 $('gSave').onclick = async () => {
   const name = $('gName').value.trim(), names = $('gList').value.split('\n').map(x => x.trim()).filter(Boolean);
   if (!name || !names.length) { $('gMsg').textContent = 'Нужны название группы и хотя бы одна фамилия'; return; }
-  try { await post('/api/admin/group', {name, names}); $('gMsg').textContent = 'Сохранено'; loadGroups(); } catch (e) { $('gMsg').textContent = 'Ошибка: ' + e.message; }
+  if (!editing && groupsData.some(g => g.name === name) && !confirm(`Группа ${name} уже есть. Заменить её список?`)) return;
+  try { await post('/api/admin/group', {name, names, old: editing}); editGroup(null); $('gMsg').textContent = `Группа ${name} сохранена`; loadGroups(); } catch (e) { $('gMsg').textContent = 'Ошибка: ' + e.message; }
 };
+// форма слева: новая группа или правка существующей (тогда её можно и переименовать)
+function editGroup(g) {
+  editing = g ? g.name : '';
+  $('gName').value = g ? g.name : '';
+  $('gList').value = g ? g.students.filter(s => s.idx).map(s => s.name).join('\n') : '';
+  $('gTitle').textContent = g ? `Изменить группу ${g.name}` : 'Новая группа';
+  $('gForm').classList.toggle('editing', !!g);
+  $('gNew').hidden = !g;
+  $('gMsg').textContent = g ? 'Поправьте список или название и сохраните' : '';
+  if (g) { $('gForm').scrollIntoView({behavior: 'smooth', block: 'start'}); $('gList').focus({preventScroll: true}); }
+}
+$('gNew').onclick = () => editGroup(null);
 $('keyGo').onclick = () => { KEY = $('keyIn').value.trim(); store('labs-key', KEY); $('keyErr').textContent = ''; start(); };
 $('keyIn').onkeydown = e => { if (e.key === 'Enter') $('keyGo').click(); };
 $('labSel').onchange = tick; $('grpSel').onchange = () => { render(); renderReports(); };

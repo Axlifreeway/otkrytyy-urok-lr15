@@ -450,10 +450,20 @@ class Store:
                 out.append({'name': name, 'students': st})
         return out
 
-    def save_group(self, name, names):
-        """Сохранить список. Порядок строк задаёт варианты; PIN и прогресс оставшихся сохраняются."""
+    def save_group(self, name, names, old=''):
+        """Сохранить список. Порядок строк задаёт варианты; PIN и прогресс оставшихся сохраняются.
+        old — прежнее название, если группу переименовали (номер группы и варианты не меняются).
+        Возвращает текст ошибки или None."""
         with self.lock:
             con = self.con
+            if old and old != name:
+                if not con.execute('SELECT 1 FROM grp WHERE name = ?', (old,)).fetchone():
+                    return f'Группы {old} уже нет'
+                if con.execute('SELECT 1 FROM grp WHERE name = ?', (name,)).fetchone():
+                    return f'Группа {name} уже есть — выберите другое название'
+                con.execute('UPDATE grp SET name = ? WHERE name = ?', (name, old))
+                for t in ('student', 'ev', 'say', 'report'):
+                    con.execute(f'UPDATE {t} SET grp = ? WHERE grp = ?', (name, old))
             if not con.execute('SELECT 1 FROM grp WHERE name = ?', (name,)).fetchone():
                 o = (con.execute('SELECT max(ord) FROM grp').fetchone()[0] or 0) + 1
                 con.execute('INSERT INTO grp (name, ord) VALUES (?, ?)', (name, o))
@@ -474,6 +484,15 @@ class Store:
                 else:
                     con.execute('DELETE FROM student WHERE id = ?', (sid,))
             con.commit()
+        return None
+
+    def show_pin(self, sid):
+        """PIN хранится хешем, но цифр всего четыре: перебор 10 000 вариантов — доли секунды."""
+        with self.lock:
+            r = self.con.execute('SELECT pin FROM student WHERE id = ?', (sid,)).fetchone()
+        if not r or not r[0]:
+            return None
+        return next((p for p in (f'{i:04d}' for i in range(10000)) if hmac.compare_digest(r[0], self.pin_hash(sid, p))), None)
 
     def reset_pin(self, sid):
         with self.lock:
@@ -714,7 +733,9 @@ class Handler(BaseHTTPRequestHandler):
         name = clip(e.get('name'), 20).strip()
         if not name:
             return self.send(400, {'err': 'name'})
-        self.store.save_group(name, [clip(x, 60).strip() for x in (e.get('names') or []) if str(x).strip()])
+        err = self.store.save_group(name, [clip(x, 60).strip() for x in (e.get('names') or []) if str(x).strip()], clip(e.get('old'), 20).strip())
+        if err:
+            return self.send(409, {'err': err})
         self.send(200, {'ok': True})
 
     def admin_say(self, e):
@@ -740,6 +761,12 @@ class Handler(BaseHTTPRequestHandler):
     def admin_resetpin(self, e):
         self.store.reset_pin(int(e.get('id') or 0))
         self.send(200, {'ok': True})
+
+    def admin_showpin(self, e):
+        pin = self.store.show_pin(int(e.get('id') or 0))
+        if pin is None:
+            return self.send(404, {'err': 'PIN ещё не задан'})
+        self.send(200, {'pin': pin})
 
     def admin_delgroup(self, e):
         self.store.delete_group(clip(e.get('name'), 20))
@@ -784,6 +811,7 @@ POST_ROUTES = {
     '/api/report': (Handler.post_report, False),
     '/api/admin/group': (Handler.admin_group, True),
     '/api/admin/resetpin': (Handler.admin_resetpin, True),
+    '/api/admin/showpin': (Handler.admin_showpin, True),
     '/api/admin/say': (Handler.admin_say, True),
     '/api/admin/delgroup': (Handler.admin_delgroup, True),
     '/api/admin/labs': (Handler.admin_labs, True),
