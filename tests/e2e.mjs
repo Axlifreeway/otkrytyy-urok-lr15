@@ -46,7 +46,8 @@ for (let i = 0; i < 50; i++) {
   await sleep(100);
 }
 
-const browser = await chromium.launch({args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']});
+// E2E_CHANNEL=chrome — взять установленный Chrome, если браузеры Playwright не скачаны
+const browser = await chromium.launch({channel: process.env.E2E_CHANNEL, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']});
 const out = {};
 const fails = [];
 
@@ -373,13 +374,14 @@ async function gate() {
   }
   const home = await open('/airport/');
   await sleep(1500);
-  const before = await home.page.evaluate(() => [...document.querySelectorAll('.pass')].map(x => x.getAttribute('href')));
-  if (before.some(h => /lr1[56]/.test(h))) fails.push('gate: закрытые лабы видны на главной');
+  const shut = () => home.page.evaluate(() => [...document.querySelectorAll('.pass.shut')].map(x => x.getAttribute('href')));
+  const before = await shut();
+  if (before.join() !== '../lr15-3d/,../lr16-3d/') fails.push('gate: у закрытых лаб нет талона «задержан»: ' + before);
   await post('/api/admin/labs', {key: KEY, lab: 'lr15', open: true});
   await home.page.reload();
   await sleep(1500);
-  const after = await home.page.evaluate(() => [...document.querySelectorAll('.pass')].map(x => x.getAttribute('href')));
-  if (!after.includes('../lr15-3d/')) fails.push('gate: открытая ЛР-15 не появилась на главной');
+  const after = await shut();
+  if (after.join() !== '../lr16-3d/') fails.push('gate: открытая ЛР-15 всё ещё «задержана» на главной');
   const {page} = await open('/lr15-3d/index.html');
   await page.waitForSelector('#modal:not([hidden]) .dlg', {timeout: 60000});
   if (await page.$('.closed')) fails.push('gate: открытая ЛР-15 всё ещё закрыта');

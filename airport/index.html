@@ -74,7 +74,7 @@
   @keyframes flip { from { transform: rotateX(90deg); opacity: 0 } to { transform: none; opacity: 1 } }
 
   /* посадочные талоны */
-  .passes { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 22px; margin-top: 26px }
+  .passes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 22px; margin-top: 26px }
   .pass { display: grid; grid-template-columns: 1fr 132px; text-decoration: none; transition: transform .15s }
   .pass:hover { transform: translateY(-3px) }
   .pass:hover .cta { background: var(--sun2) }
@@ -98,6 +98,15 @@
   .stars { color: var(--sun2); font-size: 15px; letter-spacing: 1px; text-align: center }
   .cta { background: var(--sun); border: 2.5px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); border-radius: 6px; font: 800 12.5px var(--font); padding: 5px 7px; white-space: nowrap; max-width: 100%; text-align: center }
   .barcode { width: 100%; height: 26px; display: block }
+  /* рейс ещё не открыт: талон есть, но посадка позже */
+  .pass.shut .pass-main > :not(.stamp), .pass.shut .pass-stub > :not(.cta) { opacity: .5 }
+  .pass.shut .pass-stub { background: #ece6d6 }
+  .pass.shut .cta { background: #fff }
+  .pass.shut:hover .cta { background: #fff }
+  .stamp { display: inline-block; margin-top: 12px; transform: rotate(-3deg); border: 3px solid var(--red); color: var(--red); border-radius: 6px;
+    font: 800 15px/1.2 var(--mono); letter-spacing: .1em; padding: 3px 10px; max-width: 100% }
+  .stamp small { display: block; font: 700 11px var(--font); letter-spacing: 0 }
+  .pass-main { min-width: 0 }
 
   /* как это устроено */
   .how { margin-top: 26px; padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px }
@@ -210,21 +219,24 @@ function render(prog = {}) {
       <span class="gate">${f.gate}</span>${st}${pr}`;
     return `<div class="row">${cells}</div>`;
   }).join('');
-  $('passes').innerHTML = FLIGHTS.filter(f => f.href && live(f)).map(f => {
-    const p = prog[f.lab] || progress(f), n = f.levels.length;
+  // закрытые рейсы тоже с талоном: студент видит, что впереди; лаба сама покажет «Рейс задержан» (преподавателю — демо по коду)
+  $('passes').innerHTML = FLIGHTS.filter(f => f.href).map(f => {
+    const on = live(f);
+    const p = on ? prog[f.lab] || progress(f) : {done: 0, lv: {}}, n = f.levels.length;
     const dots = f.levels.map((k, i) => `<i class="${(p.lv[k] || {}).done ? 'd' : ''}${i === n - 1 ? ' f' : ''}" title="уровень ${i + 1}">${i === n - 1 ? '✈' : i + 1}</i>`).join('');
-    return `<a class="pass panel" href="${f.href}">
+    const cta = !on ? 'Скоро' : p.done === n ? 'Ещё раз' : p.done ? 'Продолжить' : 'На борт';
+    return `<a class="pass panel${on ? '' : ' shut'}" href="${f.href}" data-lab="${f.lab}"${on ? '' : ' title="Откроет преподаватель на занятии"'}>
       <div class="pass-main">
         <div class="pass-eye"><span>ПОСАДОЧНЫЙ ТАЛОН</span><span>${f.no}</span></div>
         <div class="route"><span class="code">SQL</span><span class="line"></span><span class="code">${f.code}</span></div>
         <h3>${esc(f.title)}</h3>
         <p>${esc(f.text)}</p>
-        <div class="dots">${dots}</div>
+        ${on ? `<div class="dots">${dots}</div>` : `<span class="stamp">${f.soon}<small>откроет преподаватель</small></span>`}
       </div>
       <div class="pass-stub">
         <div><div class="k">ВЫХОД</div><div class="v">${f.gate}</div></div>
         <div><div class="k">ПРОЙДЕНО</div><div class="v">${p.done}/${n}</div>${p.stars ? `<div class="stars">★ ${p.stars}</div>` : ''}</div>
-        <span class="cta">${p.done === n ? 'Ещё раз' : p.done ? 'Продолжить' : 'На борт'} →</span>
+        <span class="cta">${cta} →</span>
         ${BARCODE}
       </div></a>`;
   }).join('');
