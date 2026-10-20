@@ -343,7 +343,7 @@ async function practiceRun(lab, dir) {
     await page.waitForFunction(() => !window.LAB.running && window.LAB.L.at(-1).practice, null, {timeout: 30000});
     const lv = await page.evaluate(() => {
       const l = window.LAB.L.at(-1);
-      return {title: l.title, ref: l.ref, n: window.LAB.G.P.practice || 0};
+      return {title: l.title, ref: l.ref || [l.ask], n: window.LAB.G.P.practice || 0};
     });
     for (const q of lv.ref) {
       await page.evaluate(q => {
@@ -505,6 +505,8 @@ const jobs = {
   mobile,
   'lr13-practice': () => practiceRun('lr13', 'lr13-3d'),
   'lr14-practice': () => practiceRun('lr14', 'lr14-3d'),
+  'lr15-practice': () => practiceRun('lr15', 'lr15-3d'),
+  'lr16-practice': () => practiceRun('lr16', 'lr16-3d'),
   gate,
   'server-flow': serverFlow,
   teacher: () =>
