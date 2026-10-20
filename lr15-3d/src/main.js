@@ -5,6 +5,7 @@ import {makeData, baseSql, levels, TABLES, COLS, FLIGHT} from './data.js';
 import {$} from '../../common/util.js';
 import {initShell, boot, G} from '../../common/shell.js';
 import {queryLab} from '../../common/qlab.js';
+import {practice} from './practice.js';
 import {SELECT_REF, WHERE_REF, ORDER_REF} from '../../common/sqlref.js';
 
 const PTS = {
@@ -69,5 +70,6 @@ initShell({
   startLevel: Q.startLevel,
   renderMission: Q.renderMission,
   pick: Q.pick,
+  practice,
 });
 boot();

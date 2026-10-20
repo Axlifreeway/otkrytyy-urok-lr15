@@ -5,6 +5,7 @@ import {makeData, baseSql, levels, TABLES, COLS, FLIGHT, TIERS} from './data.js'
 import {$} from '../../common/util.js';
 import {initShell, boot, G} from '../../common/shell.js';
 import {queryLab} from '../../common/qlab.js';
+import {practice} from './practice.js';
 import {SELECT_REF, JOIN_REF, ALTER_REF} from '../../common/sqlref.js';
 
 const PTS = {links: 1, owner: 0.75, dest: 0.75, city: 0.75, disc: 0.75, cross: 0.75, three: 1, empty: 1, nobag: 0.75, final: 1.5};
@@ -53,5 +54,6 @@ initShell({
   startLevel: Q.startLevel,
   renderMission: Q.renderMission,
   pick: Q.pick,
+  practice,
 });
 boot();

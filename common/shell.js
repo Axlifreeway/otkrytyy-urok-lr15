@@ -202,7 +202,7 @@ export function renderLevels() {
 }
 // подсказка после промахов и кнопка «Решение» в демо-режиме
 export function missionButtons(lv, rec, minFails = 2) {
-  const sol = lv.ref && (G.demo || (lv.practice && (rec.fails || 0) >= 2)); // в тренировке после двух промахов можно подсмотреть
+  const sol = (lv.ref && G.demo) || (lv.practice && (lv.ref || lv.ask) && (rec.fails || 0) >= 2); // в тренировке после двух промахов можно подсмотреть
   return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${sol ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, lv.sel || (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
 }
 export function bindMissionButtons(lv, rec) {
@@ -214,7 +214,7 @@ export function bindMissionButtons(lv, rec) {
     };
   if ($('solBtn'))
     $('solBtn').onclick = () => {
-      $('sql').value = lv.ref.map(q => q + ';').join('\n');
+      $('sql').value = (lv.ref || [lv.ask]).map(q => q + ';').join('\n');
     };
 }
 export const levelTag = lv =>
@@ -298,7 +298,8 @@ export async function success(lv, rec) {
 
 // ═══════════════════════════════ тренировка: бесконечные задания без баллов ══
 // После уровней (или после отправки отчёта) студент может решать новые задания, собранные из его же базы
-// (состояние после всех уровней). cfg.practice(D, state, rnd) возвращает уровень {title, text, goals, tables, ref, ok}.
+// (состояние после всех уровней). cfg.practice(D, state, rnd) возвращает уровень {title, text, goals, tables, ref, ok}
+// или, в лабах на запросы, {title, text, q, goals, ask, ok} — ответ сверяется с результатом эталонного запроса.
 // Задание — 13-й элемент L с key 'practice'; его запись в G.P.lv неперечисляемая — не сохраняется и не уходит на сервер.
 export async function startPractice() {
   if (running || !cfg.practice) return;
@@ -314,8 +315,12 @@ export async function startPractice() {
     const before = await state(),
       cand = cfg.practice(D, before, Math.random);
     try {
-      for (const q of cand.ref) await db.query(q);
-      if (JSON.stringify(await state()) !== JSON.stringify(before)) lv = cand; // команда что-то меняет и база её принимает
+      if (cand.ask) {
+        if ((await db.query(cand.ask)).rows.length) lv = cand; // запрос выполняется и ответ не пуст
+      } else {
+        for (const q of cand.ref) await db.query(q);
+        if (JSON.stringify(await state()) !== JSON.stringify(before)) lv = cand; // команда что-то меняет и база её принимает
+      }
     } catch (e) {
       /* такое задание в этой базе не выполнить — берём другое */
     }
