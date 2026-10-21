@@ -462,7 +462,8 @@ class Store:
     # ── группы (панель преподавателя) ──
     def admin_groups(self):
         with self.lock:
-            prog = {(sid, lab): json.loads(data) for sid, lab, data in self.con.execute('SELECT sid, lab, data FROM progress')}
+            # только отметки уровней: разбирать целиком журналы всех студентов под замком — долго
+            prog = {(sid, lab): {'lv': json.loads(lv or '{}')} for sid, lab, lv in self.con.execute("SELECT sid, lab, json_extract(data, '$.lv') FROM progress")}
             for k, ev in self.ev_progress().items():
                 prog[k] = merge(prog.get(k), ev)
             done = {}
@@ -736,7 +737,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, {'err': 'closed'})
         if not sid or not lab or not isinstance(e.get('data'), dict):
             return self.send(403, {'err': 'token'})
-        self.send(200, {'data': self.store.save_progress(sid, lab, e['data'])})
+        self.store.save_progress(sid, lab, e['data'])
+        # без самого прогресса в ответе: с журналом он дорастает до сотен КБ на каждое сохранение,
+        # и через полчаса пары канал сервера не успевал — у студентов «нет связи»
+        self.send(200, {'ok': True})
 
     def post_report(self, e):
         html, lab = e.get('html'), clip(e.get('lab'), 10)

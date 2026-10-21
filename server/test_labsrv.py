@@ -134,7 +134,8 @@ class ServerTest(unittest.TestCase):
         tok = self.login('Иванов')[1]['token']
         self.assertEqual(self.call('/api/progress', {'token': 'bad', 'lab': 'lr13', 'data': {}})[0], 403)
         self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'a': {'done': True}}}})
-        self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'b': {'runs': 1}}}})
+        # ответ на сохранение — короткий, без прогресса (с журналом он рос до сотен КБ)
+        self.assertEqual(self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'b': {'runs': 1}}}}), (200, {'ok': True}))
         st, r = self.call('/api/progress?lab=lr13', headers={'X-Labs-Token': tok})
         self.assertEqual(st, 200)
         self.assertEqual(set(r['data']['lv']), {'a', 'b'})
