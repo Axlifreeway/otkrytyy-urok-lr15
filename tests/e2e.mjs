@@ -456,12 +456,12 @@ const jobs = {
   lr18: () => lab3d('lr18', 'lr18-3d'),
   lr19: () => lab3d('lr19', 'lr19-3d'),
   lr20: () => lab3d('lr20', 'lr20-3d'),
-  // город: пока ЛР-17/18 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии два заказа
+  // город: пока ЛР-17–20 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии четыре заказа
   city: async () => {
     const {page, errors} = await open('/');
     await page
       .waitForURL(/\/airport\/$/, {timeout: 15000})
-      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17/18 закрыты'));
+      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17–20 закрыты'));
     await page.goto(BASE + '/?map');
     await page
       .waitForFunction(
@@ -478,7 +478,7 @@ const jobs = {
     await page.goto(BASE + '/pizza/');
     await page
       .waitForFunction(
-        () => document.querySelectorAll('#tickets .ticket').length === 2 && document.querySelectorAll('.receipt').length === 2,
+        () => document.querySelectorAll('#tickets .ticket').length === 4 && document.querySelectorAll('.receipt').length === 4,
         null,
         {timeout: 15000},
       )
