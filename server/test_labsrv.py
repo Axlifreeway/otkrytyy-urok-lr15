@@ -140,6 +140,25 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(set(r['data']['lv']), {'a', 'b'})
         self.assertEqual(self.call('/api/progress?lab=lr13')[0], 403)
 
+    def test_progress_restored_from_done_events(self):
+        # сохранение прогресса не дошло, а события «уровень пройден» дошли: пройденное не теряется
+        sid = self.group()['Иванов И.']
+        tok = self.login('Иванов')[1]['token']
+        self.call('/api/progress', {'token': tok, 'lab': 'lr15', 'data': {'lv': {'star': {'done': True, 'runs': 3}, 'cols': {'runs': 2}},
+                                                                          'journal': [{'t': '10:00:00', 'q': 'SELECT 1'}], 'cur': 1}})
+        for k in ('cols', 'eq', 'cmp'):
+            self.call('/api/ev', {'type': 'done', 'client': 'x', 'lab': 'lr15', 'token': tok, 'data': {'lv': 2, 'key': k, 'fails': 1}})
+        self.call('/api/ev', {'type': 'practice', 'client': 'x', 'lab': 'lr15', 'token': tok, 'data': {'n': 4}})
+        self.call('/api/ev', {'type': 'done', 'client': 'x', 'lab': 'lr16', 'token': tok, 'data': {'lv': 1, 'key': 'links'}})
+        d = self.call('/api/progress?lab=lr15', headers={'X-Labs-Token': tok})[1]['data']
+        self.assertEqual({k for k, r in d['lv'].items() if r.get('done')}, {'star', 'cols', 'eq', 'cmp'})
+        self.assertEqual((d['lv']['star']['runs'], d['practice'], d['cur'], len(d['journal'])), (3, 4, 1, 1))
+        # прогресса на сервере нет совсем — запись всё равно полная, лаба её откроет
+        d = self.call('/api/progress?lab=lr16', headers={'X-Labs-Token': tok})[1]['data']
+        self.assertEqual((list(d['lv']), d['journal'], d['answers']), (['links'], [], {}))
+        labs = next(x for x in self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]['students'] if x['id'] == sid)['labs']
+        self.assertEqual(labs, {'lr15': 4, 'lr16': 1})
+
     def test_events_identity_comes_from_token(self):
         sid = self.group()['Иванов И.']
         tok = self.login('Иванов')[1]['token']

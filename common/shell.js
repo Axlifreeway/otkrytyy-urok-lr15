@@ -5,7 +5,7 @@ import {$, esc, sleep, comma, ls, lsJSON} from './util.js';
 import {SFX, sound} from './sfx.js';
 import {openDb, loadSql as load} from './db.js';
 import {report, setCtx, clientId, watchAway, guardPaste} from './net.js';
-import {loginScreen, session, mergeP, syncInit, pull, push} from './login.js';
+import {loginScreen, session, mergeP, syncInit, syncStatus, pull, push} from './login.js';
 import {isTeacherCode} from './teacher.js';
 import {attachHighlight, highlight} from './sqlhl.js';
 import {snapshotHtml, sendReport} from './report.js';
@@ -190,7 +190,7 @@ export function renderLevels() {
     }).join('') +
     (G.demo
       ? '<span class="demo">ДЕМО</span>'
-      : `<span class="pts">${score().sum.toFixed(1).replace('.0', '')}<small>/9</small></span>${G.sess ? '<span id="sync" class="sync ok">☁ сохранено</span>' : ''}`);
+      : `<span class="pts">${score().sum.toFixed(1).replace('.0', '')}<small>/9</small></span>${G.sess ? `<span id="sync" class="sync ${syncStatus()}">${SYNC[syncStatus()]}</span>` : ''}`);
   $('levels')
     .querySelectorAll('[data-i]')
     .forEach(

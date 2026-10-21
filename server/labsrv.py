@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS ev (
   id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, fio TEXT, grp TEXT, seed INTEGER, type TEXT, data TEXT, ip TEXT);
 CREATE INDEX IF NOT EXISTS ev_ts ON ev(ts);
 CREATE INDEX IF NOT EXISTS ev_client ON ev(client, ts);
+CREATE INDEX IF NOT EXISTS ev_type ON ev(type, client);
 CREATE TABLE IF NOT EXISTS grp (name TEXT PRIMARY KEY, ord INTEGER);
 CREATE TABLE IF NOT EXISTS student (
   id INTEGER PRIMARY KEY, grp TEXT, name TEXT, idx INTEGER, pin TEXT, fails INTEGER DEFAULT 0, lock_until INTEGER DEFAULT 0);
@@ -417,10 +418,38 @@ class Store:
         return dict(zip(('id', 'ts', 'client', 'lab', 'fio', 'grp', 'seed', 'pts', 'done', 'html'), r)) if r else None
 
     # ── прогресс ──
+    def ev_progress(self, sid=None, lab=None):
+        """Прогресс по событиям done/practice: {(номер, лаба): {'lv': …, 'practice': n}}. Вызывать под замком.
+        Событие уходит из своей очереди с повторами и доходит, даже когда сохранение прогресса не дошло, —
+        по нему пройденные уровни не теряются ни в списке группы, ни при входе с другого компьютера."""
+        sql, args = "SELECT client, lab, type, data, ts FROM ev WHERE type IN ('done', 'practice') AND client LIKE 's%'", []
+        if sid is not None:
+            sql += ' AND client = ? AND lab = ?'
+            args += [f's{sid}', lab]
+        out = {}
+        for client, lb, typ, data, ts in self.con.execute(sql, args):
+            try:
+                n, d = int(client[1:]), json.loads(data or '{}')
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            p = out.setdefault((n, lb), {'lv': {}})
+            if typ == 'practice':
+                p['practice'] = max(p.get('practice', 0), d.get('n') if isinstance(d.get('n'), int) else 0)
+            elif isinstance(d.get('key'), str) and d['key'] != 'practice':
+                p['lv'].setdefault(d['key'], {'done': True, 'runs': 0, 'fails': d.get('fails') if isinstance(d.get('fails'), int) else 0,
+                                              'at': time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(ts / 1000))})
+        return out
+
     def progress(self, sid, lab):
         with self.lock:
             r = self.con.execute('SELECT data, ts FROM progress WHERE sid = ? AND lab = ?', (sid, lab)).fetchone()
-        return (json.loads(r[0]), r[1]) if r else (None, 0)
+            ev = self.ev_progress(sid, lab).get((sid, lab))
+        data = json.loads(r[0]) if r else None
+        if ev:                              # пустая запись — того же вида, что сохраняет лаба (журнал, ответы…)
+            data = merge(data or {'lv': {}, 'pred': {}, 'journal': [], 'answers': {}, 'cur': 0}, ev)
+        return data, (r[1] if r else 0)
 
     def save_progress(self, sid, lab, data):
         with self.lock:
@@ -433,10 +462,13 @@ class Store:
     # ── группы (панель преподавателя) ──
     def admin_groups(self):
         with self.lock:
+            prog = {(sid, lab): json.loads(data) for sid, lab, data in self.con.execute('SELECT sid, lab, data FROM progress')}
+            for k, ev in self.ev_progress().items():
+                prog[k] = merge(prog.get(k), ev)
             done = {}
-            for sid, lab, data in self.con.execute('SELECT sid, lab, data FROM progress'):
-                d = json.loads(data)
-                done.setdefault(sid, {})[lab] = sum(1 for k, r in (d.get('lv') or {}).items() if r.get('done') and k != 'practice')
+            for (sid, lab), d in prog.items():
+                n = sum(1 for k, r in (d.get('lv') or {}).items() if r.get('done') and k != 'practice')
+                done.setdefault(sid, {})[lab] = min(n, LEVELS.get(lab, n))
             out = []
             for name, o in self.con.execute('SELECT name, ord FROM grp ORDER BY ord').fetchall():
                 st = [{'id': sid, 'name': n, 'idx': idx, 'pin': bool(pin), 'seed': o * 100 + idx, 'labs': done.get(sid, {}), 'dev': dev}
