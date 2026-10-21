@@ -159,14 +159,67 @@
       store: 'air3d-lr16-',
       levels: ['links', 'owner', 'dest', 'city', 'disc', 'cross', 'three', 'empty', 'nobag', 'final'],
     },
-    lr17: {lab: 'lr17', store: 'pizza-lr17-', gated: true, levels: lv('s', 13)},
-    lr18: {lab: 'lr18', store: 'pizza-lr18-', gated: true, levels: lv('s', 10)},
+    // пиццерия: лабы открывает преподаватель
+    lr17: {
+      lab: 'lr17',
+      store: 'pizza-lr17-',
+      gated: true,
+      levels: [
+        'count',
+        'sum',
+        'avg',
+        'nulls',
+        'bypizza',
+        'sumcour',
+        'minmax',
+        'byday',
+        'having',
+        'havsum',
+        'wherehav',
+        'aggwhere',
+        'final',
+      ],
+    },
+    lr18: {
+      lab: 'lr18',
+      store: 'pizza-lr18-',
+      gated: true,
+      levels: ['aboveavg', 'maxrow', 'biggroup', 'inlist', 'incond', 'notexists', 'notin', 'sub2', 'join2', 'final'],
+    },
+    lr19: {
+      lab: 'lr19',
+      store: 'pizza-lr19-',
+      gated: true,
+      levels: [
+        'menu',
+        'month',
+        'big',
+        'letter',
+        'nophone',
+        'named',
+        'one',
+        'total',
+        'per',
+        'twice',
+        'avgp',
+        'over',
+        'never',
+        'newest',
+        'check',
+      ],
+    },
+    lr20: {
+      lab: 'lr20',
+      store: 'pizza-lr20-',
+      gated: true,
+      levels: ['ins2', 'upd1', 'aim', 'del', 'txroll', 'oops', 'parent', 'abort', 'final'],
+    },
   };
   // «миры» города: какие лабы где
-  H.WORLDS = {airport: ['lr13', 'lr14', 'lr15', 'lr16'], pizza: ['lr17', 'lr18']};
+  H.WORLDS = {airport: ['lr13', 'lr14', 'lr15', 'lr16'], pizza: ['lr17', 'lr18', 'lr19', 'lr20']};
   H.live = (lab, open) => !H.LABS[lab].gated || !!(open && open[lab]);
   // карта города показывается, когда открыт хоть один «мир» после аэропорта (или по ссылке /?map)
-  H.CITY_LABS = ['lr17', 'lr18'];
+  H.CITY_LABS = ['lr17', 'lr18', 'lr19', 'lr20'];
   H.cityOpen = open => !!open && H.CITY_LABS.some(l => open[l]);
   window.Home = H;
 })();

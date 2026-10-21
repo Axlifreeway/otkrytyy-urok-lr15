@@ -122,7 +122,7 @@ async function lab3d(lab, dir) {
   for (let i = 0; i < n; i++) {
     const lv = await page.evaluate(i => {
       const l = window.LAB.L[i];
-      return {key: l.key, ref: l.ask ? [l.ask] : l.ref, prefill: l.prefill, needCount: l.needCount, check: l.check};
+      return {key: l.key, ref: l.sol || (l.ask ? [l.ask] : l.ref), prefill: l.prefill, needCount: l.needCount, check: l.check};
     }, i);
     await page.evaluate(i => window.LAB.startLevel(i), i);
     await page.waitForFunction(() => !window.LAB.running);
@@ -145,7 +145,7 @@ async function lab3d(lab, dir) {
     const D = await page.evaluate(async lab => {
       const db = await window.__pg,
         q = async s => (await db.query(s)).rows;
-      if (lab === 'lr15' || lab === 'lr16') return {};
+      if (lab !== 'lr13' && lab !== 'lr14') return {};
       if (lab === 'lr14')
         return {
           FLIGHT: (await q('SELECT flight_no FROM passenger LIMIT 1'))[0].flight_no,
@@ -452,6 +452,10 @@ const jobs = {
   lr14: () => lab3d('lr14', 'lr14-3d'),
   lr15: () => lab3d('lr15', 'lr15-3d'),
   lr16: () => lab3d('lr16', 'lr16-3d'),
+  lr17: () => lab3d('lr17', 'lr17-3d'),
+  lr18: () => lab3d('lr18', 'lr18-3d'),
+  lr19: () => lab3d('lr19', 'lr19-3d'),
+  lr20: () => lab3d('lr20', 'lr20-3d'),
   // город: пока ЛР-17/18 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии два заказа
   city: async () => {
     const {page, errors} = await open('/');
@@ -507,6 +511,9 @@ const jobs = {
   'lr14-practice': () => practiceRun('lr14', 'lr14-3d'),
   'lr15-practice': () => practiceRun('lr15', 'lr15-3d'),
   'lr16-practice': () => practiceRun('lr16', 'lr16-3d'),
+  'lr17-practice': () => practiceRun('lr17', 'lr17-3d'),
+  'lr18-practice': () => practiceRun('lr18', 'lr18-3d'),
+  'lr19-practice': () => practiceRun('lr19', 'lr19-3d'),
   gate,
   'server-flow': serverFlow,
   teacher: () =>

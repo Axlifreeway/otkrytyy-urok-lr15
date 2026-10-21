@@ -1,13 +1,17 @@
-// Лабы на запросы (ЛР-15 SELECT, ЛР-16 JOIN): выполнение команд пульта, показ отбора и соединения в сцене, проверка уровня.
-// Сцена — зал аэропорта (common/three/terminal.js): пассажиры, багаж, таблички программ, табло рейсов.
-// Виды уровней: lv.ask — эталонный запрос (ответ сверяется с результатом студента);
+// Лабы на запросы (ЛР-15 SELECT, ЛР-16 JOIN, ЛР-17 GROUP BY, ЛР-18 подзапросы, ЛР-19, ЛР-20 транзакции):
+// выполнение команд пульта, показ отбора, соединения, группировки и подзапроса в сцене, проверка уровня.
+// Сцена — зал аэропорта (common/three/terminal.js) или пиццерия (common/three/pizzeria.js).
+// Виды уровней: lv.ask — эталонный запрос (ответ сверяется с результатом студента; lv.must — чем он должен быть записан);
 // lv.check 'schema' — доводка схемы (ограничения lv.need, автогенерация lv.identity, данные — по эталону lv.ref);
-// lv.check 'cross' — соединение без условия: строк должно быть произведение.
+// lv.check 'cross' — соединение без условия: строк должно быть произведение;
+// lv.check 'error' — нужен отказ СУБД с кодом lv.code (и текстом lv.errMsg);
+// lv.check 'tx' — команды в транзакции: lv.verify(ctx) смотрит на ход команд (G.trail) и состояние базы.
 import {$, esc, plural} from './util.js';
 import {statements} from './sql.js';
 import {SFX} from './sfx.js';
 import {judge, describe, keyHint} from './judge.js';
-import {parseSelect, compareResult, kindOf, shown, layoutHint} from './select.js';
+import {parseSelect, compareResult, kindOf, shown, layoutHint, subqueries} from './select.js';
+import {splitTop} from './sql.js';
 import {
   db,
   D,
@@ -85,7 +89,13 @@ export function explain(e) {
     case '22P02':
       return 'Типы не сходятся: текст — в одинарных кавычках, числа — без.';
     case '42803':
-      return 'Столбец нужно либо перечислить в GROUP BY, либо обернуть в агрегатную функцию.';
+      return /not allowed in WHERE/.test(m)
+        ? 'В WHERE агрегатной функции быть не может: WHERE отбирает строки до группировки, групп ещё нет — считать нечего. Условие на итог группы пишется в HAVING.'
+        : 'Столбец нужно либо перечислить в GROUP BY, либо обернуть в агрегатную функцию.';
+    case '25P02':
+      return 'Транзакция прервана ошибкой: СУБД не выполняет команды, пока транзакцию не закончат. Выход один — ROLLBACK (COMMIT здесь тоже сработает как ROLLBACK).';
+    case '21000':
+      return 'Подзапрос вернул несколько строк, а на этом месте нужно одно значение. Для списка — IN (SELECT …).';
     default:
       return '';
   }
@@ -99,6 +109,26 @@ FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n O
 LEFT JOIN pg_class r ON r.oid = c.confrelid WHERE n.nspname = 'public' AND c.contype <> 'n' ORDER BY t.relname, c.contype, c.conname`;
 const TYPE = {p: 'PRIMARY KEY', f: 'FOREIGN KEY', u: 'UNIQUE', c: 'CHECK'};
 const PREFIX = {p: 'pk_', f: 'fk_', u: 'uq_', c: 'ck_'};
+
+// команды транзакции: START TRANSACTION = BEGIN, END = COMMIT, ABORT = ROLLBACK
+const TXK = {BEGIN: 'BEGIN', START: 'BEGIN', COMMIT: 'COMMIT', END: 'COMMIT', ROLLBACK: 'ROLLBACK', ABORT: 'ROLLBACK'};
+const AGG = /\b(count|sum|avg|min|max)\s*\(/i;
+// выражение столбца без имени: «count(*) AS n» → «count(*)»
+const noAlias = c => {
+  const m = /^([\s\S]*\))\s+(?:as\s+)?[\wА-яЁё"]+$/i.exec(c) || /^([\s\S]*?)\s+as\s+[\wА-яЁё"]+$/i.exec(c);
+  return (m ? m[1] : c).trim();
+};
+// условие команды без лишних пробелов и регистра — чтобы сравнить WHERE у SELECT и UPDATE
+const normWhere = w =>
+  (w || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([=<>(),])\s*/g, '$1')
+    .trim()
+    .toLowerCase();
+const whereOf = sql => {
+  const m = /\bwhere\b([\s\S]*)$/i.exec(sql.replace(/;\s*$/, ''));
+  return m ? normWhere(m[1]) : '';
+};
 
 export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   const robotErr = () => {
@@ -130,7 +160,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     $('verdict').innerHTML = '';
     const allow = lv.allow || ['SELECT'];
     for (let i = 0; i < st.length; i++) {
-      const k = kindOf(st[i]);
+      const k = TXK[kindOf(st[i])] || kindOf(st[i]);
       let msg = '';
       if (!allow.includes(k))
         msg =
@@ -162,7 +192,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     W.clearLinks();
     W.hideCard();
     W.clearSay();
-    if (W.calm) await W.calm(); // зал ожидания: все снова на местах
+    if (W.calm) await W.calm(); // зал ожидания: все снова на местах (в пиццерии — стопки итогов разобраны)
     try {
       for (let i = 0; i < st.length; i++) {
         G.stmtTag = st.length > 1 ? `команда ${i + 1} из ${st.length} · ` : '';
@@ -187,8 +217,73 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   }
   async function runOne(sql) {
     recOf(L[G.lv]).runs++;
-    const kind = kindOf(sql);
-    return kind === 'SELECT' ? runSelect(sql) : runChange(sql, kind);
+    const kind = kindOf(sql),
+      tx0 = G.tx || '';
+    const info = TXK[kind] ? await runTx(sql, TXK[kind]) : kind === 'SELECT' ? await runSelect(sql) : await runChange(sql, kind);
+    // ошибка внутри транзакции прерывает её: дальше — только ROLLBACK
+    if (info.err && G.tx === '*') G.tx = '!';
+    G.trail.push({
+      kind: TXK[kind] || kind,
+      sql,
+      code: info.err ? info.err.code : null,
+      msg: info.err ? info.err.message : '',
+      n: info.res ? info.res.rows.length : info.n,
+      tag: info.tag,
+      tx: tx0,
+      txAfter: G.tx || '',
+      where: kind === 'SELECT' ? normWhere(info.p && info.p.where) : whereOf(sql),
+      table: kind === 'SELECT' ? info.p && info.p.tables[0] && info.p.tables[0].t : tableOf(sql),
+    });
+    psql();
+    return info;
+  }
+  // приглашение как в psql: pizza=> — без транзакции, pizza=*> — транзакция идёт, pizza=!> — прервана ошибкой
+  function psql() {
+    const el = $('psql');
+    if (!el) return;
+    el.textContent = `${el.dataset.db || 'db'}=${G.tx || ''}>`;
+    el.className = 'psql' + (G.tx === '*' ? ' tx' : G.tx === '!' ? ' bad' : '');
+  }
+  // BEGIN / COMMIT / ROLLBACK
+  async function runTx(sql, k) {
+    const info = {kind: k};
+    try {
+      await db.query(sql);
+    } catch (e) {
+      robotErr();
+      markError(e);
+      info.err = e;
+      $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span>`;
+      SFX.err();
+      journal(sql, 'ERROR ' + e.code);
+      return info;
+    }
+    let tag = k,
+      note = '';
+    if (k === 'BEGIN') {
+      if (G.tx) {
+        tag = 'WARNING: there is already a transaction in progress';
+        note = 'Транзакция уже идёт — второй BEGIN ничего не меняет.';
+      } else
+        note =
+          'Транзакция открыта: изменения пока видны только вам. COMMIT — подтвердить, ROLLBACK — отменить всё, что сделано после BEGIN.';
+      G.tx = G.tx || '*';
+    } else {
+      if (!G.tx) {
+        tag = 'WARNING: there is no transaction in progress';
+        note = 'Транзакции нет: каждая команда уже подтверждена сама по себе. Начинайте с BEGIN.';
+      } else if (k === 'COMMIT' && G.tx === '!') {
+        tag = 'ROLLBACK';
+        note = 'Транзакция была прервана ошибкой — COMMIT отменил её, как ROLLBACK.';
+      } else note = k === 'COMMIT' ? 'Изменения подтверждены.' : 'Всё, что сделано после BEGIN, отменено.';
+      G.tx = '';
+    }
+    info.tag = tag;
+    $('result').innerHTML = `<span class="ok">${esc(tag)}</span><div class="ru">${esc(note)}</div>`;
+    journal(sql, tag);
+    SFX.pop();
+    if (k !== 'BEGIN') await W.sync(await state(), true);
+    return info;
   }
 
   // ═════════════════════════════════════════════ SELECT: показ и ответ ══
@@ -198,8 +293,12 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     const info = {kind: 'SELECT', p};
     let yes = null,
       claims = null;
+    G.subs = [];
     try {
-      if (known(p) && p.tables.length === 1) yes = await showScan(p);
+      if (G.tx === '!') throw new Error('транзакция прервана');
+      G.subs = await showSubs(p);
+      if (known(p) && (p.group || p.agg)) info.groups = await showGroup(p);
+      else if (known(p) && p.tables.length === 1) yes = await showScan(p);
       else if (known(p)) claims = await showJoin(p);
     } catch (e) {
       /* показ не получился (сложное условие) — сам запрос всё равно выполним */
@@ -222,13 +321,17 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     const n = res.rows.length;
     const tag = `(${n} ${plural(n, 'строка', 'строки', 'строк')})`;
     let ordered = null;
-    if (known(p) && p.tables.length === 1 && (p.order || p.limit != null)) ordered = await numberRows(p).catch(() => null);
-    $('result').innerHTML = `<span class="ok">${esc(tag)}</span>${table(res)}`;
+    if (known(p) && !p.group && !p.agg && p.tables.length === 1 && (p.order || p.limit != null))
+      ordered = await numberRows(p).catch(() => null);
+    $('result').innerHTML =
+      `<span class="ok">${esc(tag)}</span>${table(res)}${info.groups ? `<div class="ru">${esc(info.groups)}</div>` : ''}`;
     journal(sql, tag);
     // зал ожидания: отобранные встают, а с ORDER BY / LIMIT — идут в очередь к выходу в порядке ответа
     if (W.answer && (ordered || yes)) await W.answer(p.tables[0].t, ordered || yes, !!ordered);
     // зал выдачи: каждый, кому соединение нашло чемодан, забирает его с ленты
     if (W.claim && claims && claims.length) await W.claim(claims);
+    if (G.subs.length && G.subs.some(x => x.err === undefined))
+      $('result').insertAdjacentHTML('beforeend', `<div class="ru">${G.subs.map(x => esc(x.line)).join('<br>')}</div>`);
     await W.robotGo(W.HOME.x, 0);
     W.face(-Math.PI / 2);
     W.camS.follow = false;
@@ -237,11 +340,14 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   const colsIn = (t, w) => (w ? COLS[t].filter(c => new RegExp('\\b' + c + '\\b', 'i').test(w)) : []);
   // условие с подставленными значениями строки: «birth_year >= 2012» → «2015 >= 2012»
   const subst = (t, w, row) =>
-    w.replace(/'(?:[^']|'')*'|\b(?:\w+\.)?[a-z_]+\b/gi, x => {
-      const c = x.toLowerCase().replace(/^\w+\./, '');
-      if (x.startsWith("'") || !COLS[t].includes(c)) return x;
-      return row[c] === null ? 'NULL' : typeof row[c] === 'string' ? "'" + row[c] + "'" : String(row[c]);
-    });
+    G.subs
+      .filter(x => x.v !== undefined)
+      .reduce((s, x) => s.split(`(${x.sql})`).join(x.v), w)
+      .replace(/'(?:[^']|'')*'|\b(?:\w+\.)?[a-z_]+\b/gi, x => {
+        const c = x.toLowerCase().replace(/^\w+\./, '');
+        if (x.startsWith("'") || !COLS[t].includes(c)) return x;
+        return row[c] === null ? 'NULL' : typeof row[c] === 'string' ? "'" + row[c] + "'" : String(row[c]);
+      });
   // робот обходит строки таблицы и у каждой проверяет WHERE
   async function showScan(p) {
     const {t, alias: a} = p.tables[0],
@@ -252,7 +358,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       )
     ).rows;
     cmdBar(
-      `<span class="k">${G.stmtTag || ''}${esc(`SELECT … FROM ${t}`)}</span><span class="w">${p.where ? 'WHERE ' + esc(p.where) : 'без WHERE — подходит каждая строка'}</span>`,
+      `<span class="k">${G.stmtTag || ''}${esc(`SELECT … FROM ${t}`)}</span><span class="w">${p.where ? 'WHERE ' + esc(p.where) : 'без WHERE — подходит каждая строка'}</span>${subsBar()}`,
     );
     W.camS.follow = true;
     const wcols = colsIn(t, p.where);
@@ -294,6 +400,124 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     W.beamOff();
     W.fadeNo();
     return keys;
+  }
+  // подзапросы в условии: сначала каждый выполняется сам — его результат и подставляется во внешний запрос
+  async function showSubs(p) {
+    const out = [];
+    for (const sql of [...subqueries(p.where), ...subqueries(p.having)]) {
+      const x = {sql};
+      try {
+        const r = await q(sql, true);
+        if (r.rows.length === 1 && r.rows[0].length === 1) {
+          x.v = shown(r.rows[0][0]);
+          x.line = `Подзапрос (${sql}) = ${x.v}`;
+        } else {
+          const vals = r.rows.map(row => shown(row[0]));
+          x.line = `Подзапрос (${sql}) → ${vals.length} ${plural(vals.length, 'значение', 'значения', 'значений')}: ${vals.slice(0, 8).join(', ')}${vals.length > 8 ? ', …' : ''}`;
+          if (vals.includes('NULL')) x.line += ' — среди них NULL!';
+        }
+      } catch (e) {
+        x.err = e.code;
+        x.line = `Подзапрос (${sql}) ссылается на внешнюю строку — выполняется для каждой строки заново.`;
+      }
+      out.push(x);
+    }
+    if (out.length) {
+      cmdBar(`<span class="k">${G.stmtTag || ''}сначала подзапрос</span>${out.map(x => `<span class="w">${esc(x.line)}</span>`).join('')}`);
+      await sleep(Math.max(400, 1600 / W.speed));
+      await hold(0);
+    }
+    return out;
+  }
+  const subsBar = () =>
+    G.subs
+      .filter(x => x.v !== undefined)
+      .map(x => `<span class="n">(${esc(x.sql.slice(0, 60))}${x.sql.length > 60 ? '…' : ''}) = ${esc(x.v)}</span>`)
+      .join('');
+  // GROUP BY: строки (после WHERE) раскладываются по группам, у каждой группы — итог; HAVING гасит лишние группы.
+  // Без GROUP BY, но с агрегатом — одна группа на все отобранные строки.
+  async function showGroup(p) {
+    const T = p.tables,
+      mv = T.find(x => x.t === 'orders') || T[0],
+      key = `${mv.alias}.${TABLES[mv.t]}`;
+    const gex = p.group ? splitTop(p.group, ',').map(x => x.trim()) : [];
+    const label = gex.length ? `concat_ws(' · ', ${gex.map(g => `coalesce((${g})::text, 'NULL')`).join(', ')})` : `'все строки'`;
+    const rows = (await q(`SELECT ${key} AS __k, ${p.where ? `(${p.where})` : 'true'} AS __w, ${label} AS __g FROM ${p.from}`, true)).rows;
+    cmdBar(
+      `<span class="k">${G.stmtTag || ''}${esc(`FROM ${T.map(x => x.t).join(' ⟶ ')}`)}</span><span class="w">${p.where ? 'WHERE ' + esc(p.where) : 'без WHERE — все строки'}</span><span class="w">${p.group ? 'GROUP BY ' + esc(p.group) : 'без GROUP BY — одна группа'}</span>${p.having ? `<span class="w">HAVING ${esc(p.having)}</span>` : ''}${subsBar()}`,
+    );
+    W.camS.follow = true;
+    // шаг 1 — WHERE: строки, которые не прошли, гаснут ещё до группировки
+    const by = new Map();
+    let done = 0,
+      yes = 0;
+    hud(0, 0, rows.length, 'проверено', 'в группы');
+    const slow = W.speed < 50 ? 5 : 0;
+    for (const [k, w, g] of rows) {
+      if (k === null) continue;
+      if (done < slow) {
+        const loc = W.locate(mv.t, {id: k});
+        W.focus(loc.aim);
+        await W.robotGo(loc.x, loc.z);
+        W.face(loc.face);
+        W.aimBeam(loc.aim);
+        SFX[w === true ? 'yes' : 'no']();
+        await sleep(Math.max(60, 300 / W.speed));
+        await hold(done + 1);
+      }
+      if (w === true) {
+        yes++;
+        if (!by.has(g)) by.set(g, []);
+        if (!by.get(g).includes(String(k))) by.get(g).push(String(k));
+      } else W.chip(mv.t, String(k), 'no', '');
+      done++;
+    }
+    hud(done, yes, rows.length, 'проверено', 'в группы');
+    if (!p.group && !by.size) by.set('все строки', []); // итог по пустому набору — тоже одна группа: count(*) = 0
+    W.beamOff();
+    W.fadeNo();
+    // шаг 2 — итог каждой группы: первая агрегатная функция из списка столбцов
+    const agg = p.cols.map(noAlias).find(c => AGG.test(c));
+    let sums = new Map(),
+      keep = new Map();
+    if (agg || p.having) {
+      const r = (
+        await q(
+          `SELECT ${label} AS __g, ${agg ? `(${agg})::text` : 'NULL'} AS __a, ${p.having ? `(${p.having})` : 'true'} AS __h FROM ${p.from}${p.where ? ' WHERE ' + p.where : ''}${p.group ? ' GROUP BY ' + p.group : ''}`,
+          true,
+        )
+      ).rows;
+      r.forEach(([g, a, h]) => {
+        sums.set(g, a);
+        keep.set(g, h === true);
+      });
+    }
+    const aggName = agg ? agg.replace(/\s+/g, ' ').slice(0, 22) : '';
+    const groups = [...by.keys()]
+      .sort((a, b) => String(a).localeCompare(String(b), 'ru', {numeric: true}))
+      .map(g => ({
+        label: g || '—',
+        keys: by.get(g),
+        agg: agg ? `${aggName} = ${shown(sums.get(g) ?? null)}` : `${by.get(g).length} стр.`,
+        g,
+      }));
+    if (mv.t !== 'orders') groups.forEach((G2, i) => G2.keys.forEach(k => W.chip(mv.t, k, 'yes', String.fromCharCode(65 + (i % 26)))));
+    W.camS.follow = false;
+    W.focus(null);
+    if (W.group) await W.group(mv.t, groups);
+    // шаг 3 — HAVING: группы, у которых итог не прошёл условие, отбрасываются
+    let left = groups.length;
+    if (p.having && W.groupCut) {
+      const ks = groups.map(x => keep.get(x.g));
+      left = ks.filter(Boolean).length;
+      cmdBar(
+        `<span class="k">${G.stmtTag || ''}HAVING ${esc(p.having)}</span><span class="w">групп: ${groups.length} → осталось ${left}</span>`,
+      );
+      await W.groupCut(ks);
+    }
+    const from = p.where ? ` (после WHERE из ${rows.length})` : '';
+    if (!p.group) return `Итог по ${yes} ${plural(yes, 'строке', 'строкам', 'строкам')}${from}.`;
+    return `Групп: ${groups.length}${p.having ? `, после HAVING — ${left}` : ''}. Строк в группах: ${yes}${from}.`;
   }
   // ORDER BY / LIMIT: на отобранных строках — их номер в ответе
   async function numberRows(p) {
@@ -474,6 +698,58 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       rec = G.P.lv[lv.key];
     if (rec.done && !lv.final) return;
     const check = lv.check || (lv.ask ? 'select' : 'schema');
+    // нужен отказ СУБД: перенести агрегат в WHERE и т. п.
+    if (check === 'error') {
+      if (!info.err) {
+        if (info.kind === 'SELECT') verdict(null, lv.wait || 'Запрос выполнился — а нужно увидеть отказ СУБД.');
+        return;
+      }
+      if (info.err.code === lv.code && (!lv.errMsg || lv.errMsg.test(info.err.message))) {
+        rec.note = 'ERROR: ' + info.err.message;
+        return success(lv, rec);
+      }
+      rec.fails++;
+      save();
+      verdict(false, lv.other || 'Это другой отказ — прочитайте сообщение СУБД и исправьте запрос так, как требует задание.');
+      renderMission();
+      return;
+    }
+    // транзакция: что делали и чем кончилось
+    if (check === 'tx') {
+      const st = G.tx === '!' ? null : await state();
+      const j = st && G.target ? judge(st, G.target, G.start, lv.tables, TABLES) : null;
+      const j0 = st ? judge(st, G.start, G.start, lv.tables, TABLES) : null;
+      const v =
+        lv.verify({
+          trail: G.trail,
+          tx: G.tx || '',
+          st,
+          atTarget: !!(j && j.ok),
+          atStart: !!(j0 && j0.ok),
+          wrong: j ? j.wrong : [],
+          start: G.start,
+        }) || {};
+      if (v.ok) {
+        rec.note = v.note || G.trail.map(x => x.tag || x.kind + (x.code ? ' → ERROR ' + x.code : '')).join(' · ');
+        return success(lv, rec);
+      }
+      if (v.fail) {
+        if (G.tx) {
+          try {
+            await db.query('ROLLBACK');
+          } catch (e) {
+            /* нет транзакции */
+          }
+          G.tx = '';
+          psql();
+        }
+        G.trail = [];
+        return rollback(rec, v.fail + (j && j.wrong.length ? ' ' + describe(j.wrong, 2).join(' ') : ''));
+      }
+      if (v.wait) verdict(null, v.wait);
+      renderMission();
+      return;
+    }
     if (check === 'select' || check === 'cross') {
       if (info.kind !== 'SELECT') return;
       if (info.err) {
@@ -500,6 +776,13 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
         );
       }
       const c = compareResult(info.res, G.expect, {order: lv.order, names: lv.names});
+      const miss = c.ok && (lv.must || []).find(m => !m.re.test(info.p.sql));
+      if (miss) {
+        // ответ совпал, но записан не тем способом, который тренирует уровень
+        verdict(false, `Ответ совпал, но ${miss.msg}`);
+        renderMission();
+        return;
+      }
       if (c.ok && lv.minTables && info.p.tables.length < lv.minTables) {
         // ответ совпал, но без соединения: промахом не считаем, просим запрос по заданию
         verdict(
@@ -559,7 +842,9 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       <div class="hint">${tablesHint}</div>`;
     bindMissionButtons(lv, rec);
     $('dbd').ontoggle = async () => {
-      if ($('dbd').open) $('dbdIn').innerHTML = await describeDb();
+      if ($('dbd').open)
+        $('dbdIn').innerHTML =
+          G.tx === '!' ? 'Транзакция прервана ошибкой — сначала ROLLBACK.' : await describeDb().catch(e => esc(e.message));
     };
   }
   async function startLevel(i) {
@@ -571,7 +856,11 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     $('result').innerHTML = '';
     renderLevels();
     renderMission();
-    await prepareLevel(i);
+    await prepareLevel(i); // база заново — открытая транзакция откатывается
+    G.tx = '';
+    G.trail = [];
+    G.subs = [];
+    psql();
     G.expect = lv.ask ? await result(lv.ask) : null;
     G.t0 = new Date().toISOString().slice(11, 19);
     W.resetRoot();
@@ -588,6 +877,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   }
   // щелчок по объекту сцены — строка таблицы
   async function pick(p) {
+    if (G && G.tx === '!') return; // прерванная транзакция: СУБД ничего не покажет до ROLLBACK
     if (p.t === 'flight') {
       const rs = (await q('SELECT flight_no, dest FROM flight ORDER BY flight_no')).rows;
       W.showCard(

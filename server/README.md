@@ -1,20 +1,20 @@
 # Как перезалить лабы на сервер
 
 На сервере:
-- `/var/www/labs/` — главная `index.html`, `lr13-3d/`, `lr14-3d/`, `labs/`, `teacher/`, `common/`, `vendor/` (их отдаёт nginx).
+- `/var/www/labs/` — главная `index.html`, `airport/`, `pizza/`, `lr13-3d/` … `lr20-3d/`, `labs/`, `teacher/`, `common/`, `vendor/` (их отдаёт nginx).
   `common/` нужен из-за общих стилей 3D-лаб (`common/lab3d.css`), `vendor/` — PostgreSQL в браузере (PGlite);
 - `/opt/labsrv/labsrv.py` — сервис: вход студентов, сохранение прогресса, события для панели (база `labs.db` рядом).
 
 Перед заливкой соберите 3D-лабы и прогоните тесты (из корня репозитория):
 
     npm install
-    npm run build      # lr13-3d/game.js, lr14-3d/game.js
+    npm run build      # game.js всех 3D-лаб
     npm test           # данные вариантов, разбор команд, сервер
     npm run e2e        # все уровни в браузере (нужен Chromium для Playwright)
 
 ## 1. С компьютера (PowerShell)
     cd D:\GIT\otkrytyy-urok-lr15
-    scp -r index.html airport pizza lr13-3d lr14-3d lr15-3d lr16-3d labs teacher common vendor user@адрес:/var/www/labs/
+    scp -r index.html airport pizza lr13-3d lr14-3d lr15-3d lr16-3d lr17-3d lr18-3d lr19-3d lr20-3d labs teacher common vendor user@адрес:/var/www/labs/
 
 Раньше PGlite лежал в `mvp/vendor/pglite/` — после первой заливки `vendor/` старую папку `/var/www/labs/mvp/vendor` можно удалить.
     scp server\labsrv.py server\labsrv.service user@адрес:/tmp/
