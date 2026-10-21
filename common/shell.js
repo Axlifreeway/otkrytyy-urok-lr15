@@ -5,7 +5,7 @@ import {$, esc, sleep, comma, ls, lsJSON} from './util.js';
 import {SFX, sound} from './sfx.js';
 import {openDb, loadSql as load} from './db.js';
 import {report, setCtx, clientId, watchAway, guardPaste} from './net.js';
-import {loginScreen, session, mergeP, syncInit, pull, push} from './login.js';
+import {loginScreen, session, mergeP, syncInit, syncStatus, pull, push} from './login.js';
 import {isTeacherCode} from './teacher.js';
 import {attachHighlight, highlight} from './sqlhl.js';
 import {snapshotHtml, sendReport} from './report.js';
@@ -33,6 +33,10 @@ const isErr = j => /^ERROR|ошибка/.test(j.o);
    head, legacyHead       html шапки окна входа (с сервером / без)
    startLabel             надпись на кнопке входа без сервера
    flight()               номер рейса для итогов и протокола
+   endTitle(), variant()  заголовок итогов и строка варианта в протоколе (по умолчанию — про рейс)
+   closedTitle            заголовок, пока лаба закрыта (по умолчанию «Рейс задержан»)
+   gated                  лабу открывает преподаватель
+   finalIcon              значок контрольного уровня (по умолчанию ✈)
    end: {tag, stat()}     экран итогов: заголовок и третья цифра [значение, подпись]
    protoTitle, questions  протокол
    onRollback(prefill)    сброс своего состояния уровня после отката
@@ -186,11 +190,11 @@ export function renderLevels() {
       const rec = G.P.lv[lv.key] || {};
       if (lv.practice)
         return `<button class="lvb px${i === G.lv ? ' on' : ''}" data-i="${i}" title="Тренировка: решено ${G.P.practice || 0}">∞</button>`;
-      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${esc(lv.title)}">${unlocked(i) ? (lv.final ? '✈' : i + 1) : '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
+      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${esc(lv.title)}">${unlocked(i) ? (lv.final ? cfg.finalIcon || '✈' : i + 1) : '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
     }).join('') +
     (G.demo
       ? '<span class="demo">ДЕМО</span>'
-      : `<span class="pts">${score().sum.toFixed(1).replace('.0', '')}<small>/9</small></span>${G.sess ? '<span id="sync" class="sync ok">☁ сохранено</span>' : ''}`);
+      : `<span class="pts">${score().sum.toFixed(1).replace('.0', '')}<small>/9</small></span>${G.sess ? `<span id="sync" class="sync ${syncStatus()}">${SYNC[syncStatus()]}</span>` : ''}`);
   $('levels')
     .querySelectorAll('[data-i]')
     .forEach(
@@ -202,7 +206,7 @@ export function renderLevels() {
 }
 // подсказка после промахов и кнопка «Решение» в демо-режиме
 export function missionButtons(lv, rec, minFails = 2) {
-  const sol = (lv.ref && G.demo) || (lv.practice && (lv.ref || lv.ask) && (rec.fails || 0) >= 2); // в тренировке после двух промахов можно подсмотреть
+  const sol = ((lv.sol || lv.ref || lv.ask) && G.demo) || (lv.practice && (lv.ref || lv.ask) && (rec.fails || 0) >= 2); // в тренировке после двух промахов можно подсмотреть
   return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${sol ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, lv.sel || (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
 }
 export function bindMissionButtons(lv, rec) {
@@ -214,7 +218,7 @@ export function bindMissionButtons(lv, rec) {
     };
   if ($('solBtn'))
     $('solBtn').onclick = () => {
-      $('sql').value = (lv.ref || [lv.ask]).map(q => q + ';').join('\n');
+      $('sql').value = (lv.sol || lv.ref || [lv.ask]).map(q => q + ';').join('\n');
     };
 }
 export const levelTag = lv =>
@@ -272,7 +276,8 @@ export async function success(lv, rec) {
   setTimeout(() => push(G.P, true), 0);
   report('done', {lv: G.lv + 1, key: lv.key, fails: rec.fails || 0, stars: starsOf(rec), pts: score().sum});
   // в протокол — последние команды уровня; ошибки — только там, где отказ СУБД и был целью
-  const js = G.P.journal.filter(j => j.lv === lv.key && (lv.check === 'custom' || !isErr(j))).slice(-4);
+  const keepErr = ['custom', 'error', 'tx'].includes(lv.check); // отказ СУБД здесь — часть решения
+  const js = G.P.journal.filter(j => j.lv === lv.key && (keepErr || !isErr(j))).slice(lv.check === 'tx' ? -8 : -4);
   rec.sql = js.map(j => j.q).join('\n');
   rec.tag = js.map(j => j.o).join('\n');
   save();
@@ -359,7 +364,7 @@ function endScreen() {
   const preds = Object.values(G.P.pred),
     pr = preds.filter(p => p.right).length;
   const [v3, l3] = cfg.end.stat();
-  m.innerHTML = `<div class="dlg panel end"><span class="tag">${esc(cfg.end.tag)}</span><h2>Рейс ${esc(cfg.flight())} в воздухе</h2>
+  m.innerHTML = `<div class="dlg panel end"><span class="tag">${esc(cfg.end.tag)}</span><h2>${esc(cfg.endTitle ? cfg.endTitle() : `Рейс ${cfg.flight()} в воздухе`)}</h2>
     <div class="end-row"><div><b>${doneN()}/${L.length}</b><span>уровней</span></div><div><b>${pr}/${preds.length}</b><span>прогнозов верно</span></div>
       <div><b>${v3}</b><span>${esc(l3)}</span></div><div><b>${score().sum}/9</b><span>баллов автоматически</span></div></div>
     <div class="btns"><button class="nextBtn" id="protoBtn">Протокол для отчёта</button>${cfg.practice ? '<button class="btn" id="pxBtn">🔁 Тренировка без баллов</button>' : ''}<button class="btn" id="backBtn">Вернуться</button></div></div>`;
@@ -384,7 +389,7 @@ function protocol() {
   <div class="pr-doc"><div class="pr-eye">ФГАОУ ВО «Тюменский государственный университет» · Колледж ИИ · ОПЦ.07</div>
   <h2>Протокол · ${esc(cfg.protoTitle)}</h2>
   <div class="pr-meta"><span>Студент</span><span><input id="fio" value="${esc(P.fio || [G.fio, G.grp].filter(Boolean).join(', '))}" placeholder="Фамилия И. О., группа"></span>
-    <span>Вариант</span><span>№ ${G.seed} · рейс ${esc(cfg.flight())}</span>
+    <span>Вариант</span><span>№ ${G.seed} · ${esc(cfg.variant ? cfg.variant() : 'рейс ' + cfg.flight())}</span>
     <span>Сдано</span><span>${new Date().toLocaleString('ru-RU')} · пройдено ${done} из ${L.length}${done < L.length ? ' (досрочно)' : ''}</span>
     <span>Запусков</span><span>${P.journal.length} · ошибок записи команд: ${P.lints || 0} · уходов со вкладки: ${P.away || 0}${awayMin ? ` (≈${awayMin} мин)` : ''} · заблокировано вставок: ${P.pastes || 0}${P.shots ? ` · снимков экрана: ${P.shots}` : ''}</span></div>
   <h3>Уровни</h3><table><tr><th>Уровень</th><th>Команды</th><th>Ответ СУБД</th><th>Промахов</th><th>Баллы</th></tr>
@@ -488,7 +493,7 @@ function closedScreen() {
   const m = $('modal');
   m.hidden = false;
   m.innerHTML = `<div class="dlg panel start">${cfg.head}
-    <div class="closed"><b>Рейс задержан</b>Эта лабораторная ещё не открыта. Преподаватель откроет её на занятии — тогда обновите страницу.</div>
+    <div class="closed"><b>${esc(cfg.closedTitle || 'Рейс задержан')}</b>Эта лабораторная ещё не открыта. Преподаватель откроет её на занятии — тогда обновите страницу.</div>
     <div class="btns"><a class="btn" href="../">На главную</a><button class="btn sm" id="clT">Преподаватель</button></div>
     <div id="clTeach" hidden class="lg"><label>Код<input id="clCode" autocomplete="off"></label><label>Вариант<input id="clSeed" value="0"></label><button class="btn" id="clGo">Демо</button></div>
     <div id="clErr" class="bad"></div></div>`;

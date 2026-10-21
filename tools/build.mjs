@@ -7,7 +7,9 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const LABS = ['lr13-3d', 'lr14-3d', 'lr15-3d', 'lr16-3d'].filter(l => existsSync(join(ROOT, l, 'src/main.js')));
+const LABS = ['lr13-3d', 'lr14-3d', 'lr15-3d', 'lr16-3d', 'lr17-3d', 'lr18-3d', 'lr19-3d', 'lr20-3d'].filter(l =>
+  existsSync(join(ROOT, l, 'src/main.js')),
+);
 const check = process.argv.includes('--check');
 let stale = 0;
 for (const lab of LABS) {

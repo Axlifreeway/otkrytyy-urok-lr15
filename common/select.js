@@ -29,7 +29,38 @@ const RESERVED = new Set([
   'natural',
 ]);
 
-// SELECT [DISTINCT] список FROM таблицы [WHERE …] [GROUP BY …] [ORDER BY …] [LIMIT n]
+const AGG = /\b(count|sum|avg|min|max)\s*\(/i;
+// подзапросы (SELECT …) в тексте условия — каждый со своим текстом, без внешних скобок
+export function subqueries(s) {
+  const out = [];
+  if (!s) return out;
+  let depth = 0,
+    q = false,
+    st = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === "'") {
+        if (s[i + 1] === "'") i++;
+        else q = false;
+      }
+      continue;
+    }
+    if (c === "'") q = true;
+    else if (c === '(') {
+      if (st < 0 && /^\(\s*select\b/i.test(s.slice(i, i + 12))) {
+        st = i;
+        depth = 0;
+      }
+      if (st >= 0) depth++;
+    } else if (c === ')' && st >= 0 && --depth === 0) {
+      out.push(s.slice(st + 1, i).trim());
+      st = -1;
+    }
+  }
+  return out;
+}
+// SELECT [DISTINCT] список FROM таблицы [WHERE …] [GROUP BY …] [HAVING …] [ORDER BY …] [LIMIT n]
 export function parseSelect(sql) {
   const s = ' ' + norm(sql) + ' ';
   if (!/^ select\s/i.test(s)) return {err: 'Это не SELECT.'};
@@ -39,6 +70,7 @@ export function parseSelect(sql) {
   const marks = [
     ['where', at('where')],
     ['group', at('group')],
+    ['having', at('having')],
     ['order', at('order')],
     ['limit', at('limit')],
   ].filter(([, i]) => i > from);
@@ -55,6 +87,8 @@ export function parseSelect(sql) {
   const fromPart = s.slice(from + 5, firstAfter).trim();
   const strip = (x, re) => (x ? x.replace(re, '').trim() : null);
   const where = strip(end('where'), /^where\s+/i);
+  const group = strip(end('group'), /^group\s+by\s+/i);
+  const having = strip(end('having'), /^having\s+/i);
   const order = strip(end('order'), /^order\s+by\s+/i);
   const limitTxt = strip(end('limit'), /^limit\s+/i);
   const cols = splitTop(list, ',').map(c => c.trim());
@@ -86,6 +120,10 @@ export function parseSelect(sql) {
     from: fromPart,
     tables,
     where,
+    group,
+    having,
+    // в списке столбцов есть агрегатная функция: count(*), sum(…), avg(…), min(…), max(…)
+    agg: cols.some(c => AGG.test(c.replace(/\(\s*select\b[\s\S]*\)/gi, ''))),
     order,
     limit: limitTxt != null ? parseInt(limitTxt, 10) : null,
     // соединение без условия: через запятую или CROSS JOIN, а условия связи нет и в WHERE

@@ -215,7 +215,7 @@ function draw(state) {
   });
   // скутер доставки
   z += box(14.0, 13.6, 0.2, 0.9, 0.35, 0.35, '#d2483c') + box(14.65, 13.55, 0.55, 0.4, 0.45, 0.35, '#ffc21a');
-  s += `<a class="bld" href="pizza/" aria-label="Пиццерия: ЛР-17–18"><g>${z}${badge(18.2, 10.6, 4.6, '🍕 SQL Pizza', state.pizza)}</g></a>`;
+  s += `<a class="bld" href="pizza/" aria-label="Пиццерия: ЛР-17–20"><g>${z}${badge(18.2, 10.6, 4.6, '🍕 SQL Pizza', state.pizza)}</g></a>`;
 
   // ── парк
   s += tree(1.6, 9.6) + tree(3.2, 10.8, 1.2) + tree(1.4, 12.6, 0.9) + tree(5.4, 13.6) + tree(7.6, 10.2, 1.1) + tree(8.6, 14.2, 0.8) + tree(3.8, 14.6, 0.9);
@@ -246,7 +246,7 @@ function render(open, prog = {}) {
     pz = sum(Home.WORLDS.pizza, prog, open);
   draw({
     air: `ЛР-13–16 · ${air.done}/${air.all}`,
-    pizza: pz.live ? `ЛР-17–18 · ${pz.done}/${pz.all}` : 'ЛР-17–18 · скоро',
+    pizza: pz.live ? `ЛР-17–20 · ${pz.done}/${pz.all}` : 'ЛР-17–20 · скоро',
     robotAt: pz.live ? 'pizza' : 'airport',
   });
   const card = (href, ico, bg, title, labs, text, st, live) =>
@@ -257,7 +257,7 @@ function render(open, prog = {}) {
   const bar = w => `<span class="bar"><i style="width:${w.all ? (w.done / w.all) * 100 : 0}%"></i></span><span>${w.done}/${w.all}</span>`;
   $('worlds').innerHTML =
     card('airport/', '✈', '#ffc21a', 'Аэропорт', 'ЛР-13–16', 'Рейсы, пассажиры, багаж: INSERT, UPDATE и DELETE, выборка и соединение таблиц.', bar(air), true) +
-    card('pizza/', '🍕', '#d2483c', 'SQL Pizza', 'ЛР-17–18', 'Заказы, пиццы, курьеры: итоги смены — GROUP BY и HAVING, заказ в заказе — подзапросы.', pz.live ? bar(pz) : '<span class="st later">СКОРО</span>', true);
+    card('pizza/', '🍕', '#d2483c', 'SQL Pizza', 'ЛР-17–20', 'Заказы, пиццы, курьеры: итоги смены — GROUP BY и HAVING, подзапросы, закрепление и касса — транзакции.', pz.live ? bar(pz) : '<span class="st later">СКОРО</span>', true);
 }
 let OPEN = null;
 render(OPEN);

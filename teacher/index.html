@@ -118,7 +118,7 @@
     <label>Группа <input id="gName" placeholder="например 2.1"></label>
     <textarea id="gList" rows="10" placeholder="Иванов Иван&#10;Петрова Анна&#10;…"></textarea>
     <div><button class="btn on" id="gSave">Сохранить список</button> <button class="btn" id="gNew" hidden>Отмена</button> <span id="gMsg" class="mu"></span></div></div>
-  <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13–16 (аэропорт) открыты всегда. ЛР-17 и ЛР-18 студенты не увидят, пока вы их не откроете.</div><div id="gateList"></div></div>
+  <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13–16 (аэропорт) открыты всегда. ЛР-17–20 (пиццерия) студенты не увидят, пока вы их не откроете; карта города появится, когда откроете хотя бы одну.</div><div id="gateList"></div></div>
   <div id="gCards"></div></div>
 </div>
 <div id="proj" hidden></div>
@@ -159,7 +159,7 @@ function range() {
   return {since: pair ? since : from, until: to, isToday, pair};
 }
 const hl = s => window.sqlHL ? window.sqlHL(s) : esc(s);
-const LABN = {lr13: 'ЛР-13', lr14: 'ЛР-14', lr15: 'ЛР-15', lr16: 'ЛР-16', lr17: 'ЛР-17', lr18: 'ЛР-18', lr13t: 'ЛР-13 тетрадь', lr14t: 'ЛР-14 тетрадь', lr16t: 'ЛР-16 тетрадь'};
+const LABN = {lr13: 'ЛР-13', lr14: 'ЛР-14', lr15: 'ЛР-15', lr16: 'ЛР-16', lr17: 'ЛР-17', lr18: 'ЛР-18', lr19: 'ЛР-19', lr20: 'ЛР-20', lr13t: 'ЛР-13 тетрадь', lr14t: 'ЛР-14 тетрадь', lr16t: 'ЛР-16 тетрадь'};
 const hm = t => new Date(t).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
 const dhm = t => new Date(t).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
 const mins = ms => ms < 60000 ? Math.round(ms / 1000) + ' с' : Math.floor(ms / 60000) + ' мин';

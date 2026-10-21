@@ -2110,3 +2110,59 @@ table.doc td {
   font-size: 22px;
   color: var(--red);
 }
+
+/* ═══ пиццерия (ЛР-17–20): итоги групп над стопками, приглашение psql ═══ */
+.glabel {
+  font: 700 13px var(--font);
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 8px;
+  padding: 2px 8px 3px;
+  box-shadow: 2px 2px 0 var(--ink);
+  text-align: center;
+  white-space: nowrap;
+  animation: pop 0.25s cubic-bezier(0.3, 1.6, 0.6, 1);
+  transition:
+    opacity 0.3s,
+    background 0.3s;
+}
+.glabel b {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.glabel span {
+  display: block;
+  font: 700 12px var(--mono);
+  color: #2f6f73;
+}
+.glabel.in {
+  background: var(--green);
+  color: #fff;
+}
+.glabel.in span {
+  color: #fff;
+}
+.glabel.out {
+  opacity: 0.4;
+  background: #e8e2d4;
+  text-decoration: line-through;
+}
+.psql {
+  position: absolute;
+  left: 10px;
+  top: -30px;
+  background: var(--ink);
+  color: #f6f1e3;
+  font: 700 14px var(--mono);
+  padding: 3px 10px;
+  border-radius: 6px 6px 0 0;
+}
+.psql.tx {
+  color: var(--sun);
+}
+.psql.bad {
+  background: var(--red);
+  color: #fff;
+}

@@ -134,11 +134,31 @@ class ServerTest(unittest.TestCase):
         tok = self.login('Иванов')[1]['token']
         self.assertEqual(self.call('/api/progress', {'token': 'bad', 'lab': 'lr13', 'data': {}})[0], 403)
         self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'a': {'done': True}}}})
-        self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'b': {'runs': 1}}}})
+        # ответ на сохранение — короткий, без прогресса (с журналом он рос до сотен КБ)
+        self.assertEqual(self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'b': {'runs': 1}}}}), (200, {'ok': True}))
         st, r = self.call('/api/progress?lab=lr13', headers={'X-Labs-Token': tok})
         self.assertEqual(st, 200)
         self.assertEqual(set(r['data']['lv']), {'a', 'b'})
         self.assertEqual(self.call('/api/progress?lab=lr13')[0], 403)
+
+    def test_progress_restored_from_done_events(self):
+        # сохранение прогресса не дошло, а события «уровень пройден» дошли: пройденное не теряется
+        sid = self.group()['Иванов И.']
+        tok = self.login('Иванов')[1]['token']
+        self.call('/api/progress', {'token': tok, 'lab': 'lr15', 'data': {'lv': {'star': {'done': True, 'runs': 3}, 'cols': {'runs': 2}},
+                                                                          'journal': [{'t': '10:00:00', 'q': 'SELECT 1'}], 'cur': 1}})
+        for k in ('cols', 'eq', 'cmp'):
+            self.call('/api/ev', {'type': 'done', 'client': 'x', 'lab': 'lr15', 'token': tok, 'data': {'lv': 2, 'key': k, 'fails': 1}})
+        self.call('/api/ev', {'type': 'practice', 'client': 'x', 'lab': 'lr15', 'token': tok, 'data': {'n': 4}})
+        self.call('/api/ev', {'type': 'done', 'client': 'x', 'lab': 'lr16', 'token': tok, 'data': {'lv': 1, 'key': 'links'}})
+        d = self.call('/api/progress?lab=lr15', headers={'X-Labs-Token': tok})[1]['data']
+        self.assertEqual({k for k, r in d['lv'].items() if r.get('done')}, {'star', 'cols', 'eq', 'cmp'})
+        self.assertEqual((d['lv']['star']['runs'], d['practice'], d['cur'], len(d['journal'])), (3, 4, 1, 1))
+        # прогресса на сервере нет совсем — запись всё равно полная, лаба её откроет
+        d = self.call('/api/progress?lab=lr16', headers={'X-Labs-Token': tok})[1]['data']
+        self.assertEqual((list(d['lv']), d['journal'], d['answers']), (['links'], [], {}))
+        labs = next(x for x in self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]['students'] if x['id'] == sid)['labs']
+        self.assertEqual(labs, {'lr15': 4, 'lr16': 1})
 
     def test_events_identity_comes_from_token(self):
         sid = self.group()['Иванов И.']
@@ -270,7 +290,7 @@ class ServerTest(unittest.TestCase):
         ids = self.group()
         tok = self.login('Иванов')[1]['token']
         h = {'X-Labs-Token': tok}
-        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': True, 'lr16': True, 'lr17': False, 'lr18': False})
+        self.assertEqual(self.call('/api/labs')[1]['open'], {'lr13': True, 'lr14': True, 'lr15': True, 'lr16': True, 'lr17': False, 'lr18': False, 'lr19': False, 'lr20': False})
         self.assertEqual(self.call('/api/ev', {'type': 'hello', 'client': 'x', 'lab': 'lr17'}, h)[0], 403)
         self.assertEqual(self.call('/api/progress', {'lab': 'lr17', 'data': {'lv': {}}}, h)[0], 403)
         self.assertEqual(self.call('/api/report', {'lab': 'lr18', 'html': '<p>x</p>'}, h)[0], 403)

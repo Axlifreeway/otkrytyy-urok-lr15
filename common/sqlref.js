@@ -88,6 +88,45 @@ export const JOIN_REF = [
   ],
   ['Без условия соединения — каждая строка с каждой', 'SELECT c.name, b.city FROM crew c, base b;   -- строк: crew × base'],
 ];
+export const GROUP_REF = [
+  ['Итог по всей таблице — одно число', "SELECT count(*), sum(age), round(avg(age)) FROM crew WHERE city = 'Омск';"],
+  ['count(*) и count(столбец)', 'SELECT count(*), count(base_id) FROM crew;   -- разница — строки, где base_id пуст'],
+  ['Итог по группам — GROUP BY', 'SELECT city, count(*), max(age)\nFROM crew\nGROUP BY city;   -- столбец группы — и в SELECT'],
+  ['Группа по названию из справочника', 'SELECT b.city, count(*)\nFROM crew c\nJOIN base b ON b.id = c.base_id\nGROUP BY b.city;'],
+  [
+    'Отбор групп — HAVING (после GROUP BY)',
+    "SELECT post, count(*)\nFROM crew\nWHERE city <> 'Омск'      -- строки — до группировки\nGROUP BY post\nHAVING count(*) >= 3;     -- группы — после",
+  ],
+  ['Порядок вычисления', 'FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY'],
+];
+export const SUBQ_REF = [
+  ['Подзапрос вместо числа', 'SELECT name, age FROM crew\nWHERE age > (SELECT avg(age) FROM crew);'],
+  ['Подзапрос со списком — IN', "SELECT name FROM crew\nWHERE base_id IN (SELECT id FROM base WHERE city = 'Сочи');"],
+  [
+    '«Ни разу не…» — NOT EXISTS',
+    '-- базы без сотрудников\nSELECT b.city FROM base b\nWHERE NOT EXISTS (SELECT 1 FROM crew c WHERE c.base_id = b.id);',
+  ],
+  [
+    'NOT IN и пустые значения',
+    '-- если в списке есть NULL, NOT IN не вернёт ни одной строки:\nSELECT city FROM base WHERE id NOT IN (SELECT base_id FROM crew WHERE base_id IS NOT NULL);',
+  ],
+  ['Подзапрос на месте таблицы', 'SELECT avg(n) FROM (\n  SELECT city, count(*) AS n FROM crew GROUP BY city\n) AS t;'],
+];
+export const TX_REF = [
+  [
+    'Транзакция: всё или ничего',
+    "BEGIN;\nUPDATE crew SET age = age + 1 WHERE city = 'Тула';\nSELECT name, age FROM crew WHERE city = 'Тула';   -- уже видно\nCOMMIT;   -- или ROLLBACK;",
+  ],
+  ['Передумали — ROLLBACK', 'BEGIN;\nDELETE FROM crew;   -- забыли WHERE\nROLLBACK;          -- строки на месте'],
+  [
+    'Ошибка внутри транзакции',
+    'BEGIN;\nUPDATE crew SET age = 31 WHERE id = 7;\nINSERT INTO crew (id, name) VALUES (8, NULL);   -- ERROR: not-null\nSELECT * FROM crew;   -- ERROR: current transaction is aborted\nROLLBACK;             -- отменено и верное изменение',
+  ],
+  [
+    'Родитель и ссылка на него — в одной транзакции',
+    "BEGIN;\nINSERT INTO base (id, city) VALUES (5, 'Тула');\nINSERT INTO crew (id, name, base_id) VALUES (12, 'Ким', 5);\nCOMMIT;",
+  ],
+];
 
 export function sqlRef(groups, need = false) {
   const items = groups

@@ -30,13 +30,13 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10}   # число уровней в лабе — для панели преподавателя
-GATED = ('lr17', 'lr18')                    # лабы, которые открывает преподаватель (по умолчанию закрыты)
+LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10, 'lr19': 15, 'lr20': 9}   # число уровней в лабе — для панели преподавателя
+GATED = ('lr17', 'lr18', 'lr19', 'lr20')    # пиццерия: лабы открывает преподаватель (по умолчанию закрыты)
 MAX_BODY = 400000
 MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
 REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
-REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
+REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr19', 'lr20', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
 PIN_TRIES = 8
 # защита от «захвата» чужих аккаунтов: первый вход задаёт PIN, поэтому с одного устройства
@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS ev (
   id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, fio TEXT, grp TEXT, seed INTEGER, type TEXT, data TEXT, ip TEXT);
 CREATE INDEX IF NOT EXISTS ev_ts ON ev(ts);
 CREATE INDEX IF NOT EXISTS ev_client ON ev(client, ts);
+CREATE INDEX IF NOT EXISTS ev_type ON ev(type, client);
 CREATE TABLE IF NOT EXISTS grp (name TEXT PRIMARY KEY, ord INTEGER);
 CREATE TABLE IF NOT EXISTS student (
   id INTEGER PRIMARY KEY, grp TEXT, name TEXT, idx INTEGER, pin TEXT, fails INTEGER DEFAULT 0, lock_until INTEGER DEFAULT 0);
@@ -417,10 +418,38 @@ class Store:
         return dict(zip(('id', 'ts', 'client', 'lab', 'fio', 'grp', 'seed', 'pts', 'done', 'html'), r)) if r else None
 
     # ── прогресс ──
+    def ev_progress(self, sid=None, lab=None):
+        """Прогресс по событиям done/practice: {(номер, лаба): {'lv': …, 'practice': n}}. Вызывать под замком.
+        Событие уходит из своей очереди с повторами и доходит, даже когда сохранение прогресса не дошло, —
+        по нему пройденные уровни не теряются ни в списке группы, ни при входе с другого компьютера."""
+        sql, args = "SELECT client, lab, type, data, ts FROM ev WHERE type IN ('done', 'practice') AND client LIKE 's%'", []
+        if sid is not None:
+            sql += ' AND client = ? AND lab = ?'
+            args += [f's{sid}', lab]
+        out = {}
+        for client, lb, typ, data, ts in self.con.execute(sql, args):
+            try:
+                n, d = int(client[1:]), json.loads(data or '{}')
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            p = out.setdefault((n, lb), {'lv': {}})
+            if typ == 'practice':
+                p['practice'] = max(p.get('practice', 0), d.get('n') if isinstance(d.get('n'), int) else 0)
+            elif isinstance(d.get('key'), str) and d['key'] != 'practice':
+                p['lv'].setdefault(d['key'], {'done': True, 'runs': 0, 'fails': d.get('fails') if isinstance(d.get('fails'), int) else 0,
+                                              'at': time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(ts / 1000))})
+        return out
+
     def progress(self, sid, lab):
         with self.lock:
             r = self.con.execute('SELECT data, ts FROM progress WHERE sid = ? AND lab = ?', (sid, lab)).fetchone()
-        return (json.loads(r[0]), r[1]) if r else (None, 0)
+            ev = self.ev_progress(sid, lab).get((sid, lab))
+        data = json.loads(r[0]) if r else None
+        if ev:                              # пустая запись — того же вида, что сохраняет лаба (журнал, ответы…)
+            data = merge(data or {'lv': {}, 'pred': {}, 'journal': [], 'answers': {}, 'cur': 0}, ev)
+        return data, (r[1] if r else 0)
 
     def save_progress(self, sid, lab, data):
         with self.lock:
@@ -433,10 +462,14 @@ class Store:
     # ── группы (панель преподавателя) ──
     def admin_groups(self):
         with self.lock:
+            # только отметки уровней: разбирать целиком журналы всех студентов под замком — долго
+            prog = {(sid, lab): {'lv': json.loads(lv or '{}')} for sid, lab, lv in self.con.execute("SELECT sid, lab, json_extract(data, '$.lv') FROM progress")}
+            for k, ev in self.ev_progress().items():
+                prog[k] = merge(prog.get(k), ev)
             done = {}
-            for sid, lab, data in self.con.execute('SELECT sid, lab, data FROM progress'):
-                d = json.loads(data)
-                done.setdefault(sid, {})[lab] = sum(1 for k, r in (d.get('lv') or {}).items() if r.get('done') and k != 'practice')
+            for (sid, lab), d in prog.items():
+                n = sum(1 for k, r in (d.get('lv') or {}).items() if r.get('done') and k != 'practice')
+                done.setdefault(sid, {})[lab] = min(n, LEVELS.get(lab, n))
             out = []
             for name, o in self.con.execute('SELECT name, ord FROM grp ORDER BY ord').fetchall():
                 st = [{'id': sid, 'name': n, 'idx': idx, 'pin': bool(pin), 'seed': o * 100 + idx, 'labs': done.get(sid, {}), 'dev': dev}
@@ -704,7 +737,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, {'err': 'closed'})
         if not sid or not lab or not isinstance(e.get('data'), dict):
             return self.send(403, {'err': 'token'})
-        self.send(200, {'data': self.store.save_progress(sid, lab, e['data'])})
+        self.store.save_progress(sid, lab, e['data'])
+        # без самого прогресса в ответе: с журналом он дорастает до сотен КБ на каждое сохранение,
+        # и через полчаса пары канал сервера не успевал — у студентов «нет связи»
+        self.send(200, {'ok': True})
 
     def post_report(self, e):
         html, lab = e.get('html'), clip(e.get('lab'), 10)
