@@ -214,12 +214,31 @@
       gated: true,
       levels: ['ins2', 'upd1', 'aim', 'del', 'txroll', 'oops', 'parent', 'abort', 'final'],
     },
+    // библиотека: лабы открывает преподаватель
+    lr21: {
+      lab: 'lr21',
+      store: 'library-lr21-',
+      gated: true,
+      levels: ['ins3', 'fkfail', 'aim', 'delnew', 'delref', 'addcol', 'break', 'checkfail', 'fix', 'txdel', 'final'],
+    },
+    lr22: {lab: 'lr22', store: 'library-lr22-', gated: true, levels: ['fill', 'count', 'pk', 'nonkey', 'range', 'join', 'final']},
+    lr23: {lab: 'lr23', store: 'library-lr23-', gated: true, levels: ['before', 'create', 'fk', 'list', 'extra', 'final']},
+    lr24: {
+      lab: 'lr24',
+      store: 'library-lr24-',
+      gated: true,
+      levels: ['role', 'grant', 'asrole', 'deny', 'revoke', 'check', 'dump', 'rename', 'restore', 'final'],
+    },
   };
   // «миры» города: какие лабы где
-  H.WORLDS = {airport: ['lr13', 'lr14', 'lr15', 'lr16'], pizza: ['lr17', 'lr18', 'lr19', 'lr20']};
+  H.WORLDS = {
+    airport: ['lr13', 'lr14', 'lr15', 'lr16'],
+    pizza: ['lr17', 'lr18', 'lr19', 'lr20'],
+    library: ['lr21', 'lr22', 'lr23', 'lr24'],
+  };
   H.live = (lab, open) => !H.LABS[lab].gated || !!(open && open[lab]);
   // карта города показывается, когда открыт хоть один «мир» после аэропорта (или по ссылке /?map)
-  H.CITY_LABS = ['lr17', 'lr18', 'lr19', 'lr20'];
+  H.CITY_LABS = ['lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24'];
   H.cityOpen = open => !!open && H.CITY_LABS.some(l => open[l]);
   window.Home = H;
 })();

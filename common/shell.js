@@ -81,10 +81,31 @@ const runFromUI = () => {
 // ═══════════════════════════════════════════════════════════ база ══
 export const loadSql = sql => load(db, sql);
 const sel = t => (cfg.sel ? cfg.sel(t) : `SELECT ${cfg.COLS[t].join(', ')} FROM ${t}`);
+// от имени владельца базы: студент мог переключиться на роль без прав (SET ROLE, \c — ЛР-24)
+export async function asAdmin(fn) {
+  if (!G || !G.role) return fn();
+  await db.query('RESET ROLE');
+  try {
+    return await fn();
+  } finally {
+    await db.query(`SET ROLE ${G.role}`);
+  }
+}
+// снимок всех таблиц; таблицы, которой сейчас нет (схему переименовали), — пустая
 export async function state() {
-  const o = {};
-  for (const t of Object.keys(cfg.TABLES)) o[t] = (await db.query(`${sel(t)} ORDER BY ctid`)).rows;
-  return o;
+  return asAdmin(async () => {
+    const o = {};
+    for (const t of Object.keys(cfg.TABLES)) {
+      const q = sel(t);
+      // ошибка внутри транзакции студента прервала бы её — поэтому сначала: есть ли таблица
+      if (!(await db.query('SELECT to_regclass($1) AS r', [t])).rows[0].r) {
+        o[t] = [];
+        continue;
+      }
+      o[t] = (await db.query(/\border\s+by\b/i.test(q) ? q : `${q} ORDER BY ctid`)).rows;
+    }
+    return o;
+  });
 }
 // база в начале уровня i: исходные данные + эталонные решения всех предыдущих уровней
 export function canon(i) {

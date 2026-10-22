@@ -28,6 +28,7 @@ export async function loadSql(db, sql) {
   } catch (e) {
     /* нет транзакции */
   }
+  await db.query('RESET ROLE'); // студент мог «войти» ролью без прав (ЛР-24)
   await db.exec('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;');
   await db.exec(sql);
 }
