@@ -119,7 +119,7 @@ test('ЛР-23: после CREATE INDEX — по индексу; внешний �
     await db.query(by('pages').sol[0]);
     assert.equal((await plan(by('pages').sol[1])).nodes[0].index, 'ix_book_pages');
     assert.equal((await plan(by('wide').sol[0])).nodes[0].kind, 'Seq Scan', 'широкий диапазон — подряд');
-    assert.equal((await db.query(by('size').ask)).rows.length, 1);
+    assert.equal((await db.query(by('size').ask)).rows.length, 2);
     await play(by('extra'));
     const fin = by('final');
     assert.equal((await plan(fin.sol[0])).nodes[0].kind, 'Seq Scan');

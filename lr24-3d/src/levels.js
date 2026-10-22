@@ -100,10 +100,10 @@ export function levels(D) {
       key: 'who',
       title: 'Кто я',
       lab: 'ч. 1 · current_user',
-      text: `Под ролью (\\c library ${R}) спросите СУБД, от чьего имени идут команды: SELECT current_user.`,
+      text: `Под ролью (\\c library ${R}) спросите СУБД, от чьего имени идут команды, — вместе с числом книг: SELECT current_user, count(*) FROM book.`,
       q: 'Как узнать, под кем вы работаете?',
-      goals: [`\\c library ${R}`, 'SELECT current_user'],
-      sol: [`\\c library ${R}`, 'SELECT current_user'],
+      goals: [`\\c library ${R}`, 'SELECT current_user, count(*) FROM book'],
+      sol: [`\\c library ${R}`, 'SELECT current_user, count(*) FROM book'],
       check: 'tx',
       allow: ALLOW,
       verify: c => {
@@ -113,7 +113,7 @@ export function levels(D) {
           ? {ok: true, note: `current_user = ${R}`}
           : {wait: `Это ответ под вашим именем. Подключитесь: \\c library ${R}.`};
       },
-      hint: 'SELECT current_user; — имя роли, от которой выполняется команда.',
+      hint: 'current_user — имя роли, от которой выполняется команда: SELECT current_user, count(*) FROM book;',
       ok: 'СУБД проверяет права именно этой роли — у неё их ровно столько, сколько выдали.',
     },
     {
