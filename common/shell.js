@@ -37,6 +37,8 @@ const isErr = j => /^ERROR|ошибка/.test(j.o);
    closedTitle            заголовок, пока лаба закрыта (по умолчанию «Рейс задержан»)
    gated                  лабу открывает преподаватель
    finalIcon              значок контрольного уровня (по умолчанию ✈)
+   added                  ключи уровней, добавленных в уже идущую лабу: кто прошёл её раньше (контрольный пройден),
+                          получает их зачтёнными — его работа не становится «незаконченной»
    end: {tag, stat()}     экран итогов: заголовок и третья цифра [значение, подпись]
    protoTitle, questions  протокол
    onRollback(prefill)    сброс своего состояния уровня после отката
@@ -320,6 +322,15 @@ export async function success(lv, rec) {
   verdict(true, lv.ok, st + pr, true);
   renderLevels();
   cfg.renderMission();
+}
+
+// лаба пройдена до того, как в неё добавили уровни, — новые уровни засчитываются
+function credit(P) {
+  if (!cfg.added || !(P.lv.final || {}).done) return;
+  cfg.added.forEach(k => {
+    if (!(P.lv[k] || {}).done)
+      P.lv[k] = {runs: 0, fails: 0, done: true, auto: true, at: P.lv.final.at, note: 'засчитан: лаба пройдена до появления этого уровня'};
+  });
 }
 
 // ═══════════════════════════════ тренировка: бесконечные задания без баллов ══
@@ -607,6 +618,7 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
     hist: [],
   };
   setCtx({lab: cfg.lab, fio, grp, seed, client: sess && sess.sid ? 's' + sess.sid : clientId(), demo, token: (sess && sess.token) || ''});
+  if (!demo) credit(G.P);
   report('hello', {done: doneN(), pts: score().sum});
   if (server || P) save();
   // продолжить с первого непройденного открытого уровня

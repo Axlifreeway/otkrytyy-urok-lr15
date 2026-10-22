@@ -141,6 +141,17 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(set(r['data']['lv']), {'a', 'b'})
         self.assertEqual(self.call('/api/progress?lab=lr13')[0], 403)
 
+    def test_added_levels_credited_after_final(self):
+        # лаба пройдена до появления новых уровней — они засчитаны, недопройденная — нет
+        self.group()
+        tok = self.login('Иванов')[1]['token']
+        self.call('/api/progress', {'token': tok, 'lab': 'lr13', 'data': {'lv': {'final': {'done': True}}}})
+        self.call('/api/progress', {'token': tok, 'lab': 'lr14', 'data': {'lv': {'kids': {'done': True}}}})
+        lv = self.call('/api/progress?lab=lr13', headers={'X-Labs-Token': tok})[1]['data']['lv']
+        self.assertTrue(all(lv[k]['done'] for k in labsrv.ADDED['lr13']))
+        lv = self.call('/api/progress?lab=lr14', headers={'X-Labs-Token': tok})[1]['data']['lv']
+        self.assertEqual(set(lv), {'kids'})
+
     def test_progress_restored_from_done_events(self):
         # сохранение прогресса не дошло, а события «уровень пройден» дошли: пройденное не теряется
         sid = self.group()['Иванов И.']
@@ -189,7 +200,7 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(self.call('/api/ev', {'type': typ, 'client': 'c1', 'lab': 'lr14', 'fio': 'Без входа', 'data': data})[0], 200)
         self.assertEqual(self.call('/api/ev', {'type': 'nope', 'client': 'c1'})[0], 400)
         p = self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'][0]
-        self.assertEqual((p['lv'], p['lvErrors'], p['lastErr'], p['done'], p['pts'], p['total']), (2, 1, 'не совпало', ['k'], 1.5, 12))
+        self.assertEqual((p['lv'], p['lvErrors'], p['lastErr'], p['done'], p['pts'], p['total']), (2, 1, 'не совпало', ['k'], 1.5, 20))
 
     def test_group_edit_keeps_progress(self):
         ids = self.group()

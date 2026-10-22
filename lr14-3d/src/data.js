@@ -163,7 +163,62 @@ export function makeData(seed) {
     .filter(p => p && p !== noShow && p !== Q && p !== cC && p.city !== city);
   const gold = s3own.length ? r.pick(s3own) : null;
   if (gold) gold.loyalty = 'золото';
-  return {seed, P, B, mover, win, S1, S2, S3, heavy, noShow, Q, city, cA, cSeat, cC, gold};
+  // ── уровни, добавленные позже: выбор — после всех прежних, данные прежних уровней не меняются
+  const alive = P.filter(p => p !== noShow && p !== Q && p !== cC);
+  const calm = alive.filter(p => adult(p) && p !== mover && p.city !== city);
+  // «Фамилия изменилась»: пассажирка меняет фамилию
+  const bride = r.pick(calm.filter(p => p.female)) || r.pick(calm);
+  const newName = `${r.pick(SURN.filter(x => !bride.full_name.startsWith(x)))}${bride.female ? 'а' : ''} ${bride.full_name.split(' ').slice(1).join(' ')}`;
+  // «Два столбца сразу»: пересадка на свободное место и вегетарианское питание
+  const occ2 = new Set(P.map(p => p.seat).concat(win));
+  const two = r.pick(calm.filter(p => p !== bride));
+  const seat2 = r.pick(seats.filter(x => !occ2.has(x) && x !== mover.seat));
+  // «Ручная кладь»: на одной полке легче порога — 1–3 чемодана, ни один не принадлежит снятым с рейса
+  const ok = L => L.length >= 1 && L.length <= 3 && !L.some(b => b.passenger_id === Q.id || b.passenger_id === cC.id || b === heavy);
+  let lightShelf = 0,
+    light = 0;
+  for (const sh of r.take([1, 2, 3, 4], 4)) {
+    const ws = [...new Set(B.filter(b => b.shelf === sh).map(b => b.weight_kg))].sort((a, b) => a - b);
+    const t = ws.find(t => ok(B.filter(b => b.shelf === sh && b.weight_kg < t)));
+    if (t) {
+      lightShelf = sh;
+      light = t;
+      break;
+    }
+  }
+  // «Год рождения уточнён»: взрослый, у которого год не указан
+  const unknown = P.find(p => !p.kid && p.birth_year === null);
+  // «Повышение до золота»: взрослый без золотой карты
+  const upgrade = r.pick(calm.filter(p => p !== bride && p !== two && p.loyalty !== 'золото'));
+  // «Передумал»: один из сдавших билеты покупает его снова
+  const back = r.pick(P.filter(p => p.city === city && p !== noShow && p !== Q));
+  return {
+    seed,
+    P,
+    B,
+    mover,
+    win,
+    S1,
+    S2,
+    S3,
+    heavy,
+    noShow,
+    Q,
+    city,
+    cA,
+    cSeat,
+    cC,
+    gold,
+    bride,
+    newName,
+    two,
+    seat2,
+    light,
+    lightShelf,
+    unknown,
+    upgrade,
+    back,
+  };
 }
 
 export const SCHEMA = `
@@ -235,6 +290,8 @@ const FK = [
 ];
 
 // ═══════════════════════════════════════════════════════════ уровни ══
+// уровни, добавленные в уже идущую лабу (см. common/shell.js, cfg.added)
+export const ADDED = ['dest', 'loyal', 'rename', 'two', 'light', 'gold', 'byear', 'back'];
 export function levels(D) {
   const pn = p => `${p.full_name} (id ${p.id}, место ${p.seat})`;
   return [
@@ -261,6 +318,17 @@ export function levels(D) {
       ok: 'Готово. «meal = NULL» дало бы «не знаю» на каждой строке и 0 изменений; IS NULL отвечает «да» или «нет».',
     },
     {
+      key: 'byear',
+      title: 'Год рождения уточнён',
+      lab: 'ч. 1 · пустое значение по ключу',
+      text: `У пассажира ${pn(D.unknown)} в базе нет года рождения. На стойке проверили паспорт: 1987. Заполните.`,
+      goals: [`id ${D.unknown.id}: birth_year = 1987`],
+      tables: ['passenger'],
+      ref: [`UPDATE passenger SET birth_year = 1987 WHERE id = ${D.unknown.id}`],
+      hint: 'Число — без кавычек. Строку найдите по первичному ключу.',
+      ok: 'Пустое значение заполнено. UPDATE меняет и NULL — как любое другое значение.',
+    },
+    {
       key: 'window',
       title: 'К окну',
       lab: 'ч. 1 · замена значения в одной строке',
@@ -272,6 +340,41 @@ export function levels(D) {
       ghost: D.win,
       hint: 'Одну строку надёжнее всего найти по первичному ключу: WHERE id = …. Робот тогда идёт сразу к ней — по индексу, не перебирая всех.',
       ok: 'Пересел. Условие по первичному ключу — и СУБД не обходит таблицу, а сразу находит строку.',
+    },
+    {
+      key: 'rename',
+      title: 'Фамилия изменилась',
+      lab: 'ч. 1 · текстовое значение по ключу',
+      text: `Пассажирка ${pn(D.bride)} сменила фамилию — в паспорте теперь ${D.newName}. Исправьте ФИО в её строке.`,
+      goals: [`Пассажиру id ${D.bride.id}: full_name = '${D.newName}'`, 'Остальных не трогать'],
+      tables: ['passenger'],
+      ref: [`UPDATE passenger SET full_name = '${D.newName}' WHERE id = ${D.bride.id}`],
+      say: [{id: D.bride.id, t: 'У меня новая фамилия!'}],
+      hint: "SET full_name = '…' WHERE id = … — текст в одинарных кавычках, строка — по первичному ключу.",
+      ok: 'Новая фамилия записана — одна строка, найденная по ключу.',
+    },
+    {
+      key: 'two',
+      title: 'Два столбца сразу',
+      lab: 'ч. 1 · SET с несколькими столбцами',
+      text: `Пассажир ${pn(D.two)} пересаживается на место ${D.seat2} и просит вегетарианское питание. Измените оба значения одной командой.`,
+      goals: [`id ${D.two.id}: seat = '${D.seat2}'`, "и meal = 'вегетарианское'", 'Одной командой UPDATE'],
+      tables: ['passenger'],
+      ref: [`UPDATE passenger SET seat = '${D.seat2}', meal = 'вегетарианское' WHERE id = ${D.two.id}`],
+      ghost: D.seat2,
+      hint: "SET seat = '…', meal = '…' — пары «столбец = значение» через запятую.",
+      ok: 'Одна команда — два столбца: после SET пары через запятую.',
+    },
+    {
+      key: 'light',
+      title: 'Ручная кладь',
+      lab: 'ч. 2 · удаление по двум условиям',
+      text: `На полке ${D.lightShelf} чемоданы легче ${D.light} кг — это ручная кладь: пассажиры забирают её в салон. Удалите их из baggage одной командой.`,
+      goals: [`Полка ${D.lightShelf}, weight_kg меньше ${D.light} — удалить`, 'Остальные чемоданы не трогать'],
+      tables: ['baggage'],
+      ref: [`DELETE FROM baggage WHERE shelf = ${D.lightShelf} AND weight_kg < ${D.light}`],
+      hint: 'DELETE FROM baggage WHERE … AND … — без WHERE удалились бы все чемоданы. Сначала проверьте условие SELECT-ом.',
+      ok: 'С полки сняты только лёгкие чемоданы — оба условия вместе отобрали ровно их.',
     },
     {
       key: 'scale',
@@ -358,6 +461,48 @@ export function levels(D) {
       ok: 'Отказ — и правильно: ON DELETE RESTRICT защищает пассажиров.',
     },
     {
+      key: 'dest',
+      title: 'Рейс перенаправлен',
+      lab: 'ч. 2 · изменение справочника рейсов',
+      text: 'Рейс ИИ-715 из-за погоды полетит не в Казань, а в Самару. Удалять рейс нельзя — измените пункт назначения.',
+      goals: ["flight ИИ-715: dest = 'Самара'", `Рейс ${FLIGHT} не трогать`],
+      tables: ['flight'],
+      ref: ["UPDATE flight SET dest = 'Самара' WHERE flight_no = 'ИИ-715'"],
+      hint: "Таблица flight, ключ — flight_no: WHERE flight_no = 'ИИ-715'.",
+      ok: 'Табло обновилось. Ссылки пассажиров на рейс не тронуты — изменился только город.',
+    },
+    {
+      key: 'loyal',
+      title: 'Скидка выросла',
+      lab: 'ч. 2 · новое значение от текущего',
+      text: 'Программа «золото» повышает скидку на 5 процентных пунктов. Пусть СУБД посчитает сама.',
+      goals: ["loyalty 'золото': discount на 5 больше", 'Другие программы не трогать'],
+      tables: ['loyalty'],
+      ref: ["UPDATE loyalty SET discount = discount + 5 WHERE tier = 'золото'"],
+      hint: 'SET discount = discount + 5 — справа текущее значение.',
+      ok: 'Скидка выросла — без ручного подсчёта.',
+    },
+    {
+      key: 'gold',
+      title: 'Повышение до золота',
+      lab: 'ч. 2 · ссылка на справочник',
+      text: `Пассажир ${pn(D.upgrade)} налетал на золотую карту. Назначьте ему программу «золото».`,
+      goals: [`id ${D.upgrade.id}: loyalty = 'золото'`],
+      tables: ['passenger'],
+      ref: [`UPDATE passenger SET loyalty = 'золото' WHERE id = ${D.upgrade.id}`],
+      pred: {
+        q: "А если по ошибке написать loyalty = 'платина' — такой программы в справочнике нет. Что ответит СУБД?",
+        choices: [
+          {k: 'ok', t: 'Изменит строку'},
+          {k: 'fk', t: 'Откажет: ссылка на строку, которой нет (FOREIGN KEY)'},
+          {k: 'null', t: 'Запишет NULL'},
+        ],
+        answer: 'fk',
+      },
+      hint: "loyalty ссылается на loyalty.tier — значение должно быть в справочнике: 'золото'.",
+      ok: 'Золотой значок на месте — значение есть в справочнике, внешний ключ доволен.',
+    },
+    {
       key: 'soft',
       hard: true,
       title: 'Возврат билетов',
@@ -375,6 +520,17 @@ export function levels(D) {
       ],
       hint: 'Пометка — это UPDATE столбца active. В baggage города нет: нужен список id пассажиров из этого города — его вернёт SELECT в скобках после IN.',
       ok: 'Пассажиры стали «призраками», их чемоданы сняты, история продаж цела.',
+    },
+    {
+      key: 'back',
+      title: 'Передумал',
+      lab: 'ч. 2 · вернуть пометку',
+      text: `Пассажир ${pn(D.back)} сдал билет, а потом купил его снова. Строку не удаляли — верните её в действующие.`,
+      goals: [`id ${D.back.id}: active = true`, 'Остальных сдавших не трогать'],
+      tables: ['passenger'],
+      ref: [`UPDATE passenger SET active = true WHERE id = ${D.back.id}`],
+      hint: 'Пометка — столбец active; true и false пишутся без кавычек.',
+      ok: 'Пассажир снова в строю: «мягкое» удаление обратимо — данные никуда не пропадали.',
     },
     {
       key: 'hunt',

@@ -148,7 +148,59 @@ export function makeData(seed) {
     passenger_id: p.id,
     weight_kg: i === 1 ? 32 : r.int(7, 23),
   }));
+  // ── уровни, добавленные позже: новые строки берутся после всех прежних — данные прежних уровней не меняются
+  const taken = new Set([p1, ...fam, ...pair, ...group, walker, ...late].map(p => p.seat_no).concat(wrongSeat));
+  const free = list => list.filter(s => s !== repair && !taken.has(s));
+  const row5 = free(LET.map(L => '5' + L)),
+    row4 = free(LET.map(L => '4' + L)),
+    biz = free(bizSeats);
+  // «Особое меню»: двое в ряд 5 с заказанным питанием
+  const menu = [person(), person()];
+  menu[0].meal = 'вегетарианское';
+  menu[1].meal = 'ресторан';
+  // «Неизвестные данные»: год рождения и город не указаны
+  const unk = person();
+  unk.birth_year = null;
+  unk.city = null;
+  // «Питания нет в меню»: просили халяльное — согласились на вегетарианское
+  const halal = person();
+  halal.meal = 'вегетарианское';
+  // «Школьники»: трое детей с детским питанием
+  const school = [person({kid: true}), person({kid: true}), person({kid: true})];
+  school.forEach(p => {
+    p.meal = 'детское';
+  });
+  // «Повторный посадочный»: на посадочном номер, который уже есть; верный — у агента
+  const dup = person();
+  // «Пассажир с багажом»: сначала пассажир, потом его два чемодана
+  const owner2 = person();
+  // у новых пассажиров — фамилии, которых на борту ещё нет: иначе поиск владельца багажа по фамилии стал бы неоднозначным
+  const names = new Set([p1, ...fam, ...pair, ...group, walker, ...late].map(p => p.full_name));
+  [...menu, unk, halal, ...school, dup, owner2].forEach(p => {
+    while (names.has(p.full_name)) p.full_name = `${r.pick(SURN)}${p.female ? 'а' : ''} ${INI[r.int(0, 15)]}. ${INI[r.int(0, 15)]}.`;
+    names.add(p.full_name);
+  });
+  [menu[0], menu[1], ...school].forEach((p, i) => (p.seat_no = row5[i]));
+  [unk, halal, dup].forEach((p, i) => (p.seat_no = row4[i]));
+  owner2.seat_no = biz[0];
+  // «Перевес»: чемодан 40 кг владельца первого пассажира — делят на два по 20
+  const heavy = [
+    {tag: tag(), owner: p1, weight_kg: 20},
+    {tag: tag(), owner: p1, weight_kg: 20},
+  ].map(b => ({...b, passenger_id: p1.id}));
+  const bags2 = [
+    {tag: tag(), owner: owner2, weight_kg: r.int(8, 22)},
+    {tag: tag(), owner: owner2, weight_kg: r.int(5, 18)},
+  ].map(b => ({...b, passenger_id: owner2.id}));
   return {
+    menu,
+    unk,
+    halal,
+    school,
+    dup,
+    owner2,
+    heavy,
+    bags2,
     seed,
     F0,
     F1,
@@ -291,20 +343,30 @@ const OUT = [
 ];
 
 // ═══════════════════════════════════════════════════════════ уровни ══
+// простые уровни — по 0,4; охота и поиск — по 0,8; контрольный — 1 (всего 9)
 export const PTS = {
-  board: 0.5,
-  board2: 0.5,
-  biz: 0.5,
-  eco: 0.5,
-  first: 0.5,
-  family: 0.5,
-  bags: 0.5,
-  row6: 0.5,
-  group: 0.5,
-  hunt: 1.5,
-  lookup: 1.5,
-  final: 1.5,
+  board: 0.4,
+  board2: 0.4,
+  biz: 0.4,
+  eco: 0.4,
+  first: 0.4,
+  family: 0.4,
+  meal2: 0.4,
+  nulls: 0.4,
+  badmeal: 0.4,
+  bags: 0.4,
+  heavy: 0.4,
+  row6: 0.4,
+  school: 0.4,
+  group: 0.4,
+  dupid: 0.4,
+  lookup: 0.8,
+  newbag: 0.4,
+  hunt: 0.8,
+  final: 1,
 };
+// уровни, добавленные в уже идущую лабу (см. common/shell.js, cfg.added)
+export const ADDED = ['meal2', 'nulls', 'badmeal', 'heavy', 'school', 'dupid', 'newbag'];
 export function levels(D) {
   const F = D.FLIGHT;
   const groupFixed = D.group.map(p => (p === D.wrong ? {...p, seat_no: D.wrong.seat_no} : p));
@@ -403,6 +465,48 @@ export function levels(D) {
       ok: 'Вся семья на местах. Слово DEFAULT внутри VALUES — тоже способ попросить значение по умолчанию.',
     },
     {
+      key: 'meal2',
+      title: 'Особое меню',
+      lab: 'ч. 1 · значения всех столбцов',
+      text: 'Двое пассажиров ряда 5 заказали особое питание. Внесите обоих одной командой — питание укажите явно.',
+      goals: ['Двое — одной командой INSERT', 'meal — как в заявке'],
+      doc: pDoc(D.menu, true),
+      queue: D.menu,
+      tables: ['passenger'],
+      ref: [insP(D.menu, true)],
+      one: 2,
+      hint: 'В перечне столбцов — и meal: (id, flight_no, seat_no, full_name, birth_year, city, meal).',
+      ok: 'Два особых подноса. Раз значение указано, DEFAULT не нужен.',
+    },
+    {
+      key: 'nulls',
+      title: 'Неизвестные данные',
+      lab: 'ч. 1 · NULL в нескольких столбцах',
+      text: 'Пассажир не сообщил ни года рождения, ни города. Это допустимо: оба столбца необязательные. Внесите его — неизвестное пишется NULL. Питание по умолчанию.',
+      goals: ['birth_year и city — NULL', 'meal не указывать'],
+      doc: pDoc([D.unk]) + LEGEND,
+      queue: [D.unk],
+      tables: ['passenger'],
+      ref: [insP([D.unk])],
+      noCol: 'meal',
+      hint: "NULL — без кавычек. 'NULL' в кавычках — это текст.",
+      ok: 'Неизвестное записано как NULL — «значение не знаем», а не пустая строка и не ноль.',
+    },
+    {
+      key: 'badmeal',
+      title: 'Питания нет в меню',
+      lab: 'ч. 3 · правило CHECK',
+      text: `В заявке пассажира питание «халяльное». Попробуйте внести его как есть и прочитайте ответ СУБД. Пассажир согласился на вегетарианское — внесите с ним.`,
+      goals: ['Попробовать «халяльное» и увидеть отказ', "Внести с meal = 'вегетарианское'"],
+      doc: pDoc([{...D.halal, meal: 'халяльное'}], true),
+      queue: [D.halal],
+      tables: ['passenger'],
+      ref: [insP([D.halal], true)],
+      pred: {q: "Питание 'халяльное' — что ответит СУБД?", choices: OUT, answer: 'check'},
+      hint: 'Правило ck_passenger_meal разрешает только четыре значения — посмотрите «Структуру таблиц».',
+      ok: 'CHECK пропускает только значения из списка — опечатку или «чужое» питание база не примет.',
+    },
+    {
       key: 'bags',
       title: 'Багаж',
       lab: 'ч. 1 · внешний ключ на пассажира',
@@ -414,6 +518,21 @@ export function levels(D) {
       ref: [insB(D.bags)],
       hint: 'Щёлкните пассажира на месте с бирки — в карточке строки будет id. INSERT INTO baggage (tag, passenger_id, weight_kg) VALUES …',
       ok: 'Чемоданы легли на полку над рядом владельца. 32 кг — ровно на границе правила, и это допустимо.',
+    },
+    {
+      key: 'heavy',
+      title: 'Перевес',
+      lab: 'ч. 3 · правило CHECK на вес',
+      text: `У пассажира № ${D.p1.id} чемодан 40 кг. Предел — 32 кг: попробуйте внести как есть и прочитайте отказ. Пассажир переложил вещи в два чемодана по 20 кг — внесите их одной командой.`,
+      goals: ['Попробовать 40 кг и увидеть отказ', 'Два чемодана по 20 кг — одной командой'],
+      doc: bDoc(D.heavy),
+      cart: D.heavy,
+      tables: ['baggage'],
+      ref: [insB(D.heavy)],
+      one: 2,
+      pred: {q: 'Чемодан 40 кг при правиле «от 1 до 32 кг» — что ответит СУБД?', choices: OUT, answer: 'check'},
+      hint: 'Сначала одна строка с 40 кг (бирка любая из двух) — отказ ck_baggage_weight. Потом две строки по 20.',
+      ok: 'Правило не дало внести перевес, а два чемодана по 20 кг прошли.',
     },
     {
       key: 'row6',
@@ -429,6 +548,22 @@ export function levels(D) {
       pred: {q: 'Если зарегистрировать этих двоих прямо сейчас, пока кресел ряда 6 нет, что ответит СУБД?', choices: OUT, answer: 'fk'},
       hint: 'Две команды: сначала INSERT INTO seat, потом INSERT INTO passenger. Строка, на которую ссылаются, должна появиться раньше.',
       ok: 'Сначала родитель, потом ссылка на него. Наоборот СУБД не пропустит — внешний ключ.',
+    },
+    {
+      key: 'school',
+      title: 'Школьники',
+      lab: 'ч. 1 · несколько строк и доклад',
+      needCount: 'passenger',
+      cmds: 'Две команды: вставка и доклад SELECT count(*)',
+      text: 'Трое школьников летят на олимпиаду — свободные места ряда 5. Всем детское питание. Внесите одной командой и доложите, сколько всего пассажиров на борту: SELECT count(*) FROM passenger.',
+      goals: ['Трое — одной командой', "meal = 'детское'", 'Доклад: SELECT count(*) FROM passenger'],
+      doc: pDoc(D.school, true),
+      queue: D.school,
+      tables: ['passenger'],
+      ref: [insP(D.school, true)],
+      one: 3,
+      hint: 'После вставки — отдельная команда SELECT count(*) FROM passenger; она ничего не меняет, только считает.',
+      ok: 'Школьники на местах, доклад принят.',
     },
     {
       key: 'group',
@@ -453,6 +588,43 @@ export function levels(D) {
       },
       hint: `Исправьте во второй скобке место '${D.wrongSeat}' на '${D.wrong.seat_no}' и запустите снова.`,
       ok: 'Ошибка в одной строке отменяет всю команду. Исправили — и вошли все.',
+    },
+    {
+      key: 'dupid',
+      title: 'Повторный посадочный',
+      lab: 'ч. 3 · первичный ключ',
+      text: `На посадочном пассажира напечатан № ${D.p1.id} — но такой номер уже есть. Попробуйте внести как есть и прочитайте отказ. Агент выдал новый посадочный: № ${D.dup.id}.`,
+      goals: [`Попробовать № ${D.p1.id} и увидеть отказ`, `Внести с № ${D.dup.id}`],
+      doc: pDoc([D.dup]),
+      queue: [D.dup],
+      tables: ['passenger'],
+      ref: [insP([D.dup])],
+      pred: {
+        q: `№ ${D.p1.id} уже занят другим пассажиром. Что ответит СУБД?`,
+        choices: [
+          {k: 'ok', t: 'Строка добавится'},
+          {k: 'pk', t: 'Отказ: такой ключ уже есть (PRIMARY KEY)'},
+          {k: 'notnull', t: 'Отказ: обязательный столбец пуст'},
+        ],
+        answer: 'pk',
+      },
+      hint: `Первая попытка — с id ${D.p1.id}, вторая — с id ${D.dup.id}.`,
+      ok: 'Первичный ключ не даёт двум строкам один номер.',
+    },
+    {
+      key: 'newbag',
+      title: 'Пассажир с багажом',
+      lab: 'ч. 3 · порядок: родитель, потом ссылка',
+      text: 'У трапа пассажир с двумя чемоданами, место в бизнес-классе. Внесите и его, и багаж. Порядок команд — ваш, но база должна принять каждую.',
+      goals: ['Пассажир — на своё место', 'Два чемодана — его'],
+      doc: pDoc([D.owner2]) + bDoc(D.bags2),
+      queue: [D.owner2],
+      cart: D.bags2,
+      tables: ['passenger', 'baggage'],
+      ref: [insP([D.owner2]), insB(D.bags2)],
+      pred: {q: 'Если внести чемоданы раньше пассажира, что ответит СУБД?', choices: OUT, answer: 'fk'},
+      hint: 'Чемодан ссылается на пассажира — значит, пассажир должен появиться раньше.',
+      ok: 'Сначала строка, на которую ссылаются, потом ссылка — и база приняла обе команды.',
     },
     {
       key: 'hunt',

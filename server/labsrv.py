@@ -30,7 +30,7 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10, 'lr19': 15, 'lr20': 9, 'lr21': 11, 'lr22': 7, 'lr23': 6, 'lr24': 10}   # число уровней в лабе — для панели преподавателя
+LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10, 'lr19': 15, 'lr20': 9, 'lr21': 11, 'lr22': 7, 'lr23': 6, 'lr24': 10}   # число уровней в лабе — для панели преподавателя
 GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24')   # пиццерия и библиотека: открывает преподаватель
 MAX_BODY = 400000
 MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
@@ -90,6 +90,25 @@ def words(name):
 
 
 # ═══════════════════════════════════════════════════════════ прогресс ══
+# уровни, добавленные в уже идущие лабы: кто прошёл лабу раньше (контрольный пройден), получает их зачтёнными.
+# То же — в common/shell.js (cfg.added), чтобы и в лабе, и в панели работа оставалась законченной.
+ADDED = {
+    'lr13': ['meal2', 'nulls', 'badmeal', 'heavy', 'school', 'dupid', 'newbag'],
+    'lr14': ['dest', 'loyal', 'rename', 'two', 'light', 'gold', 'byear', 'back'],
+}
+
+
+def credit(lab, d):
+    lv = (d or {}).get('lv') or {}
+    if lab not in ADDED or not (lv.get('final') or {}).get('done'):
+        return d
+    lv = dict(lv)
+    for k in ADDED[lab]:
+        if not (lv.get(k) or {}).get('done'):
+            lv[k] = {'done': True, 'auto': True, 'runs': 0, 'fails': 0}
+    return {**d, 'lv': lv}
+
+
 def merge(a, b):
     """Объединить прогресс с двух устройств: пройденные уровни не теряются ни с одной стороны.
     Та же логика — в common/login.js (mergeP); их совпадение проверяет tests/common.test.mjs."""
@@ -449,7 +468,7 @@ class Store:
         data = json.loads(r[0]) if r else None
         if ev:                              # пустая запись — того же вида, что сохраняет лаба (журнал, ответы…)
             data = merge(data or {'lv': {}, 'pred': {}, 'journal': [], 'answers': {}, 'cur': 0}, ev)
-        return data, (r[1] if r else 0)
+        return credit(lab, data) if data else data, (r[1] if r else 0)
 
     def save_progress(self, sid, lab, data):
         with self.lock:
@@ -468,6 +487,7 @@ class Store:
                 prog[k] = merge(prog.get(k), ev)
             done = {}
             for (sid, lab), d in prog.items():
+                d = credit(lab, d)
                 n = sum(1 for k, r in (d.get('lv') or {}).items() if r.get('done') and k != 'practice')
                 done.setdefault(sid, {})[lab] = min(n, LEVELS.get(lab, n))
             out = []
