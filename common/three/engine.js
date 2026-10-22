@@ -1000,6 +1000,7 @@ export function createEngine(stage, o) {
       const L = g.userData.legs,
         t = (now / 1000) * 8.5 * Math.min(Math.max(SPD, 1), 2),
         bob = Math.abs(Math.sin(t)) * 0.035;
+      if (!L) return; // готовая модель (testing/) шагает своей анимацией
       L.forEach((l, i) => {
         const ph = Math.sin(t + i * Math.PI);
         l.hip.rotation.z = ph * 0.5;

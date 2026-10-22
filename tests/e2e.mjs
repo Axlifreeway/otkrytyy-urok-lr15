@@ -520,9 +520,11 @@ const jobs = {
   teacher: () =>
     plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),
 };
+// проба /testing/ (анимированные модели) в программной отрисовке идёт долго — только по имени: node tests/e2e.mjs testing
+const ONLY_BY_NAME = ['testing'];
 try {
   for (const [k, f] of Object.entries(jobs))
-    if (!only.length || only.includes(k)) {
+    if (only.length ? only.includes(k) : !ONLY_BY_NAME.includes(k)) {
       process.stdout.write(k + '… ');
       await f();
       console.log('ok');
