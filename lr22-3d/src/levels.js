@@ -11,8 +11,41 @@ export function levels(D) {
     title = `Книга ${1000 + (D.seed % 7000)}`,
     from = 590,
     au = D.AU[(D.seed % 30) + 3];
+  const small = (D.seed % 50) + 5,
+    pre = `Книга ${(D.seed % 8) + 1}2`,
+    auId = (D.seed % 40) + 1;
+  // план запроса, подходящего под cond: EXPLAIN ANALYZE (если нужен) и способ чтения book — в отметку уровня
+  const one =
+    (cond, need = 'ANALYZE') =>
+    c => {
+      const ex = explains(c.trail, cond);
+      const an = ex.find(x => x.plan.analyze);
+      if (!ex.length) return null;
+      if (need === 'ANALYZE' && !an)
+        return {wait: `План: ${readOf(ex[0].plan, 'book')}. Теперь EXPLAIN ANALYZE того же запроса — запишите время.`};
+      const x = an || ex[0];
+      return {
+        ok: true,
+        note: `${x.plan.nodes.map(n => n.kind + (n.index ? ' using ' + n.index : '')).join(' ← ')}${x.plan.time ? ` · ${x.plan.time} ms` : ''}`,
+      };
+    };
   return [
     // ═══════════════════════════════ часть 1 · большая таблица
+    {
+      key: 'small',
+      title: 'Пока книг 60',
+      lab: 'ч. 1 · план на маленькой таблице',
+      text: `Прежде чем наполнять таблицу, посмотрите план поиска книги по ключу: EXPLAIN SELECT * FROM book WHERE id = ${small}. Запишите способ чтения — после 20 000 книг сравните.`,
+      q: 'Пойдёт ли СУБД по индексу, если книг всего 60?',
+      goals: [`EXPLAIN SELECT * FROM book WHERE id = ${small}`, 'Способ чтения — в отчёт'],
+      sol: [`EXPLAIN SELECT * FROM book WHERE id = ${small}`],
+      check: 'tx',
+      allow: ALLOW,
+      star: true,
+      verify: one(new RegExp(`\\bid\\s*=\\s*${small}\\b`), 'plain'),
+      hint: `EXPLAIN SELECT * FROM book WHERE id = ${small};`,
+      ok: 'Все 60 книг помещаются на одну страницу — прочитать её подряд дешевле, чем идти через индекс. Индекс окупается на больших таблицах.',
+    },
     {
       key: 'fill',
       title: '20 000 книг',
@@ -81,6 +114,21 @@ export function levels(D) {
       ok: 'Seq Scan: индекса по title нет — робот обошёл все стеллажи, а подошла одна книга.',
     },
     {
+      key: 'like',
+      title: 'По началу названия',
+      lab: 'ч. 2 · LIKE без индекса',
+      text: `Книги, название которых начинается на «${pre}» (title LIKE '${pre}%'). EXPLAIN ANALYZE — способ чтения, время и сколько строк прочитано зря.`,
+      q: 'Помогает ли LIKE найти строки быстрее?',
+      goals: [`EXPLAIN ANALYZE SELECT * FROM book WHERE title LIKE '${pre}%'`],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE title LIKE '${pre}%'`],
+      check: 'tx',
+      allow: ALLOW,
+      star: true,
+      verify: one(/\btitle\s+like\b/i),
+      hint: `… WHERE title LIKE '${pre}%' — процент: «дальше что угодно».`,
+      ok: 'Seq Scan: по title индекса нет — каждое название сверено с образцом.',
+    },
+    {
       key: 'range',
       title: 'Запрос 3 · диапазон',
       lab: 'ч. 2 · № 8–9 · отбор по диапазону',
@@ -94,6 +142,44 @@ export function levels(D) {
       verify: planPair(/\bpages\s*(>|<|between)/i, 'book', 'запрос 3'),
       hint: `… WHERE pages > ${from}`,
       ok: 'Снова Seq Scan: по pages индекса нет, проверить пришлось каждую строку.',
+    },
+    {
+      key: 'byauthor',
+      title: 'По внешнему ключу',
+      lab: 'ч. 2 · ссылка — ещё не индекс',
+      text: `Книги автора с id ${auId}: условие author_id = ${auId}. На этом столбце внешний ключ fk_book_author. EXPLAIN ANALYZE — есть ли индекс?`,
+      q: 'Создаёт ли внешний ключ индекс?',
+      goals: [`EXPLAIN ANALYZE SELECT * FROM book WHERE author_id = ${auId}`],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE author_id = ${auId}`],
+      check: 'tx',
+      allow: ALLOW,
+      star: true,
+      pred: {
+        q: 'Как СУБД прочитает book?',
+        choices: [
+          {k: 'idx', t: 'по индексу — это же внешний ключ'},
+          {k: 'seq', t: 'подряд — индекса на author_id нет'},
+        ],
+        answer: 'seq',
+      },
+      verify: one(/\bauthor_id\s*=/i),
+      hint: `… WHERE author_id = ${auId}`,
+      ok: 'Seq Scan: первичный ключ получает индекс сам, а внешний ключ — нет. Его создают отдельно — это ЛР-23.',
+    },
+    {
+      key: 'whole',
+      title: 'Вся таблица',
+      lab: 'ч. 2 · план без условия',
+      text: 'EXPLAIN SELECT * FROM book — без условия. В плане — оценка: rows (сколько строк ждёт СУБД) и cost (условная стоимость). Сравните rows с count(*).',
+      q: 'Что СУБД знает о таблице заранее?',
+      goals: ['EXPLAIN SELECT * FROM book', 'rows в плане ≈ count(*)'],
+      sol: ['EXPLAIN SELECT * FROM book'],
+      check: 'tx',
+      allow: ALLOW,
+      star: true,
+      verify: one(/^\s*explain\s+(analyze\s+)?select\s+\*\s+from\s+book\s*;?\s*$/i, 'plain'),
+      hint: 'EXPLAIN SELECT * FROM book;',
+      ok: 'Оценку rows СУБД берёт из статистики (ANALYZE): она знает размер таблицы, ничего не читая.',
     },
     {
       key: 'join',
@@ -121,6 +207,67 @@ export function levels(D) {
       },
       hint: 'План читается снизу вверх: сначала чтение таблиц (Seq Scan …), над ними — соединение (Hash Join).',
       ok: 'Обе таблицы читаются подряд, а соединяет их Hash Join: автор попадает в хеш-таблицу, книги проверяются по ней.',
+    },
+    // ═══════════════════════════════ часть 3 · сортировка, итог, «почти все строки»
+    {
+      key: 'sort',
+      title: 'Первые десять',
+      lab: 'ч. 3 · ORDER BY … LIMIT',
+      text: 'Два плана: первые 10 книг по id (ORDER BY id LIMIT 10) и первые 10 по числу страниц (ORDER BY pages LIMIT 10). Выполните EXPLAIN ANALYZE обоих и сравните: где появилась сортировка (Sort)?',
+      q: 'Когда СУБД приходится сортировать?',
+      goals: ['EXPLAIN ANALYZE … ORDER BY id LIMIT 10', 'EXPLAIN ANALYZE … ORDER BY pages LIMIT 10'],
+      sol: ['EXPLAIN ANALYZE SELECT * FROM book ORDER BY id LIMIT 10', 'EXPLAIN ANALYZE SELECT * FROM book ORDER BY pages LIMIT 10'],
+      check: 'tx',
+      allow: ALLOW,
+      star: true,
+      verify: c => {
+        const a = explains(c.trail, /order\s+by\s+id\b/i).find(x => x.plan.analyze),
+          b = explains(c.trail, /order\s+by\s+pages\b/i).find(x => x.plan.analyze);
+        if (!a && !b) return null;
+        if (!a || !b) return {wait: `Один план есть. Теперь EXPLAIN ANALYZE с ORDER BY ${a ? 'pages' : 'id'} LIMIT 10.`};
+        const srt = p => (p.sort ? 'Sort ← ' : '') + readOf(p, 'book');
+        return {ok: true, note: `по id: ${srt(a.plan)} · ${a.plan.time} ms; по pages: ${srt(b.plan)} · ${b.plan.time} ms`};
+      },
+      hint: 'EXPLAIN ANALYZE SELECT * FROM book ORDER BY id LIMIT 10; и то же с pages.',
+      ok: 'По id строки уже лежат в индексе по порядку — первые 10 берутся сразу. По pages индекса нет: всё читается и сортируется.',
+    },
+    {
+      key: 'agg',
+      title: 'Сколько стоит count(*)',
+      lab: 'ч. 3 · план итогового запроса',
+      text: 'EXPLAIN ANALYZE SELECT count(*) FROM book. Над чтением таблицы появится узел Aggregate. Запишите время: так дорого обходится одно число на 20 000 строк.',
+      q: 'Как СУБД считает строки?',
+      goals: ['EXPLAIN ANALYZE SELECT count(*) FROM book'],
+      sol: ['EXPLAIN ANALYZE SELECT count(*) FROM book'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: one(/count\s*\(\s*\*\s*\)/i),
+      hint: 'EXPLAIN ANALYZE SELECT count(*) FROM book;',
+      ok: 'Чтобы сосчитать строки, их нужно прочитать — count(*) без условия всегда проходит таблицу целиком.',
+    },
+    {
+      key: 'most',
+      hard: true,
+      title: 'Почти все по ключу',
+      lab: 'сложный · индекс есть, а не нужен',
+      text: 'Книги с id > 100 — это почти вся таблица. EXPLAIN ANALYZE: пойдёт ли СУБД по индексу первичного ключа?',
+      q: 'Всегда ли СУБД идёт по индексу, если он есть?',
+      goals: ['EXPLAIN ANALYZE SELECT * FROM book WHERE id > 100'],
+      sol: ['EXPLAIN ANALYZE SELECT * FROM book WHERE id > 100'],
+      check: 'tx',
+      allow: ALLOW,
+      star: true,
+      pred: {
+        q: 'Способ чтения будет…',
+        choices: [
+          {k: 'idx', t: 'Index Scan — по ключу же'},
+          {k: 'seq', t: 'Seq Scan — строк слишком много'},
+        ],
+        answer: 'seq',
+      },
+      verify: one(/\bid\s*>\s*100\b/i),
+      hint: 'EXPLAIN ANALYZE SELECT * FROM book WHERE id > 100;',
+      ok: 'Seq Scan: когда нужна почти вся таблица, ходить через индекс — лишняя работа. СУБД выбирает по оценке строк.',
     },
     // ═══════════════════════════════ контрольный
     {

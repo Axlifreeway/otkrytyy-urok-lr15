@@ -326,10 +326,11 @@ export async function success(lv, rec) {
 
 // лаба пройдена до того, как в неё добавили уровни, — новые уровни засчитываются
 function credit(P) {
-  if (!cfg.added || !(P.lv.final || {}).done) return;
+  const fin = P.lv[L[L.length - 1].key]; // последний (контрольный) уровень
+  if (!cfg.added || !(fin || {}).done) return;
   cfg.added.forEach(k => {
     if (!(P.lv[k] || {}).done)
-      P.lv[k] = {runs: 0, fails: 0, done: true, auto: true, at: P.lv.final.at, note: 'засчитан: лаба пройдена до появления этого уровня'};
+      P.lv[k] = {runs: 0, fails: 0, done: true, auto: true, at: fin.at, note: 'засчитан: лаба пройдена до появления этого уровня'};
   });
 }
 

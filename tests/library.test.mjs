@@ -43,7 +43,10 @@ test('библиотека: варианты различаются, роль �
   for (const s of SEEDS) {
     const D = makeData(s);
     assert.equal(new Set(D.BK.map(x => x.title)).size, D.BK.length, `${s}: названия книг не повторяются`);
-    assert.ok(D.BK.some(x => x.author_id === D.busy), `${s}: у автора busy есть книги`);
+    assert.ok(
+      D.BK.some(x => x.author_id === D.busy),
+      `${s}: у автора busy есть книги`,
+    );
   }
 });
 
@@ -71,15 +74,25 @@ test('ЛР-21: решения уровней по цепочке; отказы �
 
 test('ЛР-22: на 20 000 книг ключ — по индексу, название и диапазон — подряд, соединение — Hash Join', async () => {
   const D = makeData(107);
-  await reset(baseSql(D) + FILL + ';\nANALYZE;');
   const L = L22(D),
     by = k => L.find(l => l.key === k);
+  // на 60 книгах и по ключу — подряд: одна страница дешевле индекса
+  await reset(baseSql(D));
+  assert.equal((await plan(by('small').sol[0])).nodes.find(n => n.table === 'book').kind, 'Seq Scan');
+  await db.exec(FILL + ';\nANALYZE;');
   assert.equal((await db.query('SELECT count(*)::int AS n FROM book')).rows[0].n, 20000 + D.BK.length);
   const read = async (k, i = 0) => (await plan(by(k).sol[i])).nodes.find(n => n.table === 'book');
   assert.equal((await read('pk')).kind, 'Index Scan');
   assert.equal((await read('nonkey')).kind, 'Seq Scan');
   assert.equal((await read('range')).kind, 'Seq Scan');
   assert.ok((await plan(by('join').sol[0])).nodes.some(n => n.kind === 'Hash Join'));
+  assert.equal((await read('like')).kind, 'Seq Scan');
+  assert.equal((await read('byauthor')).kind, 'Seq Scan', 'внешний ключ — без индекса');
+  assert.equal((await read('most')).kind, 'Seq Scan', 'почти вся таблица — подряд, хоть и по ключу');
+  assert.equal((await read('sort', 0)).kind, 'Index Scan', 'ORDER BY id LIMIT — по индексу');
+  assert.ok((await plan(by('sort').sol[1])).sort, 'ORDER BY pages — сортировка');
+  assert.ok(!(await plan(by('sort').sol[0])).sort, 'ORDER BY id — без сортировки');
+  assert.ok((await plan(by('agg').sol[0])).agg);
   const fin = await plan(by('final').sol[0]);
   assert.equal(fin.nodes[0].kind, 'Index Scan');
   assert.ok(fin.time > 0, 'EXPLAIN ANALYZE даёт время');
@@ -96,9 +109,17 @@ test('ЛР-23: после CREATE INDEX — по индексу; внешний �
     assert.ok(before.removed > 19000, 'прочитано зря');
     await db.query(by('create').sol[0]);
     assert.equal((await plan(by('create').sol[1])).nodes[0].index, 'ix_book_title');
+    const ord = await plan(by('order').sol[0]);
+    assert.ok(ord.nodes[0].index === 'ix_book_title' && !ord.sort, 'ORDER BY title — по индексу, без сортировки');
+    assert.equal((await plan(by('func').sol[0])).nodes[0].kind, 'Seq Scan', 'lower(title) — мимо индекса');
     await db.query(by('fk').sol[0]);
     const fk = (await plan(by('fk').sol[1])).nodes[0];
     assert.equal(fk.index, 'ix_book_author_id', `${s}: ${fk.kind}`);
+    await assert.rejects(db.query(by('uniqfail').sol[0]), e => e.code === '23505' && by('uniqfail').errMsg.test(e.message));
+    await db.query(by('pages').sol[0]);
+    assert.equal((await plan(by('pages').sol[1])).nodes[0].index, 'ix_book_pages');
+    assert.equal((await plan(by('wide').sol[0])).nodes[0].kind, 'Seq Scan', 'широкий диапазон — подряд');
+    assert.equal((await db.query(by('size').ask)).rows.length, 1);
     await play(by('extra'));
     const fin = by('final');
     assert.equal((await plan(fin.sol[0])).nodes[0].kind, 'Seq Scan');
@@ -123,6 +144,12 @@ test('ЛР-24: права действуют под ролью; эталон в�
     await db.query(`SET ROLE ${R}`);
     await assert.rejects(db.query('SELECT count(*) FROM author'), e => e.code === '42501');
     await db.query('RESET ROLE');
+    // права на столбцы: имя читается, телефон — нет
+    for (const q of by('colgrant').ref) await db.query(q);
+    await db.query(`SET ROLE ${R}`);
+    assert.ok((await db.query('SELECT id, full_name FROM reader')).rows.length > 0);
+    await assert.rejects(db.query('SELECT phone FROM reader'), e => e.code === '42501');
+    await db.query('RESET ROLE');
     for (const q of by('rename').ref) await db.query(q);
     await assert.rejects(db.query('SELECT count(*) FROM book'), e => e.code === '42P01');
     for (const q of by('restore').ref) await db.query(q);
@@ -132,6 +159,8 @@ test('ЛР-24: права действуют под ролью; эталон в�
     await db.query('DROP SCHEMA library_old CASCADE');
     await db.query(`SET ROLE ${R}`);
     assert.ok((await db.query('SELECT count(*) FROM book')).rows[0].count > 0, `${s}: права роли — из копии`);
+    await assert.rejects(db.query('SELECT phone FROM reader'), e => e.code === '42501', `${s}: права на столбцы — из копии`);
+    assert.ok((await db.query('SELECT full_name FROM reader')).rows.length > 0);
     await db.query('RESET ROLE');
     // база перезагружается и с ролью, у которой есть права (уровень заново)
     await reset(baseSql(D));

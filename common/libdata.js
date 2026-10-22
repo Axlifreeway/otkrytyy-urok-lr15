@@ -196,7 +196,7 @@ export function restoreSql(D) {
     rows('library.book', ['id', 'title', 'author_id', 'year', 'pages', 'isbn'], D.BK) +
     rows('library.reader', ['id', 'full_name', 'card', 'phone'], D.RD) +
     rows('library.loan', ['id', 'book_id', 'reader_id', 'taken', 'returned'], D.LN) +
-    `GRANT USAGE ON SCHEMA library TO ${D.role};\nGRANT SELECT ON library.book TO ${D.role};\n`
+    `GRANT USAGE ON SCHEMA library TO ${D.role};\nGRANT SELECT ON library.book TO ${D.role};\nGRANT SELECT (full_name, id) ON library.reader TO ${D.role};\n`
   );
 }
 // 20 000 книг — как в образце задания ЛР-22: INSERT … SELECT … FROM generate_series

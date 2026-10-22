@@ -182,7 +182,14 @@ export function planNodes(lines) {
   const text = lines.join('\n');
   const time = (/Execution Time: ([\d.]+) ms/.exec(text) || [])[1];
   const removed = +((/Rows Removed by Filter: (\d+)/.exec(text) || [])[1] || 0);
-  return {nodes: out, time: time ? +time : null, removed};
+  // сортировка и итог — узлы без таблицы: только флаги
+  return {
+    nodes: out,
+    time: time ? +time : null,
+    removed,
+    sort: /(^|\s|>)\s*(Incremental )?Sort\b/m.test(text),
+    agg: /\bAggregate\b/.test(text),
+  };
 }
 
 export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
@@ -942,14 +949,22 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     const gr = await Q(
       `SELECT grantee, table_name, string_agg(privilege_type, ', ') AS p FROM information_schema.role_table_grants WHERE table_schema = '${sch}' AND grantee <> 'postgres' GROUP BY 1, 2 ORDER BY 2`,
     );
+    // права на отдельные столбцы — те, что не покрыты правом на всю таблицу
+    const cg = await Q(
+      `SELECT grantee, table_name, privilege_type AS p, string_agg(column_name, ', ' ORDER BY column_name) AS cols FROM information_schema.column_privileges cp
+      WHERE table_schema = '${sch}' AND grantee <> 'postgres' AND NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants t
+      WHERE t.table_schema = cp.table_schema AND t.table_name = cp.table_name AND t.grantee = cp.grantee AND t.privilege_type = cp.privilege_type)
+      GROUP BY 1, 2, 3 ORDER BY 2`,
+    );
     const us = await Q(
       `SELECT r.rolname FROM pg_namespace n, pg_roles r WHERE n.nspname = '${sch}' AND r.rolname <> 'postgres' AND has_schema_privilege(r.oid, n.oid, 'USAGE') AND r.rolname !~ '^pg_'`,
     );
-    if (gr.length || us.length)
+    if (gr.length || us.length || cg.length)
       L1.push(
         '',
         ...us.map(u => `GRANT USAGE ON SCHEMA ${sch} TO ${u.rolname};`),
         ...gr.map(g => `GRANT ${g.p} ON TABLE ${sch}.${g.table_name} TO ${g.grantee};`),
+        ...cg.map(g => `GRANT ${g.p} (${g.cols}) ON TABLE ${sch}.${g.table_name} TO ${g.grantee};`),
       );
     L1.push('', '--', '-- PostgreSQL database dump complete', '--');
     return L1.join('\n') + '\n';

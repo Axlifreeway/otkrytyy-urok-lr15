@@ -22,6 +22,11 @@ export function levels(D) {
   const ins3 = `INSERT INTO author (id, full_name, country) VALUES ${NEW.map(([id, n, c]) => `(${id}, ${lit(n)}, ${lit(c)})`).join(', ')}`;
   const guest = {id: D.RD.length + 1, full_name: 'Новикова А. Б.', card: 'Б-00001'};
   const lend = B[3];
+  // новые уровни: читатель, которому меняют билет, и чужой билет; книга нового автора; невозвращённая книга
+  const [r1, r2] = D.RD;
+  const moved = B[10];
+  const back = D.LN.find(l => l.returned === null);
+  const COL = `SELECT column_name, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'library' AND table_name = 'book' AND column_name = 'genre'`;
   const finRef = [
     `INSERT INTO reader (id, full_name, card, phone) VALUES (${guest.id}, ${lit(guest.full_name)}, ${lit(guest.card)}, NULL)`,
     `INSERT INTO loan (id, book_id, reader_id, taken, returned) VALUES (${D.LN.length + 1}, ${lend.id}, ${guest.id}, '2026-10-22', NULL)`,
@@ -130,6 +135,61 @@ export function levels(D) {
       hint: 'Внешний ключ fk_book_author защищает и от удаления: книги ссылались бы в никуда.',
       ok: 'СУБД отказала: на автора ссылаются книги (still referenced). Сначала пришлось бы убрать или переназначить книги.',
     },
+    {
+      key: 'dupcard',
+      title: 'Чужой билет',
+      lab: 'ч. 1 · уникальность при UPDATE',
+      check: 'error',
+      code: '23505',
+      errMsg: /uq_reader_card/,
+      allow: ALLOW,
+      text: `Читатель ${r1.full_name} (id ${r1.id}) потерял билет. Библиотекарь по ошибке вписывает ему номер ${r2.card} — а это билет читателя ${r2.full_name}. Выполните такой UPDATE и прочитайте отказ СУБД.`,
+      q: 'Пропустит ли СУБД два одинаковых номера билета?',
+      goals: [`UPDATE reader SET card = '${r2.card}' WHERE id = ${r1.id}`, 'Отказ СУБД: uq_reader_card'],
+      sol: [`UPDATE reader SET card = ${lit(r2.card)} WHERE id = ${r1.id}`],
+      wait: 'Команда выполнилась без отказа — проверьте номер билета: он должен совпасть с чужим.',
+      other: 'Это другой отказ — нужен повтор номера билета (ограничение uq_reader_card).',
+      hint: 'Ограничение UNIQUE проверяется и при UPDATE, а не только при INSERT.',
+      ok: 'UNIQUE не дал двум читателям один билет: UPDATE отклонён целиком.',
+    },
+    {
+      key: 'newcard',
+      title: 'Новый билет',
+      lab: 'ч. 1 · UPDATE по ключу',
+      text: `Выдайте читателю ${r1.full_name} (id ${r1.id}) новый билет Б-00777 и покажите его строку SELECT.`,
+      q: 'Как изменить одно значение одной строки?',
+      goals: [`UPDATE reader SET card = 'Б-00777' WHERE id = ${r1.id}`, 'SELECT — строка с новым билетом'],
+      ref: [`UPDATE reader SET card = 'Б-00777' WHERE id = ${r1.id}`],
+      sol: [`UPDATE reader SET card = 'Б-00777' WHERE id = ${r1.id}`, `SELECT * FROM reader WHERE id = ${r1.id}`],
+      tables: ['reader'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: c => {
+        if (c.wrong.length) return {fail: `Изменилось не то: новый билет — только читателю ${r1.id}.`};
+        if (!c.atTarget) return null;
+        const u = c.trail.findLastIndex(x => x.kind === 'UPDATE' && !x.code);
+        return after(c.trail, u, x => x.kind === 'SELECT' && !x.code) > 0
+          ? {ok: true, note: 'UPDATE 1'}
+          : {wait: 'Билет заменён — покажите строку запросом SELECT.'};
+      },
+      hint: `UPDATE reader SET card = 'Б-00777' WHERE id = ${r1.id}; SELECT * FROM reader WHERE id = ${r1.id};`,
+      ok: 'Этот номер свободен — UNIQUE пропустил.',
+    },
+    {
+      key: 'reauthor',
+      title: 'Не тот автор',
+      lab: 'ч. 1 · ссылка на новую строку',
+      text: `Книгу «${moved.title}» (id ${moved.id}) в каталоге приписали не тому автору — её написал ${NEW[0][1]} (id ${NEW[0][0]}), которого вы добавили в начале. Исправьте ссылку.`,
+      q: 'Можно ли сослаться на только что добавленную строку?',
+      goals: [`UPDATE book SET author_id = ${NEW[0][0]} WHERE id = ${moved.id}`],
+      ref: [`UPDATE book SET author_id = ${NEW[0][0]} WHERE id = ${moved.id}`],
+      tables: ['book'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: c => (c.wrong.length ? {fail: `Измените только книгу ${moved.id}.`} : c.atTarget ? {ok: true, note: 'UPDATE 1'} : null),
+      hint: `UPDATE book SET author_id = ${NEW[0][0]} WHERE id = ${moved.id};`,
+      ok: `Автор ${NEW[0][0]} есть в справочнике — внешний ключ пропустил ссылку. Теперь и его удалить не получится.`,
+    },
     // ═══════════════════════════════ часть 2 · изменение структуры
     {
       key: 'addcol',
@@ -158,6 +218,68 @@ export function levels(D) {
       },
       hint: 'ALTER TABLE … ADD COLUMN … NOT NULL DEFAULT …; — DEFAULT сразу заполняет существующие строки.',
       ok: 'DEFAULT заполнил столбец у всех существующих строк — поэтому NOT NULL встал без ошибки.',
+    },
+    {
+      key: 'addnull',
+      title: 'Жанр без умолчания',
+      lab: 'ч. 2 · столбец без DEFAULT',
+      text: 'Книгам нужен жанр. Добавьте в book столбец genre varchar(20) — без DEFAULT и без NOT NULL — и покажите SELECT, чем он заполнен у старых книг.',
+      q: 'Чем заполнится новый столбец без DEFAULT?',
+      goals: ['ALTER TABLE book ADD COLUMN genre varchar(20)', 'SELECT — genre у старых строк'],
+      ref: ['ALTER TABLE book ADD COLUMN genre varchar(20)'],
+      sol: ['ALTER TABLE book ADD COLUMN genre varchar(20)', 'SELECT id, title, genre FROM book'],
+      tables: ['book'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: async c => {
+        const col = (await c.q(COL))[0];
+        if (!col) return null;
+        if (col.is_nullable !== 'YES' || col.column_default) return {fail: 'Здесь столбец нужен без NOT NULL и без DEFAULT.'};
+        const a = c.trail.findIndex(x => x.kind === 'ALTER' && !x.code);
+        return after(c.trail, a, x => x.kind === 'SELECT' && !x.code) > 0
+          ? {ok: true, note: 'ALTER TABLE · genre пуст (NULL)'}
+          : {wait: 'Столбец добавлен. Покажите SELECT, чем он заполнен.'};
+      },
+      hint: 'ALTER TABLE book ADD COLUMN genre varchar(20); SELECT id, title, genre FROM book;',
+      ok: 'Без DEFAULT у старых строк в новом столбце NULL — значение неизвестно.',
+    },
+    {
+      key: 'notnull',
+      title: 'Жанр обязателен?',
+      lab: 'ч. 2 · SET NOT NULL на пустом столбце',
+      check: 'error',
+      code: '23502',
+      allow: ALLOW,
+      text: 'Сделайте жанр обязательным: ALTER TABLE book ALTER COLUMN genre SET NOT NULL. Жанры ещё никто не заполнил — прочитайте отказ СУБД.',
+      q: 'Встанет ли NOT NULL на столбец, где одни NULL?',
+      goals: ['ALTER TABLE book ALTER COLUMN genre SET NOT NULL', 'Отказ СУБД'],
+      sol: ['ALTER TABLE book ALTER COLUMN genre SET NOT NULL'],
+      other: 'Это другой отказ — проверьте запись команды: ALTER COLUMN genre SET NOT NULL.',
+      hint: 'NOT NULL, как и CHECK, проверяется на всех строках, которые уже есть.',
+      ok: 'СУБД отказала: в столбце есть NULL. Сравните со «Статусом читателя» — там DEFAULT заполнил строки заранее.',
+    },
+    {
+      key: 'dropcol',
+      title: 'Жанр — потом',
+      lab: 'ч. 2 · удалить столбец',
+      text: 'Заполнять жанры некому — столбец пока убираем. Удалите genre из book и покажите \\d book или SELECT, что его нет.',
+      q: 'Как удалить столбец?',
+      goals: ['ALTER TABLE book DROP COLUMN genre', 'Проверка: столбца нет'],
+      ref: ['ALTER TABLE book DROP COLUMN genre'],
+      sol: ['ALTER TABLE book DROP COLUMN genre', 'SELECT * FROM book LIMIT 3'],
+      tables: ['book'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: async c => {
+        if ((await c.q(COL)).length) return null;
+        const a = c.trail.findIndex(x => x.kind === 'ALTER' && !x.code);
+        if (a < 0) return null;
+        return after(c.trail, a, x => (x.kind === 'SELECT' || x.kind === 'META') && !x.code) > 0
+          ? {ok: true, note: 'ALTER TABLE · DROP COLUMN'}
+          : {wait: 'Столбец удалён. Покажите, что его нет: \\d book или SELECT * FROM book.'};
+      },
+      hint: 'ALTER TABLE book DROP COLUMN genre;',
+      ok: 'Столбец удалён вместе со всеми значениями — в отличие от DELETE, это меняет структуру, а не строки.',
     },
     {
       key: 'break',
@@ -260,6 +382,34 @@ export function levels(D) {
       },
       hint: 'BEGIN; DELETE …; SELECT …; ROLLBACK; SELECT …;',
       ok: 'ROLLBACK вернул всё, что удалено после BEGIN.',
+    },
+    {
+      key: 'return',
+      title: 'Книгу вернули',
+      lab: 'ч. 3 · BEGIN … COMMIT',
+      text: `Читатель вернул книгу по формуляру № ${back.id}. Отметьте возврат (returned = '2026-10-22') в транзакции, подтвердите COMMIT и покажите формуляр SELECT.`,
+      q: 'Что делает COMMIT?',
+      goals: ['BEGIN', `UPDATE loan SET returned = '2026-10-22' WHERE id = ${back.id}`, 'COMMIT', 'SELECT после COMMIT'],
+      ref: [`UPDATE loan SET returned = '2026-10-22' WHERE id = ${back.id}`],
+      sol: ['BEGIN', `UPDATE loan SET returned = '2026-10-22' WHERE id = ${back.id}`, 'COMMIT', `SELECT * FROM loan WHERE id = ${back.id}`],
+      tables: ['loan'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: c => {
+        const T = c.trail;
+        if (c.wrong.length && !c.tx) return {fail: 'Изменилось не то, что нужно.'};
+        const u = T.findIndex(x => x.kind === 'UPDATE' && !x.code);
+        if (u < 0) return null;
+        if (!T[u].tx) return {fail: 'UPDATE выполнен без транзакции. Начните с BEGIN.'};
+        const cm = after(T, u, x => x.kind === 'COMMIT' && x.tag === 'COMMIT');
+        if (cm < 0) return {wait: 'Изменение в транзакции. Подтвердите: COMMIT.'};
+        if (!c.atTarget) return {fail: 'После COMMIT данные не такие, как в задании.'};
+        return after(T, cm, x => x.kind === 'SELECT' && !x.code) > 0
+          ? {ok: true, note: 'BEGIN · UPDATE 1 · COMMIT · SELECT'}
+          : {wait: 'Подтверждено. Покажите формуляр SELECT.'};
+      },
+      hint: "BEGIN; UPDATE loan SET returned = '2026-10-22' WHERE id = …; COMMIT; SELECT …;",
+      ok: 'После COMMIT изменение окончательное — ROLLBACK его уже не вернёт.',
     },
     {
       key: 'final',

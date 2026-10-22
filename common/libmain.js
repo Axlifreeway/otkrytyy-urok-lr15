@@ -7,7 +7,7 @@ import {initShell, boot, G} from './shell.js';
 import {queryLab} from './qlab.js';
 
 // base — своя исходная база (ЛР-23 начинает с таблицы на 20 000 строк)
-export function libLab({lab, title, intro, about, levels, PTS, REF, REF_NEED = [], questions, practice, base = baseSql}) {
+export function libLab({lab, title, intro, about, levels, PTS, REF, REF_NEED = [], questions, practice, added, base = baseSql}) {
   const W = createLibrary($('stage'));
   W.setSpeed(3);
   const Q = queryLab({
@@ -31,6 +31,7 @@ export function libLab({lab, title, intro, about, levels, PTS, REF, REF_NEED = [
     REF,
     REF_NEED,
     PTS,
+    added,
     TABLES,
     COLS,
     gated: true,

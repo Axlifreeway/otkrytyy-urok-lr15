@@ -9,6 +9,8 @@ const ALLOW = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'GRANT', 'REVOK
 const after = (T, from, f) => T.findIndex((x, i) => i > from && f(x));
 const priv = async (c, role, t) =>
   (await c.q(`SELECT has_table_privilege('${role}', 'library.${t}', 'SELECT') AS ok`).catch(() => [{ok: false}]))[0].ok;
+const colPriv = async (c, role, col) =>
+  (await c.q(`SELECT has_column_privilege('${role}', 'library.reader', '${col}', 'SELECT') AS ok`).catch(() => [{ok: false}]))[0].ok;
 const roleExists = async (c, role) => (await c.q(`SELECT 1 FROM pg_roles WHERE rolname = '${role}'`)).length > 0;
 
 export function levels(D) {
@@ -57,6 +59,23 @@ export function levels(D) {
       ok: 'Роль может войти в схему и читать книги и авторов — и только.',
     },
     {
+      key: 'dp',
+      title: 'Кто что может',
+      lab: 'ч. 1 · \\dp — таблица прав',
+      text: `Покажите права на таблицы схемы командой psql \\dp. Найдите строки, где упомянута роль ${R}, — что ей разрешено?`,
+      q: 'Где посмотреть выданные права?',
+      goals: ['\\dp', `Права роли ${R}: SELECT на book и author`],
+      sol: ['\\dp'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: c =>
+        c.trail.some(x => x.kind === 'META' && !x.code && /\\dp|\\z/.test(x.sql) && x.out.includes(R))
+          ? {ok: true, note: `\\dp: ${R} — SELECT на book, author`}
+          : null,
+      hint: '\\dp — права на таблицы (как \\z).',
+      ok: 'Права видны: кто, на какую таблицу, что может.',
+    },
+    {
       key: 'asrole',
       title: 'Под ролью',
       lab: 'ч. 1 · № 3 · подключиться и прочитать',
@@ -76,6 +95,26 @@ export function levels(D) {
       },
       hint: `\\c library ${R} — дальше команды идут от имени роли; вернуться: \\c library postgres.`,
       ok: 'Роль читает — право SELECT работает.',
+    },
+    {
+      key: 'who',
+      title: 'Кто я',
+      lab: 'ч. 1 · current_user',
+      text: `Под ролью (\\c library ${R}) спросите СУБД, от чьего имени идут команды: SELECT current_user.`,
+      q: 'Как узнать, под кем вы работаете?',
+      goals: [`\\c library ${R}`, 'SELECT current_user'],
+      sol: [`\\c library ${R}`, 'SELECT current_user'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: c => {
+        const s = c.trail.find(x => x.kind === 'SELECT' && !x.code && /current_user/i.test(x.sql));
+        if (!s) return null;
+        return s.role === R
+          ? {ok: true, note: `current_user = ${R}`}
+          : {wait: `Это ответ под вашим именем. Подключитесь: \\c library ${R}.`};
+      },
+      hint: 'SELECT current_user; — имя роли, от которой выполняется команда.',
+      ok: 'СУБД проверяет права именно этой роли — у неё их ровно столько, сколько выдали.',
     },
     {
       key: 'deny',
@@ -144,6 +183,52 @@ export function levels(D) {
       hint: 'Обе команды — под ролью: SELECT … FROM author; SELECT … FROM book;',
       ok: 'Права проверены делом: одна таблица закрыта, другая открыта.',
     },
+    {
+      key: 'colgrant',
+      title: 'Права на столбцы',
+      lab: 'ч. 1 · GRANT на часть столбцов',
+      text: `Справочный стол должен видеть имена читателей, но не их телефоны. Под своим именем выдайте роли ${R} SELECT только на столбцы id и full_name таблицы reader.`,
+      q: 'Можно ли выдать право не на всю таблицу?',
+      goals: ['\\c library postgres', `GRANT SELECT (id, full_name) ON library.reader TO ${R}`],
+      ref: [`GRANT SELECT (id, full_name) ON library.reader TO ${R}`],
+      sol: ['\\c library postgres', `GRANT SELECT (id, full_name) ON library.reader TO ${R}`],
+      check: 'tx',
+      allow: ALLOW,
+      verify: async c => {
+        const n = await colPriv(c, R, 'full_name'),
+          id = await colPriv(c, R, 'id'),
+          ph = await colPriv(c, R, 'phone');
+        if (ph)
+          return {
+            fail: 'Роль видит и телефон — право выдано на всю таблицу. Отберите его (REVOKE SELECT ON library.reader …) и выдайте на два столбца.',
+          };
+        return n && id ? {ok: true, note: 'GRANT SELECT (id, full_name)'} : null;
+      },
+      hint: `GRANT SELECT (id, full_name) ON library.reader TO ${R}; — столбцы в скобках после SELECT.`,
+      ok: 'Право выдано на два столбца — телефон закрыт.',
+    },
+    {
+      key: 'colcheck',
+      title: 'Имя — да, телефон — нет',
+      lab: 'ч. 1 · проверка прав на столбцы',
+      text: `Под ролью покажите: SELECT id, full_name FROM reader — читается, а SELECT phone FROM reader — отказ.`,
+      q: 'Что увидит роль в таблице reader?',
+      goals: [`\\c library ${R}`, 'SELECT id, full_name FROM reader — строки', 'SELECT phone FROM reader — отказ'],
+      sol: [`\\c library ${R}`, 'SELECT id, full_name FROM reader', 'SELECT phone FROM reader'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: c => {
+        const T = c.trail.filter(x => x.kind === 'SELECT' && x.role === R && x.table === 'reader');
+        const yes = T.find(x => !x.code),
+          no = T.find(x => x.code === '42501');
+        if (yes && no) return {ok: true, note: 'id, full_name — читаются · phone — permission denied'};
+        if (yes) return {wait: 'Имена читаются. Теперь попробуйте телефон: SELECT phone FROM reader.'};
+        if (no) return {wait: 'Отказ есть. Теперь покажите, что id и full_name читаются.'};
+        return null;
+      },
+      hint: 'SELECT * тоже получит отказ: звёздочка просит и телефон.',
+      ok: 'Права проверяются по каждому столбцу запроса: хоть один закрытый — отказ.',
+    },
     // ═══════════════════════════════ часть 2 · резервная копия
     {
       key: 'dump',
@@ -209,6 +294,27 @@ export function levels(D) {
       },
       hint: 'Таблицу другой схемы называют полностью: схема.таблица.',
       ok: 'Числа совпали — копия рабочая.',
+    },
+    {
+      key: 'again',
+      title: 'Роль после восстановления',
+      lab: 'ч. 2 · права приехали с копией',
+      text: `Схема собрана заново из файла. Подключитесь под ролью и прочитайте book новой схемы — права должны были восстановиться вместе с таблицами.`,
+      q: 'Восстанавливаются ли права вместе со схемой?',
+      goals: [`\\c library ${R}`, 'SELECT count(*) FROM book — строки'],
+      sol: [`\\c library ${R}`, 'SELECT count(*) FROM book'],
+      check: 'tx',
+      allow: ALLOW,
+      star: true,
+      verify: c => {
+        const s = c.trail.find(x => x.kind === 'SELECT' && x.role === R && x.table === 'book');
+        if (!s) return null;
+        return s.code
+          ? {fail: `Отказ: ${s.msg}. Похоже, в копии не было прав — проверьте файл.`}
+          : {ok: true, note: `под ${R}: book — ${s.n} строк`};
+      },
+      hint: `\\c library ${R}; SELECT count(*) FROM book;`,
+      ok: 'В копии были и GRANT — роль читает восстановленную таблицу.',
     },
     {
       key: 'final',

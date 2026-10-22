@@ -10,20 +10,31 @@ import {practice} from './practice.js';
 import {GROUP_REF, SELECT_REF, JOIN_REF} from '../../common/sqlref.js';
 
 const PTS = {
-  count: 0.5,
-  sum: 0.5,
-  avg: 0.5,
-  nulls: 0.5,
-  bypizza: 0.5,
-  sumcour: 0.75,
-  minmax: 0.75,
-  byday: 0.75,
-  having: 0.75,
-  havsum: 0.75,
-  wherehav: 1,
-  aggwhere: 0.5,
-  final: 1.25,
+  count: 0.35,
+  sum: 0.35,
+  avg: 0.35,
+  nulls: 0.35,
+  minmax1: 0.35,
+  qty: 0.35,
+  uniq: 0.35,
+  bypizza: 0.35,
+  sumcour: 0.4,
+  minmax: 0.4,
+  byday: 0.4,
+  bydist: 0.35,
+  veg: 0.4,
+  transport: 0.4,
+  avgdist: 0.4,
+  having: 0.4,
+  havsum: 0.4,
+  busy: 0.4,
+  hotdays: 0.4,
+  wherehav: 0.6,
+  aggwhere: 0.35,
+  final: 0.9,
 };
+// уровни, добавленные позже: тем, кто прошёл лабу раньше, засчитываются сами
+const ADDED = ['minmax1', 'qty', 'uniq', 'bydist', 'veg', 'transport', 'avgdist', 'busy', 'hotdays'];
 const W = createPizzeria($('stage'), {pizzaColor});
 W.setSpeed(3);
 const Q = queryLab({
@@ -37,7 +48,7 @@ const Q = queryLab({
 
 const INTRO = `<p>Робот-СУБД считает итоги прямо на кухне: отбирает заказы по <code>WHERE</code>, раскладывает коробки стопками по <code>GROUP BY</code>, над каждой стопкой — итог, а <code>HAVING</code> гасит лишние стопки.</p>`;
 const head = more => `<span class="tag">ЛР-17</span><h2>Группировка и итоги: GROUP BY и HAVING</h2>${INTRO}
-    <p class="mu">13 уровней: итог по всей таблице, итоги по группам, отбор групп и контрольный отчёт. Перед каждым запросом — вопрос, после — проверка суммой. ${more}</p>`;
+    <p class="mu">22 уровня: итог по всей таблице, итоги по группам, отбор групп и контрольный отчёт. Перед каждым запросом — вопрос, после — проверка суммой. ${more}</p>`;
 initShell({
   lab: 'lr17',
   storeKey: 'pizza-lr17-',
@@ -49,6 +60,7 @@ initShell({
   REF: [GROUP_REF, JOIN_REF, SELECT_REF],
   REF_NEED: ['bypizza', 'having', 'wherehav', 'aggwhere', 'final'],
   PTS,
+  added: ADDED,
   TABLES,
   COLS,
   gated: true,
