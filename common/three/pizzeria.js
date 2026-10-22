@@ -5,6 +5,9 @@
 //   client  — гости за столиками зала.
 // Между столом выдачи и проходом робота — полоса итогов: GROUP BY раскладывает туда коробки по группам.
 // Интерфейс тот же, что у сцен аэропорта (build, sync, locate, answer, calm…) — им пользуется common/qlab.js.
+// kit (необязательно) — зал и люди из готовых моделей вместо процедурных (пробная сборка в testing/):
+//   kit.room(E, geo) — поставить мебель и стены, вернуть {seats: [{p, rot}]} — места гостей;
+//   kit.person(row, роль, rnd) — человечек ('courier' | 'client'); kit.pose(g, поза) — 'sit' | 'stand' | 'walk' | 'up'.
 import {createEngine, THREE, V, tween, sleep} from './engine.js';
 import {rng} from '../rng.js';
 
@@ -12,7 +15,7 @@ export {sleep, tween};
 const STACK = 4, // коробок в стопке
   BOXH = 0.075;
 
-export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
+export function createPizzeria(stage, {pizzaColor = () => 0xd2483c, kit = null} = {}) {
   const E = createEngine(stage, {home: {tx: 2.6, tz: -0.4}, sunTarget: [3, 0, -1], viewH: 7.6, followZoom: 1.4, apronZ: -60});
   const {root, rbox, at, mat} = E;
   const LEN0 = -3.4,
@@ -28,122 +31,127 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
   Object.assign(E.geo, {LEN0, LEN1, MID, LEN, DOOR: {x: LEN0 - 0.6, z: DOORZ}});
   E.robot.position.set(LEN0 + 1.6, 0, 0);
 
-  // ═══════════════════════════════════════════════════════ здание ══
-  const slab = rbox(LEN + 1.4, 0.3, FRONT - WALLZ + 0.2, 0.06, 0xe7dccb);
-  at(slab, MID, -0.15, (FRONT + WALLZ) / 2);
-  root.add(slab);
-  // пол — «шахматка» у кухни, доски в зале
-  for (let x = LEN0 - 0.6; x < LEN1 + 0.6; x += 0.6)
-    for (let z = WALLZ + 0.1; z < -0.6; z += 0.6) {
-      if ((Math.round(x / 0.6) + Math.round(z / 0.6)) % 2) continue;
-      const t = rbox(0.6, 0.01, 0.6, 0.004, 0xd3c6b1);
-      at(t, x + 0.3, 0.004, z + 0.3);
-      t.castShadow = false;
-      root.add(t);
+  const showW = LEN1 - 3.0 - (LEN0 + 0.4),
+    TABLES = [1.4, 3.6, 5.8, 8.0];
+  const geo = {LEN0, LEN1, MID, LEN, WALLZ, FRONT, SHOWZ, TABLEZ, PILEZ, DOORZ, showW, TABLES};
+  const room = kit ? kit.room(E, geo) : proceduralRoom();
+  function proceduralRoom() {
+    // ═══════════════════════════════════════════════════════ здание ══
+    const slab = rbox(LEN + 1.4, 0.3, FRONT - WALLZ + 0.2, 0.06, 0xe7dccb);
+    at(slab, MID, -0.15, (FRONT + WALLZ) / 2);
+    root.add(slab);
+    // пол — «шахматка» у кухни, доски в зале
+    for (let x = LEN0 - 0.6; x < LEN1 + 0.6; x += 0.6)
+      for (let z = WALLZ + 0.1; z < -0.6; z += 0.6) {
+        if ((Math.round(x / 0.6) + Math.round(z / 0.6)) % 2) continue;
+        const t = rbox(0.6, 0.01, 0.6, 0.004, 0xd3c6b1);
+        at(t, x + 0.3, 0.004, z + 0.3);
+        t.castShadow = false;
+        root.add(t);
+      }
+    for (let z = 0.65; z < FRONT; z += 0.32) {
+      const b = rbox(LEN + 1.3, 0.008, 0.02, 0.002, 0xcdbb9f);
+      at(b, MID, 0.004, z);
+      b.castShadow = false;
+      root.add(b);
     }
-  for (let z = 0.65; z < FRONT; z += 0.32) {
-    const b = rbox(LEN + 1.3, 0.008, 0.02, 0.002, 0xcdbb9f);
-    at(b, MID, 0.004, z);
-    b.castShadow = false;
-    root.add(b);
-  }
-  // проход робота
-  const walk = rbox(LEN + 0.6, 0.012, 0.95, 0.01, 0xcfc3ae);
-  at(walk, MID, 0.006, 0);
-  walk.castShadow = false;
-  root.add(walk);
-  for (let x = LEN0 + 0.4; x < LEN1; x += 0.9)
-    [-0.42, 0.42].forEach(z => {
-      const d = rbox(0.18, 0.016, 0.04, 0.01, 0xffc21a, {emissive: 0x332200});
-      at(d, x, 0.01, z);
-      d.castShadow = false;
-      root.add(d);
+    // проход робота
+    const walk = rbox(LEN + 0.6, 0.012, 0.95, 0.01, 0xcfc3ae);
+    at(walk, MID, 0.006, 0);
+    walk.castShadow = false;
+    root.add(walk);
+    for (let x = LEN0 + 0.4; x < LEN1; x += 0.9)
+      [-0.42, 0.42].forEach(z => {
+        const d = rbox(0.18, 0.016, 0.04, 0.01, 0xffc21a, {emissive: 0x332200});
+        at(d, x, 0.01, z);
+        d.castShadow = false;
+        root.add(d);
+      });
+    // задняя стена: плитка, вывеска, печи
+    const wall = rbox(LEN + 1.4, 2.9, 0.18, 0.05, 0xf4ede0);
+    at(wall, MID, 1.45, WALLZ);
+    root.add(wall);
+    const tile = rbox(LEN + 1.4, 1.1, 0.04, 0.02, 0xd2483c);
+    at(tile, MID, 0.55, WALLZ + 0.11);
+    root.add(tile);
+    for (let x = LEN0 - 0.6; x < LEN1 + 0.7; x += 0.3) {
+      const s = rbox(0.02, 1.1, 0.05, 0.004, 0xf4ede0);
+      at(s, x, 0.55, WALLZ + 0.12);
+      s.castShadow = false;
+      root.add(s);
+    }
+    E.flatLabel('SQL PIZZA · кухня', root, {x: MID - 1.4, y: 2.35, z: WALLZ + 0.11, h: 0.42, color: '#22252b', bg: '#ffc21a'});
+    // две печи справа
+    [LEN1 - 1.6, LEN1 - 0.2].forEach((x, i) => {
+      const body = rbox(1.15, 1.5, 0.9, 0.3, 0xb5523b);
+      at(body, x, 0.75, WALLZ + 0.6);
+      root.add(body);
+      const mouth = rbox(0.6, 0.36, 0.06, 0.16, 0x2a1c16);
+      at(mouth, x, 0.72, WALLZ + 1.06);
+      root.add(mouth);
+      const glow = rbox(0.5, 0.06, 0.04, 0.02, 0xffa53a, {emissive: 0xff7a1a});
+      at(glow, x, 0.58, WALLZ + 1.08);
+      root.add(glow);
+      const pipe = rbox(0.22, 1.0, 0.22, 0.06, 0x8b857a);
+      at(pipe, x, 1.95, WALLZ + 0.45);
+      root.add(pipe);
+      E.flatLabel(`ПЕЧЬ ${i + 1}`, root, {x, y: 1.25, z: WALLZ + 1.06, h: 0.15, color: '#fff', bg: null});
     });
-  // задняя стена: плитка, вывеска, печи
-  const wall = rbox(LEN + 1.4, 2.9, 0.18, 0.05, 0xf4ede0);
-  at(wall, MID, 1.45, WALLZ);
-  root.add(wall);
-  const tile = rbox(LEN + 1.4, 1.1, 0.04, 0.02, 0xd2483c);
-  at(tile, MID, 0.55, WALLZ + 0.11);
-  root.add(tile);
-  for (let x = LEN0 - 0.6; x < LEN1 + 0.7; x += 0.3) {
-    const s = rbox(0.02, 1.1, 0.05, 0.004, 0xf4ede0);
-    at(s, x, 0.55, WALLZ + 0.12);
-    s.castShadow = false;
-    root.add(s);
-  }
-  E.flatLabel('SQL PIZZA · кухня', root, {x: MID - 1.4, y: 2.35, z: WALLZ + 0.11, h: 0.42, color: '#22252b', bg: '#ffc21a'});
-  // две печи справа
-  [LEN1 - 1.6, LEN1 - 0.2].forEach((x, i) => {
-    const body = rbox(1.15, 1.5, 0.9, 0.3, 0xb5523b);
-    at(body, x, 0.75, WALLZ + 0.6);
-    root.add(body);
-    const mouth = rbox(0.6, 0.36, 0.06, 0.16, 0x2a1c16);
-    at(mouth, x, 0.72, WALLZ + 1.06);
-    root.add(mouth);
-    const glow = rbox(0.5, 0.06, 0.04, 0.02, 0xffa53a, {emissive: 0xff7a1a});
-    at(glow, x, 0.58, WALLZ + 1.08);
-    root.add(glow);
-    const pipe = rbox(0.22, 1.0, 0.22, 0.06, 0x8b857a);
-    at(pipe, x, 1.95, WALLZ + 0.45);
-    root.add(pipe);
-    E.flatLabel(`ПЕЧЬ ${i + 1}`, root, {x, y: 1.25, z: WALLZ + 1.06, h: 0.15, color: '#fff', bg: null});
-  });
-  // витрина с пиццами: длинный прилавок у задней стены
-  const showW = LEN1 - 3.0 - (LEN0 + 0.4);
-  const show = rbox(showW, 0.8, 0.75, 0.06, 0xece2cf);
-  at(show, LEN0 + 0.4 + showW / 2, 0.4, SHOWZ);
-  root.add(show);
-  const showTop = rbox(showW + 0.1, 0.05, 0.85, 0.02, 0x6a4a35);
-  at(showTop, LEN0 + 0.4 + showW / 2, 0.82, SHOWZ);
-  root.add(showTop);
-  E.flatLabel('меню · таблица pizza', root, {x: LEN0 + 1.5, y: 0.4, z: SHOWZ + 0.38, h: 0.15});
-  // стол выдачи заказов
-  const tableW = LEN1 - LEN0 - 1.2;
-  const tbl = rbox(tableW, 0.06, 0.75, 0.03, 0x8a6446);
-  at(tbl, LEN0 + 0.6 + tableW / 2, 0.62, TABLEZ);
-  root.add(tbl);
-  for (let x = LEN0 + 0.8; x <= LEN1 - 0.5; x += 2.0)
-    [-0.3, 0.3].forEach(dz => {
-      const leg = rbox(0.06, 0.6, 0.06, 0.02, 0x5b4231);
-      at(leg, x, 0.3, TABLEZ + dz);
+    // витрина с пиццами: длинный прилавок у задней стены
+    const show = rbox(showW, 0.8, 0.75, 0.06, 0xece2cf);
+    at(show, LEN0 + 0.4 + showW / 2, 0.4, SHOWZ);
+    root.add(show);
+    const showTop = rbox(showW + 0.1, 0.05, 0.85, 0.02, 0x6a4a35);
+    at(showTop, LEN0 + 0.4 + showW / 2, 0.82, SHOWZ);
+    root.add(showTop);
+    E.flatLabel('меню · таблица pizza', root, {x: LEN0 + 1.5, y: 0.4, z: SHOWZ + 0.38, h: 0.15});
+    // стол выдачи заказов
+    const tableW = LEN1 - LEN0 - 1.2;
+    const tbl = rbox(tableW, 0.06, 0.75, 0.03, 0x8a6446);
+    at(tbl, LEN0 + 0.6 + tableW / 2, 0.62, TABLEZ);
+    root.add(tbl);
+    for (let x = LEN0 + 0.8; x <= LEN1 - 0.5; x += 2.0)
+      [-0.3, 0.3].forEach(dz => {
+        const leg = rbox(0.06, 0.6, 0.06, 0.02, 0x5b4231);
+        at(leg, x, 0.3, TABLEZ + dz);
+        root.add(leg);
+      });
+    E.flatLabel('выдача заказов · таблица orders', root, {x: LEN0 + 1.9, y: 0.66, z: TABLEZ + 0.39, h: 0.13});
+    // полоса итогов перед проходом
+    const strip = rbox(LEN - 0.8, 0.01, 0.62, 0.01, 0xf3e4c4);
+    at(strip, MID + 0.2, 0.008, PILEZ);
+    strip.castShadow = false;
+    root.add(strip);
+    E.flatLabel('итоги · GROUP BY', root, {x: LEN0 + 0.9, y: 0.016, z: PILEZ, rx: -Math.PI / 2, h: 0.18});
+    // левая стена с выходом на улицу
+    const side = rbox(0.18, 2.9, FRONT - WALLZ, 0.05, 0xf4ede0);
+    at(side, LEN0 - 0.7, 1.45, (FRONT + WALLZ) / 2);
+    root.add(side);
+    const door = rbox(0.06, 2.0, 1.2, 0.03, 0x2f6f73);
+    at(door, LEN0 - 0.6, 1.0, DOORZ);
+    root.add(door);
+    E.flatLabel('ДОСТАВКА', root, {x: LEN0 - 0.58, y: 2.2, z: DOORZ, ry: Math.PI / 2, h: 0.3, color: '#22252b', bg: '#ffc21a'});
+    E.flatLabel('курьеры · courier', root, {x: LEN0 + 0.3, y: 0.016, z: 3.9, rx: -Math.PI / 2, h: 0.18});
+    // зал: столики на четверых
+    TABLES.forEach(x => {
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 24), mat(0xfbf8f2));
+      top.position.set(x, 0.7, 3.0);
+      top.castShadow = top.receiveShadow = true;
+      root.add(top);
+      const leg = rbox(0.08, 0.68, 0.08, 0.02, 0x3f474d);
+      at(leg, x, 0.34, 3.0);
       root.add(leg);
+      [-0.36, 0.36].forEach(dx =>
+        [2.35, 3.65].forEach(z => {
+          const s = rbox(0.4, 0.06, 0.4, 0.05, 0x2f6f73);
+          at(s, x + dx, 0.4, z);
+          root.add(s);
+        }),
+      );
     });
-  E.flatLabel('выдача заказов · таблица orders', root, {x: LEN0 + 1.9, y: 0.66, z: TABLEZ + 0.39, h: 0.13});
-  // полоса итогов перед проходом
-  const strip = rbox(LEN - 0.8, 0.01, 0.62, 0.01, 0xf3e4c4);
-  at(strip, MID + 0.2, 0.008, PILEZ);
-  strip.castShadow = false;
-  root.add(strip);
-  E.flatLabel('итоги · GROUP BY', root, {x: LEN0 + 0.9, y: 0.016, z: PILEZ, rx: -Math.PI / 2, h: 0.18});
-  // левая стена с выходом на улицу
-  const side = rbox(0.18, 2.9, FRONT - WALLZ, 0.05, 0xf4ede0);
-  at(side, LEN0 - 0.7, 1.45, (FRONT + WALLZ) / 2);
-  root.add(side);
-  const door = rbox(0.06, 2.0, 1.2, 0.03, 0x2f6f73);
-  at(door, LEN0 - 0.6, 1.0, DOORZ);
-  root.add(door);
-  E.flatLabel('ДОСТАВКА', root, {x: LEN0 - 0.58, y: 2.2, z: DOORZ, ry: Math.PI / 2, h: 0.3, color: '#22252b', bg: '#ffc21a'});
-  E.flatLabel('курьеры · courier', root, {x: LEN0 + 0.3, y: 0.016, z: 3.9, rx: -Math.PI / 2, h: 0.18});
-  // зал: столики на четверых
-  const TABLES = [1.4, 3.6, 5.8, 8.0];
-  TABLES.forEach(x => {
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 24), mat(0xfbf8f2));
-    top.position.set(x, 0.7, 3.0);
-    top.castShadow = top.receiveShadow = true;
-    root.add(top);
-    const leg = rbox(0.08, 0.68, 0.08, 0.02, 0x3f474d);
-    at(leg, x, 0.34, 3.0);
-    root.add(leg);
-    [-0.36, 0.36].forEach(dx =>
-      [2.35, 3.65].forEach(z => {
-        const s = rbox(0.4, 0.06, 0.4, 0.05, 0x2f6f73);
-        at(s, x + dx, 0.4, z);
-        root.add(s);
-      }),
-    );
-  });
-  E.flatLabel('зал · гости · client', root, {x: TABLES[0] - 0.4, y: 0.016, z: 4.15, rx: -Math.PI / 2, h: 0.18});
+    E.flatLabel('зал · гости · client', root, {x: TABLES[0] - 0.4, y: 0.016, z: 4.15, rx: -Math.PI / 2, h: 0.18});
+    return {};
+  }
 
   // статичное — одним мешем
   {
@@ -158,6 +166,13 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
   }
 
   // ═════════════════════════════════════════════════ объекты строк ══
+  // поза человечка: свои модели (kit) — своей анимацией; 'up' — гость встаёт в ответ на запрос, 'walk' — идёт
+  const pose = (g, p) => (kit ? kit.pose(g, p) : E.setPose(g, p === 'walk' || p === 'up' ? 'stand' : p));
+  const walk = async (g, path, spd) => {
+    pose(g, 'walk');
+    await E.walk(g, path, spd);
+    pose(g, 'stand');
+  };
   const objs = {pizza: new Map(), orders: new Map(), courier: new Map(), client: new Map()};
   const PK = {pizza: 'id', orders: 'id', courier: 'id', client: 'id'};
   let seedR = rng(1);
@@ -226,23 +241,25 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
   const CAP = [0xffc21a, 0xd2483c, 0x2f6f73, 0x3b4d7a, 0x6b4f9a, 0x5c8a3a];
   function makeCourier(row) {
     const female = /а\s/.test(row.name);
-    const g = E.makePerson({kid: false, female, old: false}, seedR);
-    const helmet = rbox(0.36, 0.14, 0.36, 0.08, CAP[row.id % CAP.length]);
-    at(helmet, 0.04, 1.2, 0);
-    g.add(helmet);
-    const bag = rbox(0.18, 0.42, 0.4, 0.05, 0xffc21a);
-    at(bag, 0.28, 0.72, 0);
-    g.add(bag);
+    const g = kit ? kit.person(row, 'courier', seedR) : E.makePerson({kid: false, female, old: false}, seedR);
+    if (!kit) {
+      const helmet = rbox(0.36, 0.14, 0.36, 0.08, CAP[row.id % CAP.length]);
+      at(helmet, 0.04, 1.2, 0);
+      g.add(helmet);
+      const bag = rbox(0.18, 0.42, 0.4, 0.05, 0xffc21a);
+      at(bag, 0.28, 0.72, 0);
+      g.add(bag);
+    }
     E.flatLabel(row.name, g, {x: 0, y: 0.02, z: 0.42, rx: -Math.PI / 2, h: 0.12, color: '#22252b'});
-    E.setPose(g, 'stand');
+    pose(g, 'stand');
     anchorOf(g, 0.95);
     E.setPick(g, {t: 'courier', k: row.id});
     return g;
   }
   function makeClient(row) {
     const female = /а\s/.test(row.full_name);
-    const g = E.makePerson({kid: false, female, old: false}, seedR);
-    E.setPose(g, 'sit');
+    const g = kit ? kit.person(row, 'client', seedR) : E.makePerson({kid: false, female, old: false}, seedR);
+    pose(g, 'sit');
     anchorOf(g, 0.95);
     E.setPick(g, {t: 'client', k: row.id});
     return g;
@@ -250,15 +267,16 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
   const MAKE = {pizza: makePizza, orders: makeBox, courier: makeCourier, client: makeClient};
 
   // ═══════════════════════════════════════════════ где чьё место ══
-  const SEATS = [];
-  TABLES.forEach(x =>
-    [-0.36, 0.36].forEach(dx =>
-      [
-        [2.35, Math.PI / 2],
-        [3.65, -Math.PI / 2],
-      ].forEach(([z, rot]) => SEATS.push({p: V(x + dx, 0, z), rot})),
-    ),
-  );
+  const SEATS = room.seats || [];
+  if (!room.seats)
+    TABLES.forEach(x =>
+      [-0.36, 0.36].forEach(dx =>
+        [
+          [2.35, Math.PI / 2],
+          [3.65, -Math.PI / 2],
+        ].forEach(([z, rot]) => SEATS.push({p: V(x + dx, 0, z), rot})),
+      ),
+    );
   SEATS.sort((a, b) => a.p.x - b.p.x || a.p.z - b.p.z);
   // i — порядковый номер строки в таблице, n — сколько строк
   function slot(t, i, n) {
@@ -289,7 +307,7 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
       if (!O) return;
       const s = slot(t, i, ks.length);
       O.home = s;
-      if (s.pose) E.setPose(O.g, s.pose);
+      if (s.pose) pose(O.g, s.pose);
       O.g.rotation.y = s.rot;
       if (anim && O.g.position.distanceTo(s.p) > 0.01) jobs.push(tween(O.g.position, {x: s.p.x, y: s.p.y, z: s.p.z}, 420));
       else O.g.position.copy(s.p);
@@ -354,7 +372,7 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
             if (anim) {
               if (t === 'client' || t === 'courier') {
                 E.sayAt(O.g, 'До свидания…', 1200);
-                await E.walk(O.g, [V(O.g.position.x, 0, 1.0), V(LEN0 - 0.3, 0, 1.0)], 3);
+                await walk(O.g, [V(O.g.position.x, 0, 1.0), V(LEN0 - 0.3, 0, 1.0)], 3);
               } else {
                 await tween(O.g.position, {y: O.g.position.y + 0.5}, 220, 'out');
                 await tween(O.g.scale, {x: 0.01, y: 0.01, z: 0.01}, 260, 'in');
@@ -429,7 +447,7 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
   );
   function say(t, id, text, ms = 0) {
     const O = objs[t] && objs[t].get(+id);
-    if (O && O.g.userData.legs) E.sayAt(O.g, text, ms);
+    if (O && (t === 'client' || t === 'courier')) E.sayAt(O.g, text, ms);
   }
 
   // ═══════════════════════════════════════ где стоять роботу у строки ══
@@ -448,7 +466,7 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
       if (!O) return;
       O.away = true;
       if (t === 'client') {
-        E.setPose(O.g, 'stand');
+        pose(O.g, 'up');
         jobs.push(sleep(i * 25).then(() => E.bounce(O.g, 0.18)));
       } else if (t === 'orders')
         jobs.push(sleep(i * (ordered ? 50 : 20)).then(() => tween(O.g.position, {z: TABLEZ + 0.12, y: O.g.position.y + 0.04}, 220, 'out')));
@@ -537,7 +555,7 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
         if (!O.away || !O.home) return;
         O.away = false;
         const s = O.home;
-        if (s.pose) E.setPose(O.g, s.pose);
+        if (s.pose) pose(O.g, s.pose);
         O.g.rotation.y = s.rot;
         if (anim) jobs.push(tween(O.g.position, {x: s.p.x, y: s.p.y, z: s.p.z}, 360, 'io'));
         else O.g.position.copy(s.p);
@@ -561,7 +579,7 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
       C.g.attach(B.g);
     }
     E.sayAt(C.g, 'Заказ поехал!', 1500);
-    await E.walk(C.g, [V(C.g.position.x, 0, DOORZ), V(LEN0 - 1.4, 0, DOORZ)], 3);
+    await walk(C.g, [V(C.g.position.x, 0, DOORZ), V(LEN0 - 1.4, 0, DOORZ)], 3);
     E.focus(null);
   }
   const resetRoot0 = E.resetRoot;

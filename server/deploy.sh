@@ -6,7 +6,7 @@ set -eu
 SRC=${LABS_SRC:-/opt/labs-src}            # клон репозитория (git clone … /opt/labs-src)
 WWW=${LABS_WWW:-/var/www/labs}
 BRANCH=${LABS_BRANCH:-main}
-PARTS="airport pizza lr13-3d lr14-3d lr15-3d lr16-3d lr17-3d lr18-3d lr19-3d lr20-3d labs teacher common vendor"
+PARTS="airport pizza lr13-3d lr14-3d lr15-3d lr16-3d lr17-3d lr18-3d lr19-3d lr20-3d testing labs teacher common vendor"
 DB=${LABS_DB:-/opt/labsrv/labs.db}
 BAK=${LABS_BAK:-/opt/labsrv/backups}
 KEEP=${LABS_KEEP:-30}

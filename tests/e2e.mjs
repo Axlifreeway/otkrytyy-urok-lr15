@@ -456,6 +456,7 @@ const jobs = {
   lr18: () => lab3d('lr18', 'lr18-3d'),
   lr19: () => lab3d('lr19', 'lr19-3d'),
   lr20: () => lab3d('lr20', 'lr20-3d'),
+  testing: () => lab3d('testing', 'testing'), // проба: ЛР-17 из готовых моделей
   // город: пока ЛР-17–20 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии четыре заказа
   city: async () => {
     const {page, errors} = await open('/');
