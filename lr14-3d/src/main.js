@@ -1,7 +1,7 @@
 // ЛР-14 · «Бортпитание и другие» — разбор UPDATE/DELETE/SELECT, обход строк роботом-СУБД, проверка уровней.
 // Вход, прогресс, вердикты, итоги и протокол — в common/shell.js.
 import {createWorld, sleep} from './scene.js';
-import {makeData, baseSql, levels, TABLES, COLS, FLIGHT} from './data.js';
+import {makeData, baseSql, levels, TABLES, COLS, FLIGHT, ADDED} from './data.js';
 import {$, esc, plural} from '../../common/util.js';
 import {statements} from '../../common/sql.js';
 import {parse, colsIn, fmt, subst, normW, explain} from './parse.js';
@@ -43,19 +43,28 @@ import {report} from '../../common/net.js';
 import {practice} from './practice.js';
 import {SELECT_REF, WHERE_REF, UPDATE_REF} from '../../common/sqlref.js';
 
+// простые уровни — по 0,4; «Возврат билетов» и «Охота» — по 0,7; контрольный — 0,8 (всего 9)
 const PTS = {
-  kids: 0.5,
-  rest: 0.5,
-  window: 0.5,
-  scale: 0.5,
-  atomic: 0.5,
-  noshow: 0.5,
-  cascade: 0.5,
-  setnull: 0.5,
-  restrict: 0.5,
-  soft: 1.5,
-  hunt: 1.5,
-  final: 1.5,
+  kids: 0.4,
+  rest: 0.4,
+  byear: 0.4,
+  window: 0.4,
+  rename: 0.4,
+  two: 0.4,
+  light: 0.4,
+  scale: 0.4,
+  atomic: 0.4,
+  noshow: 0.4,
+  cascade: 0.4,
+  setnull: 0.4,
+  loyal: 0.4,
+  gold: 0.4,
+  restrict: 0.4,
+  dest: 0.4,
+  soft: 0.7,
+  back: 0.4,
+  hunt: 0.7,
+  final: 0.8,
 };
 const W = createWorld($('stage'));
 W.setSpeed(3); // в ЛР-14 обход долгий — по умолчанию ×3
@@ -459,9 +468,10 @@ async function pick(p) {
 
 const INTRO = `<p>На борту — база данных, а по проходу ходит <b>робот-СУБД</b>. Он выполняет вашу команду строка за строкой: проверяет условие <code>WHERE</code> у каждой и меняет только те, где ответ «да».</p>`;
 const head = more => `<span class="tag">ОПЦ.07 · ЛР-14</span><h2>UPDATE и DELETE</h2>${INTRO}
-    <p class="mu">12 уровней, каждый открывается после предыдущего. За каждый уровень — баллы; сдать можно в любой момент (кнопка «Сдать»). ${more}</p>`;
+    <p class="mu">20 уровней, каждый открывается после предыдущего. За каждый уровень — баллы; сдать можно в любой момент (кнопка «Сдать»). ${more}</p>`;
 initShell({
   lab: 'lr14',
+  added: ADDED,
   storeKey: 'air3d-lr14-',
   world: W,
   makeData,

@@ -9,20 +9,31 @@ import {practice} from './practice.js';
 import {SELECT_REF, WHERE_REF, ORDER_REF} from '../../common/sqlref.js';
 
 const PTS = {
-  star: 0.5,
-  cols: 0.75,
-  eq: 0.5,
-  cmp: 0.5,
-  range: 0.75,
-  inlist: 0.5,
-  like: 0.75,
-  order2: 0.75,
-  paren: 0.75,
-  null: 0.75,
-  distinct: 0.75,
-  top: 0.5,
-  final: 1.25,
+  star: 0.35,
+  cols: 0.45,
+  loyal: 0.3,
+  grams: 0.3,
+  eq: 0.35,
+  noteq: 0.3,
+  cmp: 0.35,
+  ge: 0.4,
+  range: 0.4,
+  inlist: 0.3,
+  notin: 0.3,
+  noyear: 0.3,
+  like: 0.45,
+  letter: 0.3,
+  order2: 0.45,
+  paren: 0.5,
+  null: 0.55,
+  distinct: 0.45,
+  meals: 0.4,
+  oldest: 0.4,
+  top: 0.3,
+  final: 1.1,
 };
+// уровни, добавленные позже: тем, кто прошёл лабу раньше, засчитываются сами
+const ADDED = ['loyal', 'grams', 'noteq', 'ge', 'notin', 'noyear', 'letter', 'meals', 'oldest'];
 const W = createTerminal($('stage'), {kind: 'gate'}); // зал ожидания у выхода C15
 W.setSpeed(3);
 const Q = queryLab({
@@ -36,7 +47,7 @@ const Q = queryLab({
 
 const INTRO = `<p>Робот-СУБД отвечает на вопросы: обходит строки, у каждой проверяет условие <code>WHERE</code> и кладёт в ответ только подходящие — в зале видно, кого он выбрал.</p>`;
 const head = more => `<span class="tag">ЛР-15</span><h2>Выборка данных: SELECT, WHERE, ORDER BY</h2>${INTRO}
-    <p class="mu">13 уровней: первые запросы и вычисляемые столбцы, отбор строк, условия посложнее и ответ заказчику. Перед каждым запросом — вопрос, после — число строк. ${more}</p>`;
+    <p class="mu">22 уровня: первые запросы и вычисляемые столбцы, отбор строк, условия посложнее и ответ заказчику. Перед каждым запросом — вопрос, после — число строк. ${more}</p>`;
 initShell({
   lab: 'lr15',
   storeKey: 'air3d-lr15-',
@@ -47,6 +58,7 @@ initShell({
   REF: [SELECT_REF, WHERE_REF, ORDER_REF],
   REF_NEED: ['cols', 'cmp', 'range', 'like', 'order2', 'null', 'distinct', 'top', 'final'],
   PTS,
+  added: ADDED,
   TABLES,
   COLS,
   prepare: D => {

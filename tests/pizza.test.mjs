@@ -104,6 +104,7 @@ test('ЛР-19: проверка № 15 совпадает с № 8', async () =>
   }
 });
 
+const ONE = ['upd1', 'del', 'qtyfix', 'phone', 'cancel', 'forget', 'txcommit', 'swap'];
 test('ЛР-20: эталон каждого уровня выполняется по порядку; ошибка — только там, где задумана', async () => {
   for (const s of SEEDS.slice(0, 25)) {
     const D = makeData(s);
@@ -111,9 +112,15 @@ test('ЛР-20: эталон каждого уровня выполняется �
     for (const lv of L20(D)) {
       for (const q of lv.sol || lv.ref) {
         try {
-          await db.query(q);
+          const r = await db.query(q);
+          // правки по ключу задевают ровно одну строку
+          if (ONE.includes(lv.key) && /^(UPDATE|DELETE)/.test(q)) assert.equal(r.affectedRows, 1, `вариант ${s}, ${lv.key}: ${q}`);
         } catch (e) {
-          assert.ok(lv.key === 'abort' && ['23502', '25P02'].includes(e.code), `вариант ${s}, ${lv.key}: ${q} → ${e.message}`);
+          if (e instanceof assert.AssertionError) throw e;
+          assert.ok(
+            (lv.key === 'abort' && ['23502', '25P02'].includes(e.code)) || (lv.key === 'guarded' && e.code === '23503'),
+            `вариант ${s}, ${lv.key}: ${q} → ${e.message}`,
+          );
         }
       }
       // после уровня база — как после его эталона (ref): в транзакционных уровнях всё откатано

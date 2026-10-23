@@ -127,6 +127,44 @@ export const TX_REF = [
     "BEGIN;\nINSERT INTO base (id, city) VALUES (5, 'Тула');\nINSERT INTO crew (id, name, base_id) VALUES (12, 'Ким', 5);\nCOMMIT;",
   ],
 ];
+export const PLAN_REF = [
+  ['План без выполнения — EXPLAIN', "EXPLAIN SELECT * FROM crew WHERE name = 'Ким';\n-- Seq Scan on crew …   Filter: (name = 'Ким')"],
+  [
+    'План и время — EXPLAIN ANALYZE',
+    'EXPLAIN ANALYZE SELECT * FROM crew WHERE id = 7;\n-- Index Scan using pk_crew on crew …\n-- Execution Time: 0.041 ms',
+  ],
+  [
+    'Много строк одной командой',
+    "INSERT INTO crew (id, name, base_id)\nSELECT 100 + n, 'Имя ' || n, n % 5 + 1\nFROM generate_series(1, 20000) AS g(n);",
+  ],
+  [
+    'Как читать план',
+    'Seq Scan — подряд все строки; Index Scan — по индексу сразу к нужным;\nRows Removed by Filter — прочитано зря; план читается снизу вверх',
+  ],
+];
+export const INDEX_REF = [
+  ['Создать индекс (имя: ix_таблица_столбец)', 'CREATE INDEX ix_crew_name ON crew (name);'],
+  ['Проверить планом', "EXPLAIN ANALYZE SELECT * FROM crew WHERE name = 'Ким';\n-- Index Scan using ix_crew_name on crew …"],
+  ['Индекс на внешний ключ', 'CREATE INDEX ix_crew_base_id ON crew (base_id);'],
+  ['Список индексов таблицы (psql)', '\\d crew\n\\di'],
+  ['Удалить индекс', 'DROP INDEX ix_crew_city;'],
+];
+export const ROLE_REF = [
+  ['Роль с правом входа', "CREATE ROLE crew_reader LOGIN PASSWORD 'Rd-2026-x';"],
+  ['Права: схема и таблицы', 'GRANT USAGE ON SCHEMA crewdb TO crew_reader;\nGRANT SELECT ON crewdb.crew, crewdb.base TO crew_reader;'],
+  ['Подключиться под ролью и вернуться (psql)', '\\c crewdb crew_reader\n\\c crewdb postgres'],
+  ['Отобрать право', 'REVOKE SELECT ON crewdb.base FROM crew_reader;'],
+  ['Кто что может (psql)', '\\dp\n\\du'],
+];
+export const DUMP_REF = [
+  ['Копия схемы в файл (командная строка)', 'pg_dump -U postgres -d crewdb -n crewdb -f kopiya.sql'],
+  ['Переименовать схему', 'ALTER SCHEMA crewdb RENAME TO crewdb_old;'],
+  ['Восстановить из файла', 'psql -U postgres -d crewdb -f kopiya.sql'],
+  [
+    'Сравнить и удалить старую',
+    'SELECT count(*) FROM crewdb.crew;\nSELECT count(*) FROM crewdb_old.crew;\nDROP SCHEMA crewdb_old CASCADE;',
+  ],
+];
 
 export function sqlRef(groups, need = false) {
   const items = groups

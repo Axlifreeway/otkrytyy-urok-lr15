@@ -1,7 +1,7 @@
 // ЛР-13 · «Открытие рейса» — разбор INSERT и SELECT, робот-СУБД несёт строки, проверка уровней.
 // Вход, прогресс, вердикты, итоги и протокол — в common/shell.js.
 import {createWorld, sleep} from './scene.js';
-import {makeData, baseSql, levels, TABLES, COLS, talon, tagOf, PTS} from './data.js';
+import {makeData, baseSql, levels, TABLES, COLS, talon, tagOf, PTS, ADDED} from './data.js';
 import {$, esc, plural} from '../../common/util.js';
 import {statements} from '../../common/sql.js';
 import {parse, litVal, badCol, explain} from './parse.js';
@@ -515,10 +515,11 @@ async function pick(p) {
 const INTRO =
   '<p>Самолёт пуст: ни рейса на табло, ни кресел, ни пассажиров. Всё, что появится на борту, появится из ваших команд <code>INSERT</code>. <b>Робот-СУБД</b> несёт каждую строку на её место и проверяет: есть ли всё обязательное, не нарушено ли правило, существует ли то, на что строка ссылается.</p>';
 const head = more => `<span class="tag">ОПЦ.07 · ЛР-13</span><h2>INSERT: открытие рейса</h2>${INTRO}
-    <p class="mu">12 уровней, каждый открывается после предыдущего. За каждый уровень — баллы; сдать можно в любой момент (кнопка «Сдать»). ${more}</p>`;
+    <p class="mu">19 уровней, каждый открывается после предыдущего. За каждый уровень — баллы; сдать можно в любой момент (кнопка «Сдать»). ${more}</p>`;
 initShell({
   lab: 'lr13',
   storeKey: 'air3d-lr13-',
+  added: ADDED,
   world: W,
   makeData,
   levels,

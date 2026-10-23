@@ -116,7 +116,7 @@
 
   <section class="map panel" aria-label="Карта города">
     <div class="map-hd"><span class="tag">Карта · где работает робот-СУБД</span></div>
-    <svg id="city" viewBox="0 0 1180 720" role="img" aria-label="Город: аэропорт, пиццерия, стройка"></svg>
+    <svg id="city" viewBox="0 0 1180 720" role="img" aria-label="Город: аэропорт, пиццерия, библиотека"></svg>
   </section>
 
   <section class="worlds" id="worlds" aria-label="Места работы"></section>
@@ -186,13 +186,19 @@ function draw(state) {
   a += tree(0.8, 2.6, 0.8);
   s += `<a class="bld" href="airport/" aria-label="Аэропорт: ЛР-13–16"><g>${a}${badge(4.8, 1.6, 3.1, '✈ Аэропорт', state.air)}</g></a>`;
 
-  // ── стройка: следующий мир
+  // ── библиотека: здание с колоннами, ступени, фронтон
   let c = '';
-  c += box(14.4, 1.0, 0, 3.6, 2.6, 0.9, '#d9d2c2', {top: '#c9c2b2'});
-  for (let i = 0; i < 5; i++) c += box(14.2 + i * 0.9, 3.9, 0, 0.12, 0.12, 0.6, '#ffc21a');
-  c += box(14.2, 3.9, 0.45, 3.7, 0.1, 0.12, '#ffc21a');
-  c += `<g class="crane">${box(19.8, 1.4, 0, 0.35, 0.35, 4.2, '#ffc21a') + box(17.0, 1.45, 4.2, 4.4, 0.25, 0.22, '#ffc21a') + box(21.0, 1.35, 3.6, 0.6, 0.45, 0.5, '#3f474d')}</g>`;
-  s += `<g class="bld off">${c}${badge(17, 2, 3.4, '🏗 Скоро', 'следующие лабы', 170)}</g>`;
+  c += flat(13.6, 0.6, 7.6, 4.4, '#e9dcc2');
+  c += box(14.4, 0.9, 0, 5.6, 2.4, 2.0, '#efe6d2', {top: '#d8c7a6'});
+  c += box(14.2, 0.7, 2.0, 6.0, 2.8, 0.25, '#2f5d46', {top: '#3f7d4a'});
+  c += box(15.6, 1.4, 2.25, 3.2, 1.4, 0.7, '#efe6d2', {top: '#2f5d46'});
+  c += box(14.2, 3.3, 0, 6.0, 0.9, 0.18, '#d8c7a6') + box(14.5, 3.3, 0.18, 5.4, 0.6, 0.14, '#cdbb98');
+  for (let i = 0; i < 6; i++) c += box(14.6 + i * 1.0, 3.35, 0.32, 0.32, 0.32, 1.68, '#fffaf0');
+  c += box(16.6, 3.25, 0, 1.0, 0.06, 1.2, '#5b3d2b', {left: '#5b3d2b'});
+  c += tree(21.2, 1.4, 0.9) + tree(13.6, 4.2, 0.8);
+  s += state.lib.live
+    ? `<a class="bld" href="library/" aria-label="Библиотека: ЛР-21–24"><g>${c}${badge(17, 2, 3.6, '📚 Библиотека', state.lib.text)}</g></a>`
+    : `<g class="bld off">${c}${badge(17, 2, 3.6, '📚 Библиотека', state.lib.text, 170)}</g>`;
 
   // ── пиццерия
   let z = '';
@@ -225,7 +231,7 @@ function draw(state) {
   const route = [[5.2, 5.9], [5.2, 7.1], [11.5, 7.1], [11.5, 11], [15, 11]].map(([x, y]) => P(x, y, 0.04).join(',')).join(' ');
   s += `<polyline class="route" points="${route}"/>`;
   // робот — там, где сейчас работа
-  const [rx, ry] = state.robotAt === 'pizza' ? P(13.2, 11, 0) : P(6.4, 7.1, 0);
+  const [rx, ry] = state.robotAt === 'library' ? P(17.0, 5.2, 0) : state.robotAt === 'pizza' ? P(13.2, 11, 0) : P(6.4, 7.1, 0);
   s += `<g transform="translate(${rx},${ry})"><g class="bob"><g transform="translate(-14,-46)">
     <rect x="2" y="16" width="24" height="22" rx="6" fill="#fffaf0" stroke="#22252b" stroke-width="2.5"/>
     <rect x="6" y="20" width="16" height="9" rx="2" fill="#22252b"/><circle cx="10.5" cy="24.5" r="2" fill="#ffc21a"/><circle cx="17.5" cy="24.5" r="2" fill="#ffc21a"/>
@@ -243,11 +249,13 @@ const sum = (labs, prog, open) => {
 };
 function render(open, prog = {}) {
   const air = sum(Home.WORLDS.airport, prog, open),
-    pz = sum(Home.WORLDS.pizza, prog, open);
+    pz = sum(Home.WORLDS.pizza, prog, open),
+    lib = sum(Home.WORLDS.library, prog, open);
   draw({
     air: `ЛР-13–16 · ${air.done}/${air.all}`,
     pizza: pz.live ? `ЛР-17–20 · ${pz.done}/${pz.all}` : 'ЛР-17–20 · скоро',
-    robotAt: pz.live ? 'pizza' : 'airport',
+    lib: {live: !!lib.live, text: lib.live ? `ЛР-21–24 · ${lib.done}/${lib.all}` : 'ЛР-21–24 · скоро'},
+    robotAt: lib.live ? 'library' : pz.live ? 'pizza' : 'airport',
   });
   const card = (href, ico, bg, title, labs, text, st, live) =>
     `<${live ? `a href="${href}"` : 'div'} class="world panel${live ? '' : ' soon'}">
@@ -257,7 +265,8 @@ function render(open, prog = {}) {
   const bar = w => `<span class="bar"><i style="width:${w.all ? (w.done / w.all) * 100 : 0}%"></i></span><span>${w.done}/${w.all}</span>`;
   $('worlds').innerHTML =
     card('airport/', '✈', '#ffc21a', 'Аэропорт', 'ЛР-13–16', 'Рейсы, пассажиры, багаж: INSERT, UPDATE и DELETE, выборка и соединение таблиц.', bar(air), true) +
-    card('pizza/', '🍕', '#d2483c', 'SQL Pizza', 'ЛР-17–20', 'Заказы, пиццы, курьеры: итоги смены — GROUP BY и HAVING, подзапросы, закрепление и касса — транзакции.', pz.live ? bar(pz) : '<span class="st later">СКОРО</span>', true);
+    card('pizza/', '🍕', '#d2483c', 'SQL Pizza', 'ЛР-17–20', 'Заказы, пиццы, курьеры: итоги смены — GROUP BY и HAVING, подзапросы, закрепление и касса — транзакции.', pz.live ? bar(pz) : '<span class="st later">СКОРО</span>', true) +
+    card('library/', '📚', '#2f5d46', 'Городская библиотека', 'ЛР-21–24', '20 000 книг: изменение структуры, план запроса EXPLAIN, индексы — шкафы каталога, права доступа и резервная копия.', lib.live ? bar(lib) : '<span class="st later">СКОРО</span>', true);
 }
 let OPEN = null;
 render(OPEN);

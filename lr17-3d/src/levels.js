@@ -37,6 +37,31 @@ export function levels(D) {
   const kFin = Math.max(2, cut([...by(oct, o => o.pizza_id).values()], 2, 4, false));
   const nWhere = cut([...perPizza.values()], 2, 4);
   const POJ = 'FROM orders o JOIN pizza p ON p.id = o.pizza_id';
+  const kBusy = cut(
+    [
+      ...by(
+        O.filter(o => o.courier_id !== null),
+        o => o.courier_id,
+      ).values(),
+    ],
+    1,
+    3,
+    false,
+  );
+  const tDay =
+    Math.round(
+      cut(
+        [
+          ...sumBy(
+            O,
+            o => o.ordered,
+            o => o.amount,
+          ).values(),
+        ],
+        3,
+        5,
+      ) / 100,
+    ) * 100;
   return [
     // ═══════════════════════════════ часть 1 · итог по всей таблице
     {
@@ -92,6 +117,49 @@ export function levels(D) {
       hint: 'count(*) считает строки, count(courier_id) — только строки, где курьер заполнен.',
       ok: 'Разница между числами — заказы с пустым courier_id, то есть самовывоз. Агрегаты пропускают NULL.',
     },
+    {
+      key: 'minmax1',
+      title: 'Крайние заказы',
+      lab: 'ч. 1 · min и max по всей таблице',
+      text: 'Кассир сверяет чеки: какой заказ был самым мелким и какой самым крупным? Два числа одним запросом.',
+      q: 'Какая самая маленькая и самая большая сумма заказа?',
+      goals: ['Два столбца: min(amount), max(amount)', 'Вся таблица orders'],
+      ask: 'SELECT min(amount), max(amount) FROM orders',
+      hint: 'SELECT min([столбец]), max([столбец]) FROM orders; — агрегатов в SELECT может быть несколько.',
+      ok: 'min и max прошли по всем строкам и вернули по одному числу.',
+    },
+    {
+      key: 'qty',
+      title: 'Коробки за сентябрь',
+      lab: 'ч. 1 · сумма по условию',
+      text: `Склад считает коробки: сколько пицц (штук, столбец qty) отдали в сентябре — до ${dayRu(OCT)}?`,
+      q: 'Сколько пицц продано в сентябре?',
+      goals: [`ordered раньше '${OCT}'`, 'Ответ — sum(qty)'],
+      ask: `SELECT sum(qty) FROM orders WHERE ordered < ${lit(OCT)}`,
+      hint: "sum(qty) — штуки, а не заказы: в одном заказе может быть несколько пицц. … WHERE ordered < '2026-10-01'.",
+      ok: 'sum(qty) больше числа сентябрьских заказов — в части заказов по две-три пиццы.',
+    },
+    {
+      key: 'uniq',
+      title: 'Сколько разных гостей',
+      lab: 'ч. 1 · count(DISTINCT …)',
+      text: 'Сколько разных гостей хоть раз заказывали? Один гость с пятью заказами — это один гость.',
+      q: 'Сколько разных гостей делали заказы?',
+      goals: ['Таблица orders', 'Ответ — count(DISTINCT client_id)'],
+      ask: 'SELECT count(DISTINCT client_id) FROM orders',
+      must: [{re: /count\s*\(\s*distinct/i, msg: 'посчитайте прямо в orders: count(DISTINCT client_id).'}],
+      pred: {
+        q: 'Это число по сравнению с числом строк в client будет…',
+        choices: [
+          {k: 'more', t: 'больше'},
+          {k: 'same', t: 'столько же'},
+          {k: 'less', t: 'меньше'},
+        ],
+        answer: 'less',
+      },
+      hint: 'count(DISTINCT [столбец]) считает разные значения, повторы — один раз.',
+      ok: `Гостей в client — ${D.CL.length}, а заказывали меньше: один гость не заказал ничего.`,
+    },
     // ═══════════════════════════════ часть 2 · итоги по группам
     {
       key: 'bypizza',
@@ -140,6 +208,54 @@ export function levels(D) {
       hint: 'GROUP BY ordered … ORDER BY ordered — сортировка идёт уже по группам.',
       ok: `Дней работы — ${D.days.length}, у каждого свой итог.`,
     },
+    {
+      key: 'bydist',
+      title: 'Гости по районам',
+      lab: 'ч. 2 · группы в справочнике',
+      text: 'Где живут гости? Сколько гостей из каждого района — таблица client, заказы не нужны.',
+      q: 'Сколько гостей в каждом районе?',
+      goals: ['Таблица client', 'Столбцы: district, count(*)', 'GROUP BY district'],
+      ask: 'SELECT district, count(*) FROM client GROUP BY district',
+      hint: 'SELECT district, count(*) FROM client GROUP BY district;',
+      ok: `Сумма по районам — ${D.CL.length}, все гости.`,
+    },
+    {
+      key: 'veg',
+      title: 'Вегетарианское меню',
+      lab: 'ч. 2 · группа по логическому столбцу',
+      text: 'Шеф решает, расширять ли вегетарианское меню. Выручка двумя строками: вегетарианские пиццы (veg = true) и остальные.',
+      q: 'Сколько принесли вегетарианские пиццы и сколько — остальные?',
+      goals: ['Столбцы: veg, sum(amount)', 'Соединение с pizza', 'GROUP BY veg'],
+      ask: `SELECT p.veg, sum(o.amount) ${POJ} GROUP BY p.veg`,
+      minTables: 2,
+      hint: 'GROUP BY p.veg — у столбца два значения, true и false, значит, и групп две.',
+      ok: 'Группа — не обязательно название: любой столбец с повторяющимися значениями делит строки на стопки.',
+    },
+    {
+      key: 'transport',
+      title: 'На чём возят',
+      lab: 'ч. 2 · количество по группам через соединение',
+      text: 'Парк курьеров: самокаты, велосипеды, авто. Сколько доставок сделано на каждом виде транспорта?',
+      q: 'Сколько доставок на каждом виде транспорта?',
+      goals: ['Столбцы: transport, count(*)', 'Соединение orders с courier', 'GROUP BY transport'],
+      ask: 'SELECT c.transport, count(*) FROM orders o JOIN courier c ON c.id = o.courier_id GROUP BY c.transport',
+      minTables: 2,
+      hint: 'FROM orders o JOIN courier c ON c.id = o.courier_id GROUP BY c.transport',
+      ok: 'Самовывоз в итог не попал: у него нет курьера, а значит, и транспорта.',
+    },
+    {
+      key: 'avgdist',
+      title: 'Средний чек по районам',
+      lab: 'ч. 2 · среднее по группам',
+      text: 'В каком районе заказывают дороже? Район и средняя сумма заказа, округлённая до рубля (столбец avg_check). Сначала самый высокий чек.',
+      q: 'Какой средний чек в каждом районе?',
+      goals: ['Столбцы: district, avg_check', 'Соединение orders с client', 'round(avg(amount)) AS avg_check', 'По avg_check, от большего'],
+      ask: 'SELECT c.district, round(avg(o.amount)) AS avg_check FROM orders o JOIN client c ON c.id = o.client_id GROUP BY c.district ORDER BY avg_check DESC',
+      order: ['avg_check'],
+      minTables: 2,
+      hint: 'round(avg(o.amount)) AS avg_check … GROUP BY c.district ORDER BY avg_check DESC',
+      ok: 'Сортировать можно по псевдониму итога — ORDER BY выполняется после SELECT.',
+    },
     // ═══════════════════════════════ часть 3 · отбор групп
     {
       key: 'having',
@@ -164,6 +280,30 @@ export function levels(D) {
       minTables: 2,
       hint: 'GROUP BY c.full_name HAVING sum(o.amount) > [порог]',
       ok: 'Группа — гость, итог — сумма его заказов, HAVING оставил тех, кто выше порога.',
+    },
+    {
+      key: 'busy',
+      title: 'Загруженные курьеры',
+      lab: 'ч. 3 · HAVING по количеству через соединение',
+      text: `Курьерам, сделавшим не меньше ${kBusy} доставок, — премия. Имя курьера и число доставок.`,
+      q: `Кто из курьеров сделал не меньше ${kBusy} доставок?`,
+      goals: ['Столбцы: name, count(*)', 'Соединение orders с courier', `count(*) >= ${kBusy}`],
+      ask: `SELECT c.name, count(*) FROM orders o JOIN courier c ON c.id = o.courier_id GROUP BY c.name HAVING count(*) >= ${kBusy}`,
+      minTables: 2,
+      hint: `GROUP BY c.name HAVING count(*) >= ${kBusy}`,
+      ok: 'Курьер без доставок отпал ещё на соединении, остальные — на HAVING.',
+    },
+    {
+      key: 'hotdays',
+      title: 'Горячие дни',
+      lab: 'ч. 3 · HAVING по сумме за день',
+      text: `Горячий день — выручка больше ${rub(tDay)}. В такие дни нужен второй повар. Дата и выручка, по дате.`,
+      q: `В какие дни выручка была больше ${rub(tDay)}?`,
+      goals: ['Столбцы: ordered, sum(amount)', `sum(amount) > ${tDay}`, 'По дате по возрастанию'],
+      ask: `SELECT ordered, sum(amount) FROM orders GROUP BY ordered HAVING sum(amount) > ${tDay} ORDER BY ordered`,
+      order: ['ordered'],
+      hint: `GROUP BY ordered HAVING sum(amount) > ${tDay} ORDER BY ordered`,
+      ok: 'Порядок частей запроса: WHERE → GROUP BY → HAVING → ORDER BY.',
     },
     {
       key: 'wherehav',

@@ -69,3 +69,22 @@ test('layoutHint: буква не в той раскладке', () => {
   assert.equal(layoutHint(ask, ask), '');
   assert.equal(layoutHint("SELECT 1 WHERE x = 'Омск'", "… = 'Ишим'"), '');
 });
+
+test('ЛР-15, 16: эталонные запросы выполняются в PostgreSQL, ответ не пуст', async () => {
+  const {PGlite} = await import('../vendor/pglite/index.js');
+  const db = new PGlite();
+  for (const M of [A, J])
+    for (const s of SEEDS.slice(0, 30)) {
+      const D = M.makeData(s);
+      await db.exec('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;');
+      await db.exec(M.baseSql(D));
+      for (const lv of M.levels(D)) {
+        // уровень на схему (ЛР-16 «Связи базы») меняет базу — эталон выполняется, как в лабе
+        if (lv.check === 'schema') for (const q of lv.ref) await db.query(q);
+        if (!lv.ask) continue;
+        const r = await db.query(lv.ask);
+        assert.ok(r.rows.length > 0, `${lv.key}, вариант ${s}: пустой ответ`);
+      }
+    }
+  await db.close();
+});
