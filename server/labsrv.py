@@ -149,6 +149,10 @@ def merge(a, b):
     for k in ('lints', 'away', 'awayMs', 'pastes', 'cur', 'practice', 'sentAt'):
         out[k] = max(a.get(k) or 0, b.get(k) or 0)
     out['fio'] = b.get('fio') or a.get('fio') or ''
+    # порядок уровней: «старый» с любого устройства побеждает — иначе студента откатит назад
+    order = 'old' if 'old' in (a.get('order'), b.get('order')) else a.get('order') or b.get('order')
+    if order:
+        out['order'] = order
     return out
 
 

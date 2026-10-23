@@ -78,6 +78,10 @@ test('mergeP: пройденное не теряется ни с одной ст
   assert.equal(mergeP({...A, practice: 7}, {...B, practice: 3}).practice, 7); // счётчик тренировки — больший
   assert.equal(mergeP(null, B), B);
   assert.equal(mergeP(A, null), A);
+  // порядок уровней: «старый» с любого устройства побеждает
+  assert.equal(mergeP({...A, order: 'new'}, {...B, order: 'old'}).order, 'old');
+  assert.equal(mergeP({...A, order: 'new'}, B).order, 'new');
+  assert.equal(mergeP(A, B).order, undefined);
 });
 
 test('mergeP в браузере и merge на сервере дают одно и то же', () => {
@@ -93,7 +97,12 @@ from labsrv import merge
 a, b = json.loads(sys.stdin.read())
 print(json.dumps(merge(a, b), ensure_ascii=False, sort_keys=True))`,
     ],
-    {input: JSON.stringify([A, B])},
+    {
+      input: JSON.stringify([
+        {...A, order: 'new'},
+        {...B, order: 'old'},
+      ]),
+    },
   ).toString();
   const sort = v =>
     Array.isArray(v)
@@ -105,7 +114,7 @@ print(json.dumps(merge(a, b), ensure_ascii=False, sort_keys=True))`,
               .map(k => [k, sort(v[k])]),
           )
         : v;
-  const js = JSON.parse(JSON.stringify(mergeP(A, B)));
+  const js = JSON.parse(JSON.stringify(mergeP({...A, order: 'new'}, {...B, order: 'old'})));
   delete js.pastes;
   delete js.awayMs;
   delete js.cur;

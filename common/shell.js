@@ -324,6 +324,25 @@ export async function success(lv, rec) {
   cfg.renderMission();
 }
 
+// Студент начал лабу до того, как в неё добавили уровни (cfg.added): его прежний путь не ломается —
+// новые уровни идут после всех прежних, перед контрольным. Уровень, осмысленный только на своём месте (lv.early,
+// например «план на 60 книгах» до наполнения таблицы), остаётся на месте и засчитывается сам.
+export function oldOrder(P = G.P) {
+  const added = new Set(cfg.added || []),
+    fin = L[L.length - 1];
+  const late = l => added.has(l.key) && !l.early;
+  L = [...L.filter(l => !late(l) && l !== fin), ...L.filter(late), fin];
+  L.filter(l => added.has(l.key) && l.early && !(P.lv[l.key] || {}).done).forEach(l => {
+    P.lv[l.key] = {
+      runs: 0,
+      fails: 0,
+      done: true,
+      auto: true,
+      at: new Date().toISOString(),
+      note: 'засчитан: лаба начата до появления этого уровня',
+    };
+  });
+}
 // лаба пройдена до того, как в неё добавили уровни, — новые уровни засчитываются
 function credit(P) {
   const fin = P.lv[L[L.length - 1].key]; // последний (контрольный) уровень
@@ -619,6 +638,11 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
     hist: [],
   };
   setCtx({lab: cfg.lab, fio, grp, seed, client: sess && sess.sid ? 's' + sess.sid : clientId(), demo, token: (sess && sess.token) || ''});
+  if (!demo && cfg.added) {
+    // порядок уровней выбирается один раз: есть пройденные прежние уровни — лаба начата до добавления новых
+    if (!G.P.order) G.P.order = Object.entries(G.P.lv).some(([k, r]) => r.done && !cfg.added.includes(k)) ? 'old' : 'new';
+    if (G.P.order === 'old') oldOrder();
+  }
   if (!demo) credit(G.P);
   report('hello', {done: doneN(), pts: score().sum});
   if (server || P) save();
@@ -799,6 +823,7 @@ export async function boot() {
       W.setSpeed(v);
     },
     begin,
+    oldOrder,
     get D() {
       return D;
     },
