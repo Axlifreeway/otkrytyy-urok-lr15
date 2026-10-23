@@ -8,7 +8,27 @@ import {queryLab} from '../../common/qlab.js';
 import {practice} from './practice.js';
 import {SELECT_REF, JOIN_REF, ALTER_REF} from '../../common/sqlref.js';
 
-const PTS = {links: 1, owner: 0.75, dest: 0.75, city: 0.75, disc: 0.75, cross: 0.75, three: 1, empty: 1, nobag: 0.75, final: 1.5};
+const PTS = {
+  links: 0.8,
+  owner: 0.45,
+  mybags: 0.45,
+  dest: 0.45,
+  city: 0.45,
+  weight: 0.45,
+  sorted: 0.45,
+  disc: 0.5,
+  cardbags: 0.4,
+  cross: 0.45,
+  three: 0.65,
+  dest3: 0.5,
+  leftall: 0.5,
+  empty: 0.65,
+  noflight: 0.5,
+  nobag: 0.5,
+  final: 0.85,
+};
+// уровни, добавленные позже: тем, кто прошёл лабу раньше, засчитываются сами
+const ADDED = ['mybags', 'weight', 'sorted', 'cardbags', 'dest3', 'leftall', 'noflight'];
 const W = createTerminal($('stage'), {kind: 'claim', tiers: TIERS}); // зал выдачи багажа
 W.setSpeed(3);
 const Q = queryLab({
@@ -22,7 +42,7 @@ const Q = queryLab({
 
 const INTRO = `<p>Ответ на вопрос часто лежит в нескольких таблицах сразу: бирка — в <code>baggage</code>, фамилия — в <code>passenger</code>, скидка — в <code>loyalty</code>. Робот-СУБД соединяет строки по ключам связи — и показывает каждую пару стержнем.</p>`;
 const head = more => `<span class="tag">ЛР-16</span><h2>Соединение таблиц в запросе</h2>${INTRO}
-    <p class="mu">10 уровней: связи базы, две таблицы, три таблицы, строки без пары. Перед каждым запросом — вопрос, после — число строк. ${more}</p>`;
+    <p class="mu">17 уровней: связи базы, две таблицы, три таблицы, строки без пары. Перед каждым запросом — вопрос, после — число строк. ${more}</p>`;
 initShell({
   lab: 'lr16',
   storeKey: 'air3d-lr16-',
@@ -33,6 +53,7 @@ initShell({
   REF: [JOIN_REF, ALTER_REF, SELECT_REF],
   REF_NEED: ['links', 'owner', 'three', 'empty', 'final'],
   PTS,
+  added: ADDED,
   TABLES,
   COLS,
   prepare: D => {

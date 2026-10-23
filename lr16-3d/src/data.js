@@ -191,6 +191,12 @@ export const COLS = {
 
 const ALL = ['ALTER', 'SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 export function levels(D) {
+  // пассажир с багажом и единственной в рейсе фамилией; порог веса, тяжелее которого 2–6 чемоданов
+  const bagsOf = p => cnt(D.B, b => b.passenger_id === p.id);
+  const one = D.P.find(p => bagsOf(p) && cnt(D.P, x => x.full_name === p.full_name) === 1);
+  const ws = [...new Set(D.B.map(b => b.weight_kg))].sort((a, b) => b - a);
+  const w = ws.find(t => cnt(D.B, b => b.weight_kg > t) >= 2 && cnt(D.B, b => b.weight_kg > t) <= 6) || ws[1];
+  const BP = 'FROM baggage b JOIN passenger p ON p.id = b.passenger_id';
   return [
     // ═══════════════════════════════ часть 1 · связи базы
     {
@@ -234,6 +240,19 @@ export function levels(D) {
       ok: 'Каждый чемодан нашёл владельца — робот протянул связь от бирки к пассажиру.',
     },
     {
+      key: 'mybags',
+      title: 'Где мои чемоданы',
+      lab: 'ч. 2 · соединение и отбор по фамилии',
+      text: `К стойке подошёл пассажир ${one.full_name} — он не помнит бирок. Покажите его чемоданы: бирка и вес.`,
+      q: `Какие чемоданы у пассажира ${one.full_name}?`,
+      goals: ['Столбцы: tag, weight_kg', `Владелец — ${one.full_name}`],
+      ask: `SELECT b.tag, b.weight_kg ${BP} WHERE p.full_name = ${lit(one.full_name)}`,
+      minTables: 2,
+      alias: true,
+      hint: 'Фамилия — в passenger, бирки — в baggage: соедините и отберите по p.full_name.',
+      ok: 'Соединение позволило искать чемоданы по признаку, которого в baggage нет.',
+    },
+    {
       key: 'dest',
       title: `Куда летит ряд ${D.row}`,
       lab: 'ч. 2 · соединение с отбором',
@@ -259,6 +278,31 @@ export function levels(D) {
       ok: 'Город есть только у пассажира — без соединения такой вопрос не задать.',
     },
     {
+      key: 'weight',
+      title: 'Тяжёлые — с владельцами',
+      lab: 'ч. 2 · условие по первой таблице',
+      text: `Чемоданы тяжелее ${w} кг выносят отдельно — владельцев позовут по громкой связи. Бирка, вес и фамилия.`,
+      q: `Чьи чемоданы тяжелее ${w} кг?`,
+      goals: ['Столбцы: tag, weight_kg, full_name', `weight_kg > ${w}`],
+      ask: `SELECT b.tag, b.weight_kg, p.full_name ${BP} WHERE b.weight_kg > ${w}`,
+      alias: true,
+      hint: `Условие на вес — по столбцу baggage: WHERE b.weight_kg > ${w}.`,
+      ok: 'В WHERE после соединения доступны столбцы обеих таблиц.',
+    },
+    {
+      key: 'sorted',
+      title: 'Лента по полкам',
+      lab: 'ч. 2 · соединение и порядок',
+      text: 'Лента выдачи идёт по полкам. Нужен список: полка, бирка и фамилия владельца — по номеру полки, на полке — по фамилии.',
+      q: 'В каком порядке чемоданы выйдут на ленту?',
+      goals: ['Столбцы: shelf, tag, full_name', 'По полке, внутри — по фамилии'],
+      ask: `SELECT b.shelf, b.tag, p.full_name ${BP} ORDER BY b.shelf, p.full_name`,
+      order: ['shelf', 'full_name'],
+      alias: true,
+      hint: 'ORDER BY b.shelf, p.full_name — сортировать можно по столбцам обеих таблиц.',
+      ok: 'Порядок задан по столбцам из разных таблиц — после соединения это одна строка.',
+    },
+    {
       key: 'disc',
       title: 'Скидки по картам',
       lab: 'ч. 2 · соединение со справочником и порядок',
@@ -270,6 +314,18 @@ export function levels(D) {
       alias: true,
       hint: 'Справочник loyalty присоединяется по названию программы: какой столбец passenger его хранит? Порядок — ORDER BY … DESC.',
       ok: 'Пассажиры без карты в ответ не попали: у них loyalty пустой, пары в справочнике нет — внешний ключ этого не запрещает.',
+    },
+    {
+      key: 'cardbags',
+      title: 'Багаж владельцев карт',
+      lab: 'ч. 2 · соединение и IS NOT NULL',
+      text: 'Владельцам любых карт полагается бирка «priority». Нужны бирка и программа владельца — только у тех, у кого карта есть.',
+      q: 'Чьи чемоданы получат бирку «priority»?',
+      goals: ['Столбцы: tag, loyalty', 'Карта у владельца есть'],
+      ask: `SELECT b.tag, p.loyalty ${BP} WHERE p.loyalty IS NOT NULL`,
+      alias: true,
+      hint: 'Карта есть — значит, столбец loyalty заполнен: IS NOT NULL.',
+      ok: 'Справочник loyalty здесь не нужен: название программы хранится прямо у пассажира.',
     },
     {
       key: 'cross',
@@ -307,7 +363,42 @@ export function levels(D) {
       hint: 'Сначала baggage с passenger, затем к ним loyalty — второй JOIN со своим ON. Отбор программ — в WHERE после всех соединений.',
       ok: 'Путь собран: чемодан → владелец → его программа.',
     },
+    {
+      key: 'dest3',
+      title: 'Чемоданы по направлениям',
+      lab: 'ч. 3 · три таблицы: другой путь',
+      text: 'Каждый чемодан — к своему направлению. Бирка, фамилия владельца и город назначения рейса. Путь: baggage → passenger → flight.',
+      q: 'Куда летит каждый чемодан?',
+      goals: ['Столбцы: tag, full_name, dest', 'Три таблицы, два условия соединения'],
+      minTables: 3,
+      ask: `SELECT b.tag, p.full_name, f.dest ${BP} JOIN flight f ON f.flight_no = p.flight_no`,
+      alias: true,
+      hint: 'К соединению baggage и passenger добавьте flight по номеру рейса — вторым JOIN.',
+      ok: 'Тот же приём, что с программами, — только третья таблица другая.',
+    },
     // ═══════════════════════════════ часть 4 · строки без пары
+    {
+      key: 'leftall',
+      title: 'Все пассажиры и их чемоданы',
+      lab: 'ч. 4 · левое соединение',
+      text: 'Список для перрона: каждый пассажир и бирки его чемоданов — фамилия и бирка. Пассажиры без багажа тоже нужны: у них бирка пустая.',
+      q: 'Какие чемоданы у каждого пассажира — включая тех, у кого их нет?',
+      goals: ['Столбцы: full_name, tag', 'Все пассажиры, даже без багажа', 'LEFT JOIN'],
+      minTables: 2,
+      ask: 'SELECT p.full_name, b.tag FROM passenger p LEFT JOIN baggage b ON b.passenger_id = p.id',
+      alias: true,
+      pred: {
+        q: `Чемоданов ${D.nB}. Строк в ответе будет…`,
+        choices: [
+          {k: 'eq', t: `${D.nB} — по числу чемоданов`},
+          {k: 'more', t: 'больше — добавятся пассажиры без багажа'},
+          {k: 'less', t: 'меньше'},
+        ],
+        answer: 'more',
+      },
+      hint: 'FROM passenger p LEFT JOIN baggage b ON … — левая таблица сохраняется целиком.',
+      ok: `К ${D.nB} чемоданам добавились ${D.noBag} пассажиров без пары — с пустой биркой.`,
+    },
     {
       key: 'empty',
       hard: true,
@@ -330,6 +421,19 @@ export function levels(D) {
       },
       hint: 'Слева — справочник loyalty, справа — passenger: LEFT JOIN оставит все программы. У программы без пары столбцы passenger пустые — отберите такие строки через IS NULL.',
       ok: 'У «платины» пары нет: левое соединение оставило её с пустыми значениями, а IS NULL их и отобрал.',
+    },
+    {
+      key: 'noflight',
+      title: 'Пустые рейсы',
+      lab: 'ч. 4 · рейсы без пассажиров',
+      text: 'В справочнике flight три рейса. На каких из них нет ни одного пассажира? Номер рейса и город назначения.',
+      q: 'На какие рейсы никто не сел?',
+      goals: ['Столбцы: flight_no, dest', 'LEFT JOIN и IS NULL'],
+      minTables: 2,
+      ask: 'SELECT f.flight_no, f.dest FROM flight f LEFT JOIN passenger p ON p.flight_no = f.flight_no WHERE p.id IS NULL',
+      alias: true,
+      hint: 'Слева flight, справа passenger; у рейса без пассажиров столбцы passenger пустые.',
+      ok: 'Наш рейс в ответ не попал — на нём все пассажиры; два других пусты.',
     },
     {
       key: 'nobag',
