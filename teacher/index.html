@@ -253,7 +253,7 @@ function render() {
       <td>${p.lvErrors ? `<span class="tag ${p.lvErrors >= 3 ? 'warn' : ''}">${p.lvErrors}</span>` : '0'} <span style="color:var(--mute);font-size:12px">всего ${p.errors + p.lints}</span></td>
       <td><div class="err" title="${esc(p.lastErr)}">${p.lastErr ? esc(ruErr(p.lastErr)) : ''}</div>${p.lastErrTs ? `<div style="font-size:11.5px;color:var(--mute)">${mins(now - p.lastErrTs)} назад</div>` : ''}</td>
       <td>${mins(p.onLevel)}</td>
-      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''} ${p.shots ? `<span class="tag warn">снимков экрана ${p.shots}</span>` : ''}</td>
+      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''} ${p.inserts ? `<span class="tag warn" title="Текст появился в поле без вставки и без нажатий клавиш: программа-«набиратель», расширение браузера или подсказка буфера на телефоне">без клавиатуры ${p.inserts}</span>` : ''} ${p.shots ? `<span class="tag warn">снимков экрана ${p.shots}</span>` : ''}</td>
       <td>${p.submit ? `<span class="tag ok">${String(p.submit.pts).replace('.', ',')} б. · ${p.submit.done} ур.</span>` : ''}${p.practice ? ` <span class="tag" title="Тренировка после уровней: решено заданий (без баллов)">∞ ${p.practice}</span>` : ''}${lastReport(p.client) ? ` <button class="btn" data-rep="${lastReport(p.client).id}" title="Открыть отчёт">📄</button>` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="10" style="padding:20px;color:var(--mute)">Пока никого. Студенты появятся, как только откроют лабу и введут фамилию.</td></tr>';
   if (g) {
@@ -292,7 +292,7 @@ async function showLog(client, quiet) {
       const d = e.data || {}, t = new Date(e.ts).toLocaleTimeString('ru-RU');
       if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${hl(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
       if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">${esc(d.msg)}</b><pre>${hl(d.sql)}</pre></div>`;
-      if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">вставка заблокирована</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
+      if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">${d.via === 'input' ? 'текст появился без клавиатуры' : 'вставка заблокирована'}</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
       if (e.type === 'rollback') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">не совпало — откат</b><div class="bad" style="font-size:12.5px">${esc(d.msg)}</div></div>`;
       if (e.type === 'report') return `<div class="ev"><span class="t">${t}</span><b class="ok">отправил отчёт</b>${d.pts != null ? ` · ${String(d.pts).replace('.', ',')} б., ${d.done} ур.` : ''} <button class="btn" data-rep="${d.id}">📄 открыть</button></div>`;
       if (e.type === 'away') return `<div class="ev"><span class="t">${t}</span>ушёл со вкладки на ${mins(d.ms)}</div>`;

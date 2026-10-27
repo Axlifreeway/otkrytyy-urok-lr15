@@ -146,7 +146,7 @@ def merge(a, b):
         if v and len(str(v)) >= len(str(ans.get(k) or '')):
             ans[k] = v
     out['answers'] = ans
-    for k in ('lints', 'away', 'awayMs', 'pastes', 'cur', 'practice', 'sentAt'):
+    for k in ('lints', 'away', 'awayMs', 'pastes', 'inserts', 'cur', 'practice', 'sentAt'):
         out[k] = max(a.get(k) or 0, b.get(k) or 0)
     out['fio'] = b.get('fio') or a.get('fio') or ''
     # порядок уровней: «старый» с любого устройства побеждает — иначе студента откатит назад
@@ -160,7 +160,7 @@ def merge(a, b):
 def _person(ts, client, lab, fio, grp, seed):
     return {'client': client, 'lab': lab, 'fio': fio, 'grp': grp, 'seed': seed, 'first': ts, 'last': ts,
             'lv': 1, 'lvSince': ts, 'done': [], 'pts': 0, 'runs': 0, 'errors': 0, 'lints': 0, 'lvErrors': 0,
-            'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'shots': 0, 'submit': None, 'report': None, 'practice': 0,
+            'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'inserts': 0, 'shots': 0, 'submit': None, 'report': None, 'practice': 0,
             'hidden': False, 'stars': {}, 'doneN': 0}
 
 
@@ -209,8 +209,8 @@ def summarize(rows, now, live=True):
             if lv:
                 p['stars'][str(lv)] = d.get('stars', 0)
             p['pts'] = max(p['pts'], d.get('pts') or 0)
-        elif typ == 'paste':
-            p['pastes'] += 1
+        elif typ == 'paste':                   # via='input' — текст появился без вставки и без клавиш
+            p['inserts' if d.get('via') == 'input' else 'pastes'] += 1
         elif typ == 'shot':                    # нажат Print Screen
             p['shots'] += 1
         elif typ == 'away':
