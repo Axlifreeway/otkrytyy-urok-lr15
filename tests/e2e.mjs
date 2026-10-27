@@ -303,6 +303,13 @@ async function serverFlow() {
   await page.waitForSelector('#sendMsg.ok', {timeout: 15000}).catch(() => fails.push('server-flow: отчёт не отправился: ' + ''));
   const t = await open(`/teacher/index.html?key=${KEY}`);
   await t.page.waitForSelector('tr.row [data-rep]', {timeout: 15000}).catch(() => fails.push('server-flow: в панели нет кнопки отчёта'));
+  // все лабы — в фильтре, у каждой — названия уровней (teacher/levels.js)
+  const panel = await t.page.evaluate(() => ({
+    labs: [...document.querySelectorAll('#labSel option')].map(o => o.value).filter(Boolean),
+    names: Object.values(window.LEVEL_NAMES || {}).map(a => a.length),
+  }));
+  if (panel.labs.length !== 12 || panel.names.length !== 12 || panel.names.some(n => !n))
+    fails.push(`server-flow: в панели не все лабы: ${JSON.stringify(panel)}`);
   await t.page.click('#repBtn');
   await t.page.click('#repList tr.row');
   const frame = await (await t.page.waitForSelector('#rvFrame')).contentFrame();
