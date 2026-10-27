@@ -2151,7 +2151,7 @@ table.doc td {
 }
 .psql {
   position: absolute;
-  left: 10px;
+  right: 10px;
   top: -30px;
   background: var(--ink);
   color: #f6f1e3;
@@ -2165,4 +2165,47 @@ table.doc td {
 .psql.bad {
   background: var(--red);
   color: #fff;
+}
+
+/* ═══ библиотека (ЛР-21–24): план запроса, файл копии, роль робота ═══ */
+#result pre.plan {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  background: #23262c;
+  color: #e9e6dd;
+  border-radius: 5px;
+  font: 500 13px/1.45 var(--mono);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 30vh;
+}
+#result pre.plan b.pk {
+  color: var(--sun);
+}
+#result pre.plan b.pt {
+  color: #7fd6a0;
+}
+#result details.dump summary {
+  cursor: pointer;
+  font: 700 13px var(--font);
+  margin-top: 4px;
+}
+.rolelab {
+  font: 700 12px var(--mono);
+  background: var(--ink);
+  color: var(--sun);
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.ixlab {
+  font: 700 11px var(--mono);
+  background: #fffaf0;
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.ixlab.new {
+  background: var(--sun);
 }

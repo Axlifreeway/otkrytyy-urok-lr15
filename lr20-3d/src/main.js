@@ -9,16 +9,25 @@ import {queryLab} from '../../common/qlab.js';
 import {TX_REF, INSERT_REF, UPDATE_REF, SELECT_REF} from '../../common/sqlref.js';
 
 const PTS = {
-  ins2: 0.75,
-  upd1: 0.75,
-  aim: 1,
-  del: 0.75,
-  txroll: 1,
-  oops: 0.75,
-  parent: 1.25,
-  abort: 1.25,
-  final: 1.5,
+  ins2: 0.5,
+  upd1: 0.5,
+  aim: 0.6,
+  del: 0.5,
+  qtyfix: 0.5,
+  phone: 0.45,
+  cancel: 0.5,
+  guarded: 0.45,
+  forget: 0.45,
+  txroll: 0.6,
+  txcommit: 0.5,
+  oops: 0.5,
+  swap: 0.6,
+  parent: 0.7,
+  abort: 0.7,
+  final: 0.95,
 };
+// уровни, добавленные позже: тем, кто прошёл лабу раньше, засчитываются сами
+const ADDED = ['qtyfix', 'phone', 'cancel', 'guarded', 'forget', 'txcommit', 'swap'];
 const W = createPizzeria($('stage'), {pizzaColor});
 W.setSpeed(3);
 const Q = queryLab({
@@ -32,7 +41,7 @@ const Q = queryLab({
 
 const INTRO = `<p>Касса пиццерии меняет данные: новые пиццы, цены, гости и заказы. Робот-СУБД выполняет изменения в транзакции — несколько команд, которые проходят целиком или не проходят совсем. Над пультом — приглашение как в psql: <code>pizza=*&gt;</code> — транзакция идёт, <code>pizza=!&gt;</code> — прервана ошибкой.</p>`;
 const head = more => `<span class="tag">ЛР-20</span><h2>Изменение данных в транзакции</h2>${INTRO}
-    <p class="mu">9 уровней: повторение INSERT, UPDATE, DELETE; BEGIN и ROLLBACK, родитель и ссылка в одной транзакции, ошибка внутри транзакции. Каждое изменение проверяется запросом SELECT. ${more}</p>`;
+    <p class="mu">16 уровней: повторение INSERT, UPDATE, DELETE и внешнего ключа; BEGIN, COMMIT и ROLLBACK, родитель и ссылка в одной транзакции, ошибка внутри транзакции. Каждое изменение проверяется запросом SELECT. ${more}</p>`;
 initShell({
   lab: 'lr20',
   storeKey: 'pizza-lr20-',
@@ -44,6 +53,7 @@ initShell({
   REF: [TX_REF, INSERT_REF, UPDATE_REF, SELECT_REF],
   REF_NEED: ['txroll', 'oops', 'parent', 'abort', 'final'],
   PTS,
+  added: ADDED,
   TABLES,
   COLS,
   gated: true,

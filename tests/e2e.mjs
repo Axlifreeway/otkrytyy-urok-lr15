@@ -103,7 +103,8 @@ function script(lab, lv, D) {
   return s;
 }
 
-async function lab3d(lab, dir) {
+// old — порядок студента, начавшего лабу до добавления уровней: прежние, затем новые, затем контрольный
+async function lab3d(lab, dir, old = false) {
   const {page, errors} = await open(`/${dir}/index.html`);
   await page.waitForFunction(() => window.LAB && document.getElementById('loading').hidden, null, {timeout: 60000});
   // прогнозы: всегда первый вариант
@@ -117,6 +118,7 @@ async function lab3d(lab, dir) {
     window.LAB.speed = 50;
     await window.LAB.begin(seed, true);
   }, SEED);
+  if (old) await page.evaluate(() => window.LAB.oldOrder());
   const n = await page.evaluate(() => window.LAB.L.length);
   const res = [];
   for (let i = 0; i < n; i++) {
@@ -183,14 +185,15 @@ async function lab3d(lab, dir) {
       lv.key,
     );
     res.push({key: lv.key, ...r});
-    if (!r.done) fails.push(`${lab} ${lv.key}: не пройден (${r.verdict || r.result})`);
+    if (!r.done) fails.push(`${old ? 'old-' : ''}${lab} ${lv.key}: не пройден (${r.verdict || r.result})`);
     if (lv.key === 'final') await sleep(8000); // взлёт и экран итогов
   }
   const end = await page.evaluate(
     () => !document.getElementById('modal').hidden && document.getElementById('modal').innerText.slice(0, 60),
   );
-  out[lab] = {levels: res, end, errors};
-  errors.forEach(e => fails.push(`${lab}: ${e}`));
+  const name = old ? 'old-' + lab : lab;
+  out[name] = {levels: res, end, errors};
+  errors.forEach(e => fails.push(`${name}: ${e}`));
   await page.close();
 }
 
@@ -456,16 +459,22 @@ const jobs = {
   lr18: () => lab3d('lr18', 'lr18-3d'),
   lr19: () => lab3d('lr19', 'lr19-3d'),
   lr20: () => lab3d('lr20', 'lr20-3d'),
-  // город: пока ЛР-17–20 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии четыре заказа
+  lr21: () => lab3d('lr21', 'lr21-3d'),
+  lr22: () => lab3d('lr22', 'lr22-3d'),
+  lr23: () => lab3d('lr23', 'lr23-3d'),
+  lr24: () => lab3d('lr24', 'lr24-3d'),
+  // те же лабы в «старом порядке» (у тех, кто начал до добавления уровней) — только по имени: old-lr14 и т. п.
+  ...Object.fromEntries(Array.from({length: 12}, (_, i) => 13 + i).map(n => ['old-lr' + n, () => lab3d('lr' + n, `lr${n}-3d`, true)])),
+  // город: пока ЛР-17–24 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии и библиотеки — по четыре лабы
   city: async () => {
     const {page, errors} = await open('/');
     await page
       .waitForURL(/\/airport\/$/, {timeout: 15000})
-      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17–20 закрыты'));
+      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17–24 закрыты'));
     await page.goto(BASE + '/?map');
     await page
       .waitForFunction(
-        () => document.querySelectorAll('#city .bld').length === 3 && document.querySelectorAll('.world').length === 2,
+        () => document.querySelectorAll('#city .bld').length === 3 && document.querySelectorAll('.world').length === 3,
         null,
         {timeout: 15000},
       )
@@ -484,6 +493,15 @@ const jobs = {
       )
       .catch(() => fails.push('city: страница пиццерии пустая'));
     if (SHOTS) await page.screenshot({path: join(SHOTS, 'pizza.png'), fullPage: true});
+    await page.goto(BASE + '/library/');
+    await page
+      .waitForFunction(
+        () => document.querySelectorAll('#tickets .ticket').length === 4 && document.querySelectorAll('.receipt').length === 4,
+        null,
+        {timeout: 15000},
+      )
+      .catch(() => fails.push('city: страница библиотеки пустая'));
+    if (SHOTS) await page.screenshot({path: join(SHOTS, 'library.png'), fullPage: true});
     out.city = {errors};
     errors.forEach(e => fails.push(`city: ${e}`));
     await page.close();
@@ -521,7 +539,7 @@ const jobs = {
 };
 try {
   for (const [k, f] of Object.entries(jobs))
-    if (!only.length || only.includes(k)) {
+    if ((!only.length && !k.startsWith('old-')) || only.includes(k) || (only.includes('old') && k.startsWith('old-'))) {
       process.stdout.write(k + '… ');
       await f();
       console.log('ok');

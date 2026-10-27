@@ -10,17 +10,28 @@ import {practice} from './practice.js';
 import {SUBQ_REF, GROUP_REF, JOIN_REF} from '../../common/sqlref.js';
 
 const PTS = {
-  aboveavg: 0.75,
-  maxrow: 0.75,
-  biggroup: 1,
-  inlist: 0.75,
-  incond: 0.75,
-  notexists: 0.75,
-  notin: 1,
-  sub2: 0.75,
-  join2: 1,
-  final: 1.5,
+  aboveavg: 0.4,
+  maxrow: 0.4,
+  belowavg: 0.4,
+  minrow: 0.4,
+  firstday: 0.4,
+  biggroup: 0.55,
+  inlist: 0.4,
+  incond: 0.4,
+  bytransport: 0.4,
+  nophone: 0.4,
+  notexists: 0.4,
+  notin: 0.55,
+  unsold: 0.4,
+  quiet: 0.4,
+  sub2: 0.4,
+  join2: 0.55,
+  exists: 0.4,
+  corr: 0.55,
+  final: 1.2,
 };
+// уровни, добавленные позже: тем, кто прошёл лабу раньше, засчитываются сами
+const ADDED = ['belowavg', 'minrow', 'firstday', 'bytransport', 'nophone', 'unsold', 'quiet', 'exists', 'corr'];
 const W = createPizzeria($('stage'), {pizzaColor});
 W.setSpeed(3);
 const Q = queryLab({
@@ -34,7 +45,7 @@ const Q = queryLab({
 
 const INTRO = `<p>Ответ на вопрос часто зависит от другого ответа: «дороже среднего», «у самой популярной пиццы», «ни разу не возил». Робот-СУБД сначала выполняет внутренний запрос — подзапрос, — подставляет его результат и только потом проверяет каждую строку внешнего.</p>`;
 const head = more => `<span class="tag">ЛР-18</span><h2>Подзапросы</h2>${INTRO}
-    <p class="mu">10 уровней: подзапрос вместо числа, подзапрос со списком, NOT EXISTS и ловушка NOT IN, один вопрос — два решения. ${more}</p>`;
+    <p class="mu">19 уровней: подзапрос вместо числа, подзапрос со списком, EXISTS, NOT EXISTS и ловушка NOT IN, связанный подзапрос, один вопрос — два решения. ${more}</p>`;
 initShell({
   lab: 'lr18',
   storeKey: 'pizza-lr18-',
@@ -46,6 +57,7 @@ initShell({
   REF: [SUBQ_REF, GROUP_REF, JOIN_REF],
   REF_NEED: ['aboveavg', 'inlist', 'notexists', 'notin', 'final'],
   PTS,
+  added: ADDED,
   TABLES,
   COLS,
   gated: true,

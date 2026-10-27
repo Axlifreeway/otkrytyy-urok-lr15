@@ -37,6 +37,8 @@ const isErr = j => /^ERROR|ошибка/.test(j.o);
    closedTitle            заголовок, пока лаба закрыта (по умолчанию «Рейс задержан»)
    gated                  лабу открывает преподаватель
    finalIcon              значок контрольного уровня (по умолчанию ✈)
+   added                  ключи уровней, добавленных в уже идущую лабу: кто прошёл её раньше (контрольный пройден),
+                          получает их зачтёнными — его работа не становится «незаконченной»
    end: {tag, stat()}     экран итогов: заголовок и третья цифра [значение, подпись]
    protoTitle, questions  протокол
    onRollback(prefill)    сброс своего состояния уровня после отката
@@ -81,10 +83,31 @@ const runFromUI = () => {
 // ═══════════════════════════════════════════════════════════ база ══
 export const loadSql = sql => load(db, sql);
 const sel = t => (cfg.sel ? cfg.sel(t) : `SELECT ${cfg.COLS[t].join(', ')} FROM ${t}`);
+// от имени владельца базы: студент мог переключиться на роль без прав (SET ROLE, \c — ЛР-24)
+export async function asAdmin(fn) {
+  if (!G || !G.role) return fn();
+  await db.query('RESET ROLE');
+  try {
+    return await fn();
+  } finally {
+    await db.query(`SET ROLE ${G.role}`);
+  }
+}
+// снимок всех таблиц; таблицы, которой сейчас нет (схему переименовали), — пустая
 export async function state() {
-  const o = {};
-  for (const t of Object.keys(cfg.TABLES)) o[t] = (await db.query(`${sel(t)} ORDER BY ctid`)).rows;
-  return o;
+  return asAdmin(async () => {
+    const o = {};
+    for (const t of Object.keys(cfg.TABLES)) {
+      const q = sel(t);
+      // ошибка внутри транзакции студента прервала бы её — поэтому сначала: есть ли таблица
+      if (!(await db.query('SELECT to_regclass($1) AS r', [t])).rows[0].r) {
+        o[t] = [];
+        continue;
+      }
+      o[t] = (await db.query(/\border\s+by\b/i.test(q) ? q : `${q} ORDER BY ctid`)).rows;
+    }
+    return o;
+  });
 }
 // база в начале уровня i: исходные данные + эталонные решения всех предыдущих уровней
 export function canon(i) {
@@ -299,6 +322,35 @@ export async function success(lv, rec) {
   verdict(true, lv.ok, st + pr, true);
   renderLevels();
   cfg.renderMission();
+}
+
+// Студент начал лабу до того, как в неё добавили уровни (cfg.added): его прежний путь не ломается —
+// новые уровни идут после всех прежних, перед контрольным. Уровень, осмысленный только на своём месте (lv.early,
+// например «план на 60 книгах» до наполнения таблицы), остаётся на месте и засчитывается сам.
+export function oldOrder(P = G.P) {
+  const added = new Set(cfg.added || []),
+    fin = L[L.length - 1];
+  const late = l => added.has(l.key) && !l.early;
+  L = [...L.filter(l => !late(l) && l !== fin), ...L.filter(late), fin];
+  L.filter(l => added.has(l.key) && l.early && !(P.lv[l.key] || {}).done).forEach(l => {
+    P.lv[l.key] = {
+      runs: 0,
+      fails: 0,
+      done: true,
+      auto: true,
+      at: new Date().toISOString(),
+      note: 'засчитан: лаба начата до появления этого уровня',
+    };
+  });
+}
+// лаба пройдена до того, как в неё добавили уровни, — новые уровни засчитываются
+function credit(P) {
+  const fin = P.lv[L[L.length - 1].key]; // последний (контрольный) уровень
+  if (!cfg.added || !(fin || {}).done) return;
+  cfg.added.forEach(k => {
+    if (!(P.lv[k] || {}).done)
+      P.lv[k] = {runs: 0, fails: 0, done: true, auto: true, at: fin.at, note: 'засчитан: лаба пройдена до появления этого уровня'};
+  });
 }
 
 // ═══════════════════════════════ тренировка: бесконечные задания без баллов ══
@@ -586,6 +638,12 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
     hist: [],
   };
   setCtx({lab: cfg.lab, fio, grp, seed, client: sess && sess.sid ? 's' + sess.sid : clientId(), demo, token: (sess && sess.token) || ''});
+  if (!demo && cfg.added) {
+    // порядок уровней выбирается один раз: есть пройденные прежние уровни — лаба начата до добавления новых
+    if (!G.P.order) G.P.order = Object.entries(G.P.lv).some(([k, r]) => r.done && !cfg.added.includes(k)) ? 'old' : 'new';
+    if (G.P.order === 'old') oldOrder();
+  }
+  if (!demo) credit(G.P);
   report('hello', {done: doneN(), pts: score().sum});
   if (server || P) save();
   // продолжить с первого непройденного открытого уровня
@@ -765,6 +823,7 @@ export async function boot() {
       W.setSpeed(v);
     },
     begin,
+    oldOrder,
     get D() {
       return D;
     },

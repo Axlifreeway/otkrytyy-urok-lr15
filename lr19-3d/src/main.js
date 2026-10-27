@@ -9,24 +9,33 @@ import {queryLab} from '../../common/qlab.js';
 import {practice} from './practice.js';
 import {SELECT_REF, WHERE_REF, ORDER_REF, JOIN_REF, GROUP_REF, SUBQ_REF} from '../../common/sqlref.js';
 
-// ч. 1 — по 0,5; ч. 2 — по 0,6; ч. 3 — по 0,7; проверка — 0,8 (всего 9)
+// ч. 1 — по 0,35; ч. 2 — по 0,4; ч. 3 — по 0,45; ч. 4 (дополнительные) — по 0,4; проверка — 0,7 (всего 9)
 const PTS = {
-  menu: 0.5,
-  month: 0.5,
-  big: 0.5,
-  letter: 0.5,
-  nophone: 0.5,
-  named: 0.6,
-  one: 0.6,
-  total: 0.6,
-  per: 0.6,
-  twice: 0.6,
-  avgp: 0.6,
-  over: 0.7,
-  never: 0.7,
-  newest: 0.7,
-  check: 0.8,
+  menu: 0.35,
+  month: 0.35,
+  big: 0.35,
+  letter: 0.35,
+  nophone: 0.35,
+  named: 0.4,
+  one: 0.4,
+  total: 0.4,
+  per: 0.4,
+  twice: 0.4,
+  avgp: 0.4,
+  over: 0.45,
+  never: 0.45,
+  newest: 0.45,
+  veg: 0.4,
+  fleet: 0.4,
+  pickup: 0.4,
+  cheap: 0.4,
+  district: 0.4,
+  percour: 0.4,
+  months: 0.4,
+  check: 0.7,
 };
+// уровни, добавленные позже: тем, кто прошёл лабу раньше, засчитываются сами
+const ADDED = ['veg', 'fleet', 'pickup', 'cheap', 'district', 'percour', 'months'];
 const W = createPizzeria($('stage'), {pizzaColor});
 W.setSpeed(3);
 const Q = queryLab({
@@ -38,9 +47,9 @@ const Q = queryLab({
     'Таблицы: <code>orders</code> (коробки на столе выдачи), <code>pizza</code> (витрина), <code>courier</code> (у двери), <code>client</code> (за столиками). Щёлкните — увидите строку.',
 });
 
-const INTRO = `<p>Новых команд нет — пятнадцать коротких запросов к своей пиццерии: отбор и порядок, соединение и группировка, подзапросы. Робот показывает каждый ответ на кухне, у каждого запроса — число строк.</p>`;
+const INTRO = `<p>Новых команд нет — пятнадцать запросов задания к своей пиццерии (отбор и порядок, соединение и группировка, подзапросы) и семь дополнительных. Робот показывает каждый ответ на кухне, у каждого запроса — число строк.</p>`;
 const head = more => `<span class="tag">ЛР-19</span><h2>Закрепление: запросы к своей базе</h2>${INTRO}
-    <p class="mu">15 уровней — по одному на каждый запрос задания. Последний — проверка запроса № 9 по запросу № 8. ${more}</p>`;
+    <p class="mu">22 уровня: по одному на каждый запрос задания и семь дополнительных. Последний — проверка запроса № 9 по запросу № 8. ${more}</p>`;
 initShell({
   lab: 'lr19',
   storeKey: 'pizza-lr19-',
@@ -52,6 +61,7 @@ initShell({
   REF: [SELECT_REF, WHERE_REF, ORDER_REF, JOIN_REF, GROUP_REF, SUBQ_REF],
   REF_NEED: [],
   PTS,
+  added: ADDED,
   TABLES,
   COLS,
   gated: true,

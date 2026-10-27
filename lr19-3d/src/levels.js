@@ -19,6 +19,13 @@ export function levels(D) {
     [...new Set(first)].find(ch => first.filter(x => x === ch).length >= 2 && first.filter(x => x === ch).length <= 4) || first[0];
   const pz = nameOf(D, D.fav);
   const POJ = 'FROM orders o JOIN pizza p ON p.id = o.pizza_id';
+  // район, откуда больше всего заказов (при равенстве — первый по алфавиту)
+  const perDist = new Map();
+  O.forEach(o => {
+    const d = D.CL.find(c => c.id === o.client_id).district;
+    perDist.set(d, (perDist.get(d) || 0) + 1);
+  });
+  const dist = [...perDist].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
   const L = (key, title, lab, text, q, goals, ask, more = {}) => ({key, title, lab, text, q, goals, ask, ...more});
   return [
     // ═══════════════════════════════ часть 1 · отбор и сортировка
@@ -166,6 +173,83 @@ export function levels(D) {
         must: [{re: /\(\s*select\s+max\s*\(/i, msg: 'дату нужно найти подзапросом (SELECT max(ordered) FROM orders).'}],
         hint: 'WHERE ordered = (SELECT max(ordered) FROM orders)',
       },
+    ),
+    // ═══════════════════════════════ часть 4 · дополнительные запросы (на оставшееся время пары)
+    L(
+      'veg',
+      'Вегетарианское меню',
+      'ч. 4 · доп. 1 · логический столбец, сортировка',
+      'Вегетарианские пиццы (veg): название и цена, от дешёвых к дорогим.',
+      'Какие пиццы вегетарианские?',
+      ['Столбцы: name, price', 'Только veg', 'По цене по возрастанию'],
+      'SELECT name, price FROM pizza WHERE veg ORDER BY price',
+      {order: ['price'], hint: 'WHERE veg — логический столбец сам является условием; можно и veg = true.'},
+    ),
+    L(
+      'fleet',
+      'Курьеры по транспорту',
+      'ч. 4 · доп. 2 · сортировка по двум столбцам',
+      'Список курьеров: имя и транспорт. Сначала по транспорту, внутри — по имени.',
+      'Кто из курьеров на чём ездит?',
+      ['Столбцы: name, transport', 'ORDER BY transport, name'],
+      'SELECT name, transport FROM courier ORDER BY transport, name',
+      {order: ['transport', 'name'], hint: 'ORDER BY transport, name — второй столбец решает при равенстве первого.'},
+    ),
+    L(
+      'pickup',
+      'Самовывоз',
+      'ч. 4 · доп. 3 · count с IS NULL',
+      'Сколько заказов гости забрали сами — без курьера?',
+      'Сколько было самовывозов?',
+      ['count(*)', 'courier_id IS NULL'],
+      'SELECT count(*) FROM orders WHERE courier_id IS NULL',
+      {hint: 'WHERE courier_id IS NULL'},
+    ),
+    L(
+      'cheap',
+      'Самая дешёвая',
+      'ч. 4 · доп. 4 · min() в подзапросе',
+      'Самая дешёвая пицца меню: название и цена. Цену найдите подзапросом с min().',
+      'Какая пицца самая дешёвая?',
+      ['Столбцы: name, price', 'price = (SELECT min(price) FROM pizza)'],
+      'SELECT name, price FROM pizza WHERE price = (SELECT min(price) FROM pizza)',
+      {
+        must: [{re: /\(\s*select\s+min\s*\(/i, msg: 'цену нужно найти подзапросом (SELECT min(price) FROM pizza).'}],
+        hint: 'WHERE price = (SELECT min(price) FROM pizza)',
+      },
+    ),
+    L(
+      'district',
+      `Заказы района ${dist}`,
+      'ч. 4 · доп. 5 · соединение с условием',
+      `Заказы гостей из района ${dist}: номер заказа, фамилия гостя и сумма.`,
+      `Что заказывали в районе ${dist}?`,
+      ['Столбцы: id, full_name, amount', 'orders JOIN client', `district = '${dist}'`],
+      `SELECT o.id, c.full_name, o.amount FROM orders o JOIN client c ON c.id = o.client_id WHERE c.district = ${lit(dist)}`,
+      {minTables: 2, hint: 'FROM orders o JOIN client c ON c.id = o.client_id WHERE c.district = …'},
+    ),
+    L(
+      'percour',
+      'У каждого курьера',
+      'ч. 4 · доп. 6 · LEFT JOIN и count(столбец)',
+      'Сколько доставок у каждого курьера — включая того, у кого их нет (у него 0). Имя и число.',
+      'Сколько доставок у каждого курьера, включая нули?',
+      ['Столбцы: name, count(o.id)', 'courier LEFT JOIN orders', 'GROUP BY по имени'],
+      'SELECT c.name, count(o.id) FROM courier c LEFT JOIN orders o ON o.courier_id = c.id GROUP BY c.name',
+      {
+        minTables: 2,
+        hint: 'LEFT JOIN оставит курьера без пары; count(o.id) не считает пустые — у него будет 0, а count(*) дал бы 1.',
+      },
+    ),
+    L(
+      'months',
+      'Выручка по месяцам',
+      'ч. 4 · доп. 7 · группа по части даты',
+      'Выручка по месяцам: номер месяца (столбец m) и сумма, по порядку месяцев.',
+      'Сколько заработано в каждом месяце?',
+      ['Столбцы: m, sum(amount)', 'extract(month FROM ordered) AS m', 'GROUP BY m, ORDER BY m'],
+      'SELECT extract(month FROM ordered) AS m, sum(amount) FROM orders GROUP BY m ORDER BY m',
+      {order: ['m'], hint: 'extract(month FROM ordered) — номер месяца из даты; по нему и группируйте.'},
     ),
     L(
       'check',

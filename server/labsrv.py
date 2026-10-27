@@ -30,13 +30,13 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 12, 'lr14': 12, 'lr15': 13, 'lr16': 10, 'lr17': 13, 'lr18': 10, 'lr19': 15, 'lr20': 9}   # число уровней в лабе — для панели преподавателя
-GATED = ('lr17', 'lr18', 'lr19', 'lr20')    # пиццерия: лабы открывает преподаватель (по умолчанию закрыты)
+LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 16, 'lr21': 18, 'lr22': 14, 'lr23': 13, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
+GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24')   # пиццерия и библиотека: открывает преподаватель
 MAX_BODY = 400000
 MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
 REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
-REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr19', 'lr20', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
+REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
 PIN_TRIES = 8
 # защита от «захвата» чужих аккаунтов: первый вход задаёт PIN, поэтому с одного устройства
@@ -90,6 +90,38 @@ def words(name):
 
 
 # ═══════════════════════════════════════════════════════════ прогресс ══
+# уровни, добавленные в уже идущие лабы: кто прошёл лабу раньше (контрольный пройден), получает их зачтёнными.
+# То же — в common/shell.js (cfg.added), чтобы и в лабе, и в панели работа оставалась законченной.
+ADDED = {
+    'lr13': ['meal2', 'nulls', 'badmeal', 'heavy', 'school', 'dupid', 'newbag'],
+    'lr14': ['dest', 'loyal', 'rename', 'two', 'light', 'gold', 'byear', 'back'],
+    'lr15': ['loyal', 'grams', 'noteq', 'ge', 'notin', 'noyear', 'letter', 'meals', 'oldest'],
+    'lr16': ['mybags', 'weight', 'sorted', 'cardbags', 'dest3', 'leftall', 'noflight'],
+    'lr17': ['minmax1', 'qty', 'uniq', 'bydist', 'veg', 'transport', 'avgdist', 'busy', 'hotdays'],
+    'lr18': ['belowavg', 'minrow', 'firstday', 'bytransport', 'nophone', 'unsold', 'quiet', 'exists', 'corr'],
+    'lr19': ['veg', 'fleet', 'pickup', 'cheap', 'district', 'percour', 'months'],
+    'lr20': ['qtyfix', 'phone', 'cancel', 'guarded', 'forget', 'txcommit', 'swap'],
+    'lr21': ['dupcard', 'newcard', 'reauthor', 'addnull', 'notnull', 'dropcol', 'return'],
+    'lr22': ['small', 'like', 'byauthor', 'whole', 'sort', 'agg', 'most'],
+    'lr23': ['order', 'func', 'uniq', 'uniqfail', 'pages', 'wide', 'size'],
+    'lr24': ['dp', 'who', 'colgrant', 'colcheck', 'again'],
+}
+
+
+FINAL = {'lr19': 'check'}   # ключ последнего (контрольного) уровня, если он не 'final'
+
+
+def credit(lab, d):
+    lv = (d or {}).get('lv') or {}
+    if lab not in ADDED or not (lv.get(FINAL.get(lab, 'final')) or {}).get('done'):
+        return d
+    lv = dict(lv)
+    for k in ADDED[lab]:
+        if not (lv.get(k) or {}).get('done'):
+            lv[k] = {'done': True, 'auto': True, 'runs': 0, 'fails': 0}
+    return {**d, 'lv': lv}
+
+
 def merge(a, b):
     """Объединить прогресс с двух устройств: пройденные уровни не теряются ни с одной стороны.
     Та же логика — в common/login.js (mergeP); их совпадение проверяет tests/common.test.mjs."""
@@ -117,6 +149,10 @@ def merge(a, b):
     for k in ('lints', 'away', 'awayMs', 'pastes', 'cur', 'practice', 'sentAt'):
         out[k] = max(a.get(k) or 0, b.get(k) or 0)
     out['fio'] = b.get('fio') or a.get('fio') or ''
+    # порядок уровней: «старый» с любого устройства побеждает — иначе студента откатит назад
+    order = 'old' if 'old' in (a.get('order'), b.get('order')) else a.get('order') or b.get('order')
+    if order:
+        out['order'] = order
     return out
 
 
@@ -449,7 +485,7 @@ class Store:
         data = json.loads(r[0]) if r else None
         if ev:                              # пустая запись — того же вида, что сохраняет лаба (журнал, ответы…)
             data = merge(data or {'lv': {}, 'pred': {}, 'journal': [], 'answers': {}, 'cur': 0}, ev)
-        return data, (r[1] if r else 0)
+        return credit(lab, data) if data else data, (r[1] if r else 0)
 
     def save_progress(self, sid, lab, data):
         with self.lock:
@@ -468,6 +504,7 @@ class Store:
                 prog[k] = merge(prog.get(k), ev)
             done = {}
             for (sid, lab), d in prog.items():
+                d = credit(lab, d)
                 n = sum(1 for k, r in (d.get('lv') or {}).items() if r.get('done') and k != 'practice')
                 done.setdefault(sid, {})[lab] = min(n, LEVELS.get(lab, n))
             out = []

@@ -131,6 +131,9 @@ export function mergeP(a, b) {
     out[k] = Math.max(a[k] || 0, b[k] || 0);
   });
   out.fio = b.fio || a.fio || '';
+  // порядок уровней: «старый» с любого устройства побеждает — иначе студента откатит назад
+  const order = a.order === 'old' || b.order === 'old' ? 'old' : a.order || b.order;
+  if (order) out.order = order;
   return out;
 }
 

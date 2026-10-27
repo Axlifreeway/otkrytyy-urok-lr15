@@ -5,7 +5,10 @@
 // lv.check 'schema' — доводка схемы (ограничения lv.need, автогенерация lv.identity, данные — по эталону lv.ref);
 // lv.check 'cross' — соединение без условия: строк должно быть произведение;
 // lv.check 'error' — нужен отказ СУБД с кодом lv.code (и текстом lv.errMsg);
-// lv.check 'tx' — команды в транзакции: lv.verify(ctx) смотрит на ход команд (G.trail) и состояние базы.
+// lv.check 'tx' — команды в транзакции: lv.verify(ctx) смотрит на ход команд (G.trail) и состояние базы
+//   (может быть async: ctx.q(sql) — запрос от имени владельца базы, ctx.files — файлы pg_dump).
+// Кроме SQL пульт понимает EXPLAIN [ANALYZE], метакоманды psql (\d, \di, \dp, \dn, \c) и, если уровень разрешает,
+// pg_dump -n схема -f файл и psql -f файл — копия схемы строится по каталогу самой базы (ЛР-24).
 import {$, esc, plural} from './util.js';
 import {statements} from './sql.js';
 import {SFX} from './sfx.js';
@@ -40,6 +43,7 @@ import {
   missionButtons,
   bindMissionButtons,
   hold,
+  asAdmin,
 } from './shell.js';
 import {report} from './net.js';
 
@@ -72,7 +76,11 @@ export function explain(e) {
     case '42710':
       return 'Ограничение с таким именем уже есть. Посмотрите «Структуру базы» под заданием.';
     case '42704':
-      return 'Такого ограничения нет — проверьте имя в «Структуре базы».';
+      return /role/.test(m)
+        ? 'Такой роли нет — сначала CREATE ROLE.'
+        : /index/.test(m)
+          ? 'Такого индекса нет — список индексов: \\di.'
+          : 'Такого ограничения нет — проверьте имя в «Структуре базы».';
     case '42P16':
       return 'У таблицы уже есть первичный ключ — второй объявить нельзя.';
     case '42703':
@@ -94,6 +102,12 @@ export function explain(e) {
         : 'Столбец нужно либо перечислить в GROUP BY, либо обернуть в агрегатную функцию.';
     case '25P02':
       return 'Транзакция прервана ошибкой: СУБД не выполняет команды, пока транзакцию не закончат. Выход один — ROLLBACK (COMMIT здесь тоже сработает как ROLLBACK).';
+    case '42501':
+      return 'Нет прав: роли не выдано это право (GRANT) или его отобрали (REVOKE). Права выдаёт владелец таблицы.';
+    case '3F000':
+      return 'Такой схемы нет — проверьте имя (её могли переименовать).';
+    case '42P07':
+      return 'Объект с таким именем уже есть.';
     case '21000':
       return 'Подзапрос вернул несколько строк, а на этом месте нужно одно значение. Для списка — IN (SELECT …).';
     default:
@@ -106,7 +120,7 @@ const CONS_SQL = `SELECT c.conname AS name, c.contype AS type, t.relname AS tbl,
   (SELECT string_agg(a.attname, ',' ORDER BY a.attnum) FROM pg_attribute a WHERE a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)) AS cols,
   pg_get_constraintdef(c.oid) AS def
 FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace
-LEFT JOIN pg_class r ON r.oid = c.confrelid WHERE n.nspname = 'public' AND c.contype <> 'n' ORDER BY t.relname, c.contype, c.conname`;
+LEFT JOIN pg_class r ON r.oid = c.confrelid WHERE n.nspname = ANY (current_schemas(false)) AND c.contype <> 'n' ORDER BY t.relname, c.contype, c.conname`;
 const TYPE = {p: 'PRIMARY KEY', f: 'FOREIGN KEY', u: 'UNIQUE', c: 'CHECK'};
 const PREFIX = {p: 'pk_', f: 'fk_', u: 'uq_', c: 'ck_'};
 
@@ -129,6 +143,54 @@ const whereOf = sql => {
   const m = /\bwhere\b([\s\S]*)$/i.exec(sql.replace(/;\s*$/, ''));
   return m ? normWhere(m[1]) : '';
 };
+
+// команды пульта: SQL делится по «;», а строки метакоманд psql (\d, \c) и pg_dump / psql — каждая сама по себе
+export function commands(text) {
+  const out = [];
+  let buf = '';
+  const flush = () => {
+    out.push(...statements(buf));
+    buf = '';
+  };
+  text.split('\n').forEach(line => {
+    if (/^\s*(\\|pg_dump\b|psql\b)/.test(line)) {
+      flush();
+      out.push(line.trim().replace(/;\s*$/, ''));
+    } else buf += line + '\n';
+  });
+  flush();
+  return out;
+}
+// вид команды: SELECT, INSERT…, BEGIN/COMMIT/ROLLBACK, META (\d), PG_DUMP, PSQL
+const cmdKind = sql =>
+  /^\s*\\/.test(sql) ? 'META' : /^\s*pg_dump\b/.test(sql) ? 'PG_DUMP' : /^\s*psql\b/.test(sql) ? 'PSQL' : TXK[kindOf(sql)] || kindOf(sql);
+// узлы плана: способ чтения каждой таблицы и соединения
+export function planNodes(lines) {
+  const out = [];
+  lines.forEach(l => {
+    const rows = +((/actual time=[^)]*rows=(\d+)/.exec(l) || /rows=(\d+)/.exec(l) || [])[1] || 0);
+    const bi = /Bitmap Index Scan on (\w+)/.exec(l);
+    const m = !bi && /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan)(?: using (\w+))? on (\w+)/.exec(l);
+    const j = /(Hash Join|Merge Join|Nested Loop)/.exec(l);
+    // Bitmap Index Scan — часть Bitmap Heap Scan строкой выше: индекс — ей
+    if (bi) {
+      const h = [...out].reverse().find(n => n.kind === 'Bitmap Heap Scan' && !n.index);
+      if (h) h.index = bi[1];
+    } else if (m) out.push({kind: m[1], index: m[2] || null, table: m[3], rows});
+    else if (j) out.push({kind: j[1], rows});
+  });
+  const text = lines.join('\n');
+  const time = (/Execution Time: ([\d.]+) ms/.exec(text) || [])[1];
+  const removed = +((/Rows Removed by Filter: (\d+)/.exec(text) || [])[1] || 0);
+  // сортировка и итог — узлы без таблицы: только флаги
+  return {
+    nodes: out,
+    time: time ? +time : null,
+    removed,
+    sort: /(^|\s|>)\s*(Incremental )?Sort\b/m.test(text),
+    agg: /\bAggregate\b/.test(text),
+  };
+}
 
 export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   const robotErr = () => {
@@ -153,16 +215,16 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   async function run() {
     if (running || !db || !G || G.lv == null) return;
     const all = $('sql').value.trim();
-    const st = statements(all);
+    const st = commands(all);
     if (!st.length) return;
     pushHist(all);
     const lv = L[G.lv];
     $('verdict').innerHTML = '';
     const allow = lv.allow || ['SELECT'];
     for (let i = 0; i < st.length; i++) {
-      const k = TXK[kindOf(st[i])] || kindOf(st[i]);
+      const k = cmdKind(st[i]);
       let msg = '';
-      if (!allow.includes(k))
+      if (k !== 'META' && !allow.includes(k))
         msg =
           allow.length === 1
             ? 'На этом уровне база не меняется — только запрос SELECT.'
@@ -217,9 +279,22 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   }
   async function runOne(sql) {
     recOf(L[G.lv]).runs++;
-    const kind = kindOf(sql),
-      tx0 = G.tx || '';
-    const info = TXK[kind] ? await runTx(sql, TXK[kind]) : kind === 'SELECT' ? await runSelect(sql) : await runChange(sql, kind);
+    const kind = cmdKind(sql),
+      tx0 = G.tx || '',
+      role0 = G.role || null;
+    const info = TXK[kind]
+      ? await runTx(sql, TXK[kind])
+      : kind === 'SELECT'
+        ? await runSelect(sql)
+        : kind === 'EXPLAIN'
+          ? await runExplain(sql)
+          : kind === 'META'
+            ? await runMeta(sql)
+            : kind === 'PG_DUMP'
+              ? await runDump(sql)
+              : kind === 'PSQL'
+                ? await runRestore(sql)
+                : await runChange(sql, kind);
     // ошибка внутри транзакции прерывает её: дальше — только ROLLBACK
     if (info.err && G.tx === '*') G.tx = '!';
     G.trail.push({
@@ -233,15 +308,38 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       txAfter: G.tx || '',
       where: kind === 'SELECT' ? normWhere(info.p && info.p.where) : whereOf(sql),
       table: kind === 'SELECT' ? info.p && info.p.tables[0] && info.p.tables[0].t : tableOf(sql),
+      role: role0,
+      roleAfter: G.role || null,
+      plan: info.plan || null,
+      out: info.out || '',
     });
     psql();
+    await refreshCatalog();
     return info;
+  }
+  // сцене — индексы (шкафы каталога), число строк и текущая роль; таблицы, которой нет, не трогаем —
+  // ошибка внутри транзакции студента прервала бы её
+  async function refreshCatalog() {
+    if (!W.catalog || G.tx === '!') return;
+    const info = await asAdmin(async () => {
+      const have = (await q(`SELECT tablename FROM pg_tables WHERE schemaname = ANY (current_schemas(false))`)).rows.map(r => r.tablename);
+      const counts = {};
+      for (const t of Object.keys(TABLES)) if (have.includes(t)) counts[t] = (await q(`SELECT count(*)::int AS n FROM ${t}`)).rows[0].n;
+      const indexes = (
+        await q(
+          `SELECT indexname AS name, tablename AS table FROM pg_indexes WHERE schemaname = ANY (current_schemas(false)) ORDER BY indexname`,
+        )
+      ).rows;
+      return {counts, indexes};
+    }).catch(() => null);
+    if (info) W.catalog({...info, role: G.role || null});
   }
   // приглашение как в psql: pizza=> — без транзакции, pizza=*> — транзакция идёт, pizza=!> — прервана ошибкой
   function psql() {
     const el = $('psql');
     if (!el) return;
-    el.textContent = `${el.dataset.db || 'db'}=${G.tx || ''}>`;
+    // как в psql: у суперпользователя приглашение кончается на #, у обычной роли — на >
+    el.textContent = `${G.role ? G.role + '@' : ''}${el.dataset.db || 'db'}=${G.tx || ''}${el.dataset.su && !G.role ? '#' : '>'}`;
     el.className = 'psql' + (G.tx === '*' ? ' tx' : G.tx === '!' ? ' bad' : '');
   }
   // BEGIN / COMMIT / ROLLBACK
@@ -597,7 +695,22 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
 
   // ═══════════════════════════════════ ALTER, INSERT, UPDATE, DELETE ══
   const tableOf = sql =>
-    ((/^\s*(?:alter\s+table|insert\s+into|update|delete\s+from)\s+(?:only\s+)?(\w+)/i.exec(sql) || [])[1] || '').toLowerCase();
+    (
+      (/^\s*(?:alter\s+table|insert\s+into|update|delete\s+from)\s+(?:only\s+)?(?:\w+\.)?(\w+)/i.exec(sql) ||
+        /^\s*create\s+(?:unique\s+)?index\s+(?:\w+\s+)?on\s+(?:\w+\.)?(\w+)/i.exec(sql) ||
+        [])[1] || ''
+    ).toLowerCase();
+  // ответ СУБД на команду: INSERT 0 3, UPDATE 2, CREATE INDEX, GRANT, SET…
+  const tagOf = (sql, kind, n) => {
+    if (kind === 'INSERT') return `INSERT 0 ${n}`;
+    if (kind === 'UPDATE' || kind === 'DELETE') return `${kind} ${n}`;
+    const w = sql
+      .trim()
+      .split(/\s+/)
+      .map(x => x.toUpperCase());
+    if (['CREATE', 'DROP', 'ALTER'].includes(kind)) return `${kind} ${w[1] === 'UNIQUE' ? 'INDEX' : w[1]}`;
+    return kind;
+  };
   async function runChange(sql, kind) {
     const info = {kind};
     const t = tableOf(sql);
@@ -616,13 +729,302 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       return info;
     }
     info.n = r.affectedRows || 0;
-    const tag = kind === 'ALTER' ? 'ALTER TABLE' : kind === 'INSERT' ? `INSERT 0 ${info.n}` : `${kind} ${info.n}`;
-    $('result').innerHTML = `<span class="ok">${esc(tag)}</span>${kind === 'ALTER' && TABLES[t] ? await consHtml(t) : ''}`;
+    const tag = tagOf(sql, kind, info.n);
+    info.tag = tag;
+    // SET ROLE / RESET ROLE: дальше команды идут от имени роли
+    if (kind === 'SET' && /^\s*set\s+role\s+/i.test(sql)) G.role = /^\s*set\s+role\s+(\w+)/i.exec(sql)[1].toLowerCase();
+    if (kind === 'RESET' && /role/i.test(sql)) G.role = null;
+    if (kind === 'SET' && /^\s*set\s+role\s+(none|default)\b/i.test(sql)) G.role = null;
+    let note = '';
+    // много строк разом — СУБД пересчитывает статистику сама (автоочистка); здесь — сразу, чтобы планы были честными
+    if (kind === 'INSERT' && info.n >= 1000) {
+      await asAdmin(() => db.query('ANALYZE'));
+      note = `<div class="ru">Добавлено ${info.n} строк — СУБД обновила статистику таблицы (ANALYZE), по ней планировщик выбирает способ чтения.</div>`;
+    }
+    $('result').innerHTML =
+      `<span class="ok">${esc(tag)}</span>${note}${kind === 'ALTER' && TABLES[t] ? await consHtml(t).catch(() => '') : ''}`;
     journal(sql, tag);
     SFX.pop();
     await W.sync(await state(), true);
     return info;
   }
+  // ═══════════════════════════════════════════════ EXPLAIN: план запроса ══
+  async function runExplain(sql) {
+    const info = {kind: 'EXPLAIN'};
+    let lines;
+    try {
+      lines = (await db.query(sql)).rows.map(r => Object.values(r)[0]);
+    } catch (e) {
+      robotErr();
+      markError(e);
+      info.err = e;
+      $('result').innerHTML = `<span class="bad">ERROR: ${esc(e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
+      SFX.err();
+      journal(sql, 'ERROR ' + e.code);
+      return info;
+    }
+    const plan = planNodes(lines);
+    plan.text = lines.join('\n');
+    plan.analyze = /^\s*explain\s+(\(\s*)?analyze/i.test(sql);
+    info.plan = plan;
+    const scans = plan.nodes.filter(n => n.table);
+    const tag =
+      scans.map(n => `${n.kind}${n.index ? ' using ' + n.index : ''} on ${n.table}`).join(' · ') +
+      (plan.time != null ? ` · ${plan.time} ms` : '');
+    info.tag = tag;
+    const hl = l =>
+      esc(l)
+        .replace(
+          /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan|Bitmap Index Scan|Hash Join|Merge Join|Nested Loop)/,
+          '<b class="pk">$1</b>',
+        )
+        .replace(/(Execution Time: [\d.]+ ms|Rows Removed by Filter: \d+)/, '<b class="pt">$1</b>');
+    $('result').innerHTML = `<span class="ok">QUERY PLAN</span><pre class="plan">${lines.map(hl).join('\n')}</pre>${
+      plan.analyze ? '' : '<div class="ru">EXPLAIN показывает план и ничего не выполняет; время — у EXPLAIN ANALYZE.</div>'
+    }`;
+    journal(sql, tag);
+    // робот проходит план: подряд по всем полкам — или к каталогу индекса и сразу к нужной полке
+    if (W.scan)
+      for (const n of [...plan.nodes].reverse()) {
+        if (!n.table) continue;
+        cmdBar(
+          `<span class="k">${G.stmtTag || ''}${esc(n.kind)}</span><span class="w">${esc((n.index ? 'по индексу ' + n.index + ' · ' : '') + 'таблица ' + n.table)}</span>`,
+        );
+        await W.scan(n, plan);
+        await hold(0);
+      }
+    return info;
+  }
+
+  // ═════════════════════════════════════════════ метакоманды psql ══
+  const pre = t => `<pre class="plan">${esc(t)}</pre>`;
+  async function metaDescribe(t) {
+    return asAdmin(async () => {
+      const cols = (
+        await q(`SELECT column_name AS c, format_type(a.atttypid, a.atttypmod) AS ty, NOT a.attnotnull AS nul, pg_get_expr(d.adbin, d.adrelid) AS def
+          FROM information_schema.columns ic JOIN pg_attribute a ON a.attrelid = (quote_ident(ic.table_schema) || '.' || quote_ident(ic.table_name))::regclass AND a.attname = ic.column_name
+          LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+          WHERE ic.table_name = '${t}' AND ic.table_schema = ANY (current_schemas(false)) ORDER BY ic.ordinal_position`)
+      ).rows;
+      if (!cols.length) return null;
+      const ix = (
+        await q(
+          `SELECT indexname, indexdef FROM pg_indexes WHERE tablename = '${t}' AND schemaname = ANY (current_schemas(false)) ORDER BY indexname`,
+        )
+      ).rows;
+      const cs = (await q(CONS_SQL)).rows.filter(c => c.tbl === t && c.type !== 'p' && c.type !== 'u');
+      return (
+        `Таблица "${t}"\n` +
+        cols.map(c => `  ${c.c.padEnd(12)} ${c.ty.padEnd(24)} ${c.nul ? '' : 'not null'}${c.def ? ' default ' + c.def : ''}`).join('\n') +
+        (ix.length
+          ? '\nИндексы:\n' +
+            ix.map(i => `    "${i.indexname}" ${i.indexdef.replace(/^.*USING /, '').replace(/^btree /, 'btree ')}`).join('\n')
+          : '') +
+        (cs.length ? '\nОграничения:\n' + cs.map(c => `    "${c.name}" ${c.def}`).join('\n') : '')
+      );
+    });
+  }
+  async function runMeta(sql) {
+    const info = {kind: 'META'};
+    const [cmd, ...args] = sql.trim().split(/\s+/);
+    let out = '';
+    try {
+      if (cmd === '\\c' || cmd === '\\connect') {
+        // \c [база] [роль]: в браузере база одна — меняется только роль
+        const role = (args[1] || (args[0] && args[0] !== '-' && /_reader|_role|^s\d/.test(args[0]) ? args[0] : '') || '').toLowerCase();
+        if (role && role !== 'postgres' && role !== '-') {
+          await db.query('RESET ROLE');
+          const ok = (await q(`SELECT rolcanlogin FROM pg_roles WHERE rolname = '${role.replace(/'/g, "''")}'`)).rows[0];
+          if (G.role) await db.query(`SET ROLE ${G.role}`);
+          if (!ok) throw Object.assign(new Error(`role "${role}" does not exist`), {code: '42704'});
+          if (!ok.rolcanlogin) throw Object.assign(new Error(`role "${role}" is not permitted to log in`), {code: '28000'});
+          await db.query(`SET ROLE ${role}`);
+          G.role = role;
+        } else {
+          await db.query('RESET ROLE');
+          G.role = null;
+        }
+        out = `Вы подключены к базе данных "library" как пользователь "${G.role || 'postgres'}".`;
+        info.tag = `\\c ${G.role || 'postgres'}`;
+      } else if (cmd === '\\d' && args[0]) {
+        out = (await metaDescribe(args[0].replace(/^\w+\./, '').toLowerCase())) || `Не найдено отношение "${args[0]}".`;
+      } else if (cmd === '\\d' || cmd === '\\dt') {
+        const r = await asAdmin(() =>
+          q(`SELECT schemaname, tablename FROM pg_tables WHERE schemaname = ANY (current_schemas(false)) ORDER BY 1, 2`),
+        );
+        out = 'Список отношений\n' + r.rows.map(x => `  ${x.schemaname} | ${x.tablename} | таблица`).join('\n');
+      } else if (cmd === '\\di') {
+        const r = await asAdmin(() =>
+          q(
+            `SELECT indexname, tablename FROM pg_indexes WHERE schemaname = ANY (current_schemas(false)) ${args[0] ? `AND tablename = '${args[0].toLowerCase()}'` : ''} ORDER BY 2, 1`,
+          ),
+        );
+        out = 'Список индексов\n' + r.rows.map(x => `  ${x.indexname.padEnd(22)} | ${x.tablename}`).join('\n');
+      } else if (cmd === '\\dp' || cmd === '\\z') {
+        const r = await asAdmin(() =>
+          q(`SELECT table_name AS t, grantee AS g, string_agg(privilege_type, ', ' ORDER BY privilege_type) AS p FROM information_schema.role_table_grants
+             WHERE table_schema = ANY (current_schemas(false)) AND grantee <> 'postgres' GROUP BY 1, 2 ORDER BY 1, 2`),
+        );
+        out = 'Права доступа\n' + (r.rows.map(x => `  ${x.t.padEnd(8)} | ${x.g} = ${x.p}`).join('\n') || '  (прав, выданных ролям, нет)');
+      } else if (cmd === '\\dn') {
+        const r = await asAdmin(() => q(`SELECT nspname FROM pg_namespace WHERE nspname !~ '^(pg_|information_schema)' ORDER BY 1`));
+        out = 'Список схем\n' + r.rows.map(x => '  ' + x.nspname).join('\n');
+      } else if (cmd === '\\du') {
+        const r = await asAdmin(() => q(`SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY 1`));
+        out = 'Список ролей\n' + r.rows.map(x => `  ${x.rolname}${x.rolcanlogin ? '' : ' (без входа)'}`).join('\n');
+      } else
+        throw Object.assign(new Error(`неизвестная команда ${cmd}: здесь работают \\d, \\d таблица, \\di, \\dp, \\dn, \\du, \\c`), {
+          code: 'META',
+        });
+    } catch (e) {
+      robotErr();
+      info.err = e;
+      $('result').innerHTML =
+        `<span class="bad">${esc(e.code === 'META' ? e.message : 'ERROR: ' + e.message)}</span><div class="ru">${esc(explain(e))}</div>`;
+      SFX.err();
+      journal(sql, 'ERROR ' + e.code);
+      return info;
+    }
+    info.out = out;
+    info.tag = info.tag || cmd;
+    $('result').innerHTML = pre(out);
+    journal(sql, info.tag);
+    if (W.sync) await W.sync(await state(), true);
+    return info;
+  }
+
+  // ═══════════════════════════ pg_dump и psql -f: копия схемы и восстановление ══
+  // копия строится по каталогу: таблицы, ключи и ограничения, индексы, строки, права — как у pg_dump
+  async function dumpSchema(sch) {
+    const L1 = [];
+    const Q = async s => (await db.query(s)).rows;
+    const tabs = (
+      await Q(
+        `SELECT c.relname AS t, c.oid FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '${sch}' AND c.relkind = 'r' ORDER BY c.oid`,
+      )
+    ).map(x => x.t);
+    if (!tabs.length) throw Object.assign(new Error(`no matching schemas were found for pattern "${sch}"`), {code: 'DUMP'});
+    L1.push('--', '-- PostgreSQL database dump', '--', '', `CREATE SCHEMA ${sch};`, '');
+    for (const t of tabs) {
+      const cols =
+        await Q(`SELECT a.attname AS c, format_type(a.atttypid, a.atttypmod) AS ty, a.attnotnull AS nn, pg_get_expr(d.adbin, d.adrelid) AS def
+        FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        WHERE a.attrelid = '${sch}.${t}'::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`);
+      L1.push(
+        `CREATE TABLE ${sch}.${t} (`,
+        cols.map(c => `    ${c.c} ${c.ty}${c.def ? ' DEFAULT ' + c.def : ''}${c.nn ? ' NOT NULL' : ''}`).join(',\n'),
+        ');',
+        '',
+      );
+    }
+    for (const t of tabs) {
+      const rows = await Q(`SELECT * FROM ${sch}.${t} ORDER BY 1`);
+      if (!rows.length) continue;
+      const cols = Object.keys(rows[0]);
+      const v = x =>
+        x === null
+          ? 'NULL'
+          : typeof x === 'number' || typeof x === 'boolean'
+            ? String(x)
+            : x instanceof Date
+              ? `'${x.toISOString().slice(0, 10)}'`
+              : `'${String(x).replace(/'/g, "''")}'`;
+      L1.push(
+        `INSERT INTO ${sch}.${t} (${cols.join(', ')}) VALUES`,
+        rows.map(r => `(${cols.map(c => v(r[c])).join(', ')})`).join(',\n') + ';',
+        '',
+      );
+    }
+    // сначала первичные ключи и уникальность, потом внешние ключи и проверки
+    const cons =
+      await Q(`SELECT t.relname AS t, c.conname AS n, pg_get_constraintdef(c.oid) AS d, c.contype AS ty FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = '${sch}' AND c.contype IN ('p', 'u', 'f', 'c') ORDER BY CASE c.contype WHEN 'p' THEN 0 WHEN 'u' THEN 1 ELSE 2 END, t.oid`);
+    cons.forEach(c =>
+      L1.push(`ALTER TABLE ONLY ${sch}.${c.t} ADD CONSTRAINT ${c.n} ${c.d.replace(/REFERENCES (\w+)\(/, `REFERENCES ${sch}.$1(`)};`),
+    );
+    const ix = await Q(
+      `SELECT indexdef FROM pg_indexes i WHERE schemaname = '${sch}' AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conname = i.indexname) ORDER BY indexname`,
+    );
+    if (ix.length) L1.push('', ...ix.map(i => i.indexdef + ';'));
+    const gr = await Q(
+      `SELECT grantee, table_name, string_agg(privilege_type, ', ') AS p FROM information_schema.role_table_grants WHERE table_schema = '${sch}' AND grantee <> 'postgres' GROUP BY 1, 2 ORDER BY 2`,
+    );
+    // права на отдельные столбцы — те, что не покрыты правом на всю таблицу
+    const cg = await Q(
+      `SELECT grantee, table_name, privilege_type AS p, string_agg(column_name, ', ' ORDER BY column_name) AS cols FROM information_schema.column_privileges cp
+      WHERE table_schema = '${sch}' AND grantee <> 'postgres' AND NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants t
+      WHERE t.table_schema = cp.table_schema AND t.table_name = cp.table_name AND t.grantee = cp.grantee AND t.privilege_type = cp.privilege_type)
+      GROUP BY 1, 2, 3 ORDER BY 2`,
+    );
+    const us = await Q(
+      `SELECT r.rolname FROM pg_namespace n, pg_roles r WHERE n.nspname = '${sch}' AND r.rolname <> 'postgres' AND has_schema_privilege(r.oid, n.oid, 'USAGE') AND r.rolname !~ '^pg_'`,
+    );
+    if (gr.length || us.length || cg.length)
+      L1.push(
+        '',
+        ...us.map(u => `GRANT USAGE ON SCHEMA ${sch} TO ${u.rolname};`),
+        ...gr.map(g => `GRANT ${g.p} ON TABLE ${sch}.${g.table_name} TO ${g.grantee};`),
+        ...cg.map(g => `GRANT ${g.p} (${g.cols}) ON TABLE ${sch}.${g.table_name} TO ${g.grantee};`),
+      );
+    L1.push('', '--', '-- PostgreSQL database dump complete', '--');
+    return L1.join('\n') + '\n';
+  }
+  const optOf = (sql, o) => (new RegExp(`(?:^|\\s)-${o}\\s*(\\S+)`).exec(sql) || [])[1];
+  async function runDump(sql) {
+    const info = {kind: 'PG_DUMP'};
+    const sch = (optOf(sql, 'n') || '').replace(/^"|"$/g, ''),
+      file = optOf(sql, 'f');
+    try {
+      if (!sch) throw Object.assign(new Error('укажите схему: pg_dump … -n library -f копия.sql'), {code: 'DUMP'});
+      const text = await asAdmin(() => dumpSchema(sch));
+      if (file) {
+        G.P.files = {...(G.P.files || {}), [file]: text};
+        save();
+      }
+      info.tag = file ? `pg_dump → ${file}` : 'pg_dump';
+      info.file = file;
+      const n = text.split('\n').length;
+      $('result').innerHTML =
+        `<span class="ok">${file ? `pg_dump: копия схемы ${esc(sch)} записана в файл ${esc(file)} — ${n} строк` : 'pg_dump: копия выведена на экран'}</span>
+        <details class="dump"${file ? '' : ' open'}><summary>Открыть ${esc(file || 'копию')} «в блокноте»</summary>${pre(text)}</details>`;
+      journal(sql, info.tag);
+      SFX.pop();
+      if (W.backup) await W.backup(file || sch);
+    } catch (e) {
+      robotErr();
+      info.err = e;
+      $('result').innerHTML = `<span class="bad">pg_dump: error: ${esc(e.message)}</span>`;
+      SFX.err();
+      journal(sql, 'ERROR pg_dump');
+    }
+    return info;
+  }
+  async function runRestore(sql) {
+    const info = {kind: 'PSQL'};
+    const file = optOf(sql, 'f');
+    const text = file && (G.P.files || {})[file];
+    try {
+      if (!file) throw Object.assign(new Error('укажите файл: psql … -f копия.sql'), {code: 'PSQL'});
+      if (!text) throw Object.assign(new Error(`${file}: No such file or directory`), {code: 'PSQL'});
+      await db.exec(text);
+      info.tag = `psql -f ${file}`;
+      const n = (text.match(/^INSERT INTO/gm) || []).length,
+        c = (text.match(/^CREATE TABLE/gm) || []).length;
+      $('result').innerHTML =
+        `<span class="ok">CREATE SCHEMA · CREATE TABLE ×${c} · INSERT ×${n} · ALTER TABLE …</span><div class="ru">Схема восстановлена из файла ${esc(file)}.</div>`;
+      journal(sql, info.tag);
+      SFX.pop();
+      await W.sync(await state(), true);
+    } catch (e) {
+      robotErr();
+      info.err = e;
+      $('result').innerHTML = `<span class="bad">psql: ${esc(e.code === 'PSQL' ? e.message : 'ERROR: ' + e.message)}</span>`;
+      SFX.err();
+      journal(sql, 'ERROR psql');
+    }
+    return info;
+  }
+
   // отказ: «Key (passenger_id)=(17) is not present» — метки на строках, которые мешают
   async function showOffenders(t, e) {
     const m = /Key \((\w+)\)=\(([^)]*)\)/.exec(e.detail || '');
@@ -652,7 +1054,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   async function describeDb() {
     const cols = (
       await q(`SELECT table_name, column_name, data_type, character_maximum_length AS len, is_nullable, column_default, is_identity, identity_generation
-        FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, ordinal_position`)
+        FROM information_schema.columns WHERE table_schema = ANY (current_schemas(false)) ORDER BY table_name, ordinal_position`)
     ).rows;
     const cs = await constraints();
     return Object.keys(TABLES)
@@ -717,10 +1119,11 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     // транзакция: что делали и чем кончилось
     if (check === 'tx') {
       const st = G.tx === '!' ? null : await state();
-      const j = st && G.target ? judge(st, G.target, G.start, lv.tables, TABLES) : null;
-      const j0 = st ? judge(st, G.start, G.start, lv.tables, TABLES) : null;
+      const tabs = lv.tables || []; // уровни на планы (EXPLAIN) данных не меняют — сверять нечего
+      const j = st && G.target ? judge(st, G.target, G.start, tabs, TABLES) : null;
+      const j0 = st ? judge(st, G.start, G.start, tabs, TABLES) : null;
       const v =
-        lv.verify({
+        (await lv.verify({
           trail: G.trail,
           tx: G.tx || '',
           st,
@@ -728,7 +1131,10 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
           atStart: !!(j0 && j0.ok),
           wrong: j ? j.wrong : [],
           start: G.start,
-        }) || {};
+          role: G.role || null,
+          files: G.P.files || {},
+          q: async sql => (G.tx === '!' ? [] : asAdmin(async () => (await db.query(sql)).rows)),
+        })) || {};
       if (v.ok) {
         rec.note = v.note || G.trail.map(x => x.tag || x.kind + (x.code ? ' → ERROR ' + x.code : '')).join(' · ');
         return success(lv, rec);
@@ -856,7 +1262,8 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     $('result').innerHTML = '';
     renderLevels();
     renderMission();
-    await prepareLevel(i); // база заново — открытая транзакция откатывается
+    G.role = null; // до перезагрузки базы: иначе снимок состояния снова включит роль прошлого уровня
+    await prepareLevel(i); // база заново — открытая транзакция откатывается, роль сбрасывается
     G.tx = '';
     G.trail = [];
     G.subs = [];
@@ -867,6 +1274,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     W.clearConfetti();
     W.clearLinks();
     W.build(await state(), G.seed, D.meta);
+    await refreshCatalog();
     W.home();
     (lv.say || []).forEach(s => W.say(s.id, s.t));
     G.P.cur = i;

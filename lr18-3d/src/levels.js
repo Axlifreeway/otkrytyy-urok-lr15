@@ -20,6 +20,9 @@ export function levels(D) {
   // «брали по K штук и больше»: 2–5 пицц
   const kQty = [4, 3, 2].find(k => new Set(O.filter(o => o.qty >= k).map(o => o.pizza_id)).size >= 2) || 2;
   const fav = nameOf(D, D.fav);
+  // вид транспорта, на котором были доставки; порог qty, который хоть раз брали у курьера
+  const tr = D.CR.find(c => O.some(o => o.courier_id === c.id)).transport;
+  const kCour = [3, 2].find(k => O.some(o => o.courier_id !== null && o.qty >= k)) || 1;
   return [
     // ═══════════════════════════════ часть 1 · подзапрос вместо числа
     {
@@ -45,6 +48,42 @@ export function levels(D) {
       must: [SUB],
       hint: 'WHERE amount = (SELECT max(amount) FROM orders)',
       ok: 'ORDER BY … LIMIT 1 потерял бы второй заказ с той же суммой, а подзапрос с max — нет.',
+    },
+    {
+      key: 'belowavg',
+      title: 'Дешевле средней',
+      lab: 'ч. 1 · подзапрос вместо числа: avg по справочнику',
+      text: 'Для акции «Обед» нужны пиццы дешевле средней цены меню. Название и цена; среднюю цену посчитает подзапрос.',
+      q: 'Какие пиццы дешевле средней цены?',
+      goals: ['Таблица pizza', 'Столбцы: name, price', 'price < (SELECT avg(price) FROM pizza)'],
+      ask: 'SELECT name, price FROM pizza WHERE price < (SELECT avg(price) FROM pizza)',
+      must: [SUB],
+      hint: 'Подзапрос может читать ту же таблицу, что и внешний запрос: … FROM pizza WHERE price < (SELECT avg(price) FROM pizza).',
+      ok: 'Подзапрос дал одно число — среднюю цену, с ним сравнилась каждая пицца.',
+    },
+    {
+      key: 'minrow',
+      title: 'Самый скромный заказ',
+      lab: 'ч. 1 · подзапрос вместо числа: min',
+      text: 'Найдите самые маленькие заказы: номер, пицца (pizza_id) и сумма. Если таких несколько — все.',
+      q: 'Какой заказ самый маленький?',
+      goals: ['Столбцы: id, pizza_id, amount', 'amount = (SELECT min(amount) FROM orders)'],
+      ask: 'SELECT id, pizza_id, amount FROM orders WHERE amount = (SELECT min(amount) FROM orders)',
+      must: [SUB],
+      hint: 'WHERE amount = (SELECT min(amount) FROM orders)',
+      ok: 'Ровно та же схема, что у рекорда, — только min вместо max.',
+    },
+    {
+      key: 'firstday',
+      title: 'Первый день',
+      lab: 'ч. 1 · подзапрос вместо даты',
+      text: 'Пиццерия празднует годовщину и дарит подарки гостям первого дня работы. Номер заказа и гость (client_id). Дату первого дня найдёт подзапрос.',
+      q: 'Какие заказы были в первый день работы?',
+      goals: ['Столбцы: id, client_id', 'ordered = (SELECT min(ordered) FROM orders)'],
+      ask: 'SELECT id, client_id FROM orders WHERE ordered = (SELECT min(ordered) FROM orders)',
+      must: [SUB],
+      hint: 'min работает и с датами: самая ранняя дата — min(ordered).',
+      ok: `Первый день — ${D.days[0]}: подзапрос нашёл его сам, без календаря.`,
     },
     {
       key: 'biggroup',
@@ -85,6 +124,33 @@ export function levels(D) {
       ok: 'Повторы в списке подзапроса не мешают: каждая пицца в ответе — один раз.',
     },
     {
+      key: 'bytransport',
+      title: `Доставки: ${tr}`,
+      lab: 'ч. 2 · IN: список курьеров',
+      text: `Какие заказы привезли курьеры на транспорте «${tr}»? Номер и сумма. Номера курьеров — подзапросом из courier.`,
+      q: `Какие заказы привезли на транспорте «${tr}»?`,
+      goals: ['Столбцы: id, amount', `courier_id IN (SELECT id FROM courier WHERE transport = '${tr}')`],
+      ask: `SELECT id, amount FROM orders WHERE courier_id IN (SELECT id FROM courier WHERE transport = ${lit(tr)})`,
+      must: [
+        {re: /\bin\s*\(\s*select/i, msg: 'список курьеров нужен подзапросом: courier_id IN (SELECT id FROM courier WHERE …).'},
+        NO_JOIN,
+      ],
+      hint: `courier_id IN (SELECT id FROM courier WHERE transport = '${tr}')`,
+      ok: 'Самовывоз в ответ не попал: пустой courier_id не равен ни одному номеру из списка.',
+    },
+    {
+      key: 'nophone',
+      title: 'Заказы без телефона',
+      lab: 'ч. 2 · IN: список с IS NULL',
+      text: 'Оператор не может перезвонить гостям без телефона. Какие заказы они сделали? Номер и сумма.',
+      q: 'Какие заказы у гостей без телефона?',
+      goals: ['Столбцы: id, amount', 'client_id IN (SELECT id FROM client WHERE phone IS NULL)'],
+      ask: 'SELECT id, amount FROM orders WHERE client_id IN (SELECT id FROM client WHERE phone IS NULL)',
+      must: [{re: /\bin\s*\(\s*select/i, msg: 'список гостей нужен подзапросом: client_id IN (SELECT id FROM client WHERE …).'}, NO_JOIN],
+      hint: 'Пустой телефон проверяется только IS NULL: … WHERE phone IS NULL.',
+      ok: 'Подзапрос отобрал гостей по пустому столбцу, внешний — их заказы.',
+    },
+    {
       key: 'notexists',
       title: 'Курьер без доставок',
       lab: 'ч. 2 · NOT EXISTS: «ни разу не…»',
@@ -117,6 +183,39 @@ export function levels(D) {
       },
       hint: 'В списке есть NULL (самовывоз): «id <> NULL» — неизвестно, и NOT IN не пропускает ни одной строки. Уберите NULL в подзапросе: … WHERE courier_id IS NOT NULL.',
       ok: 'NOT IN споткнулся бы о пустой courier_id. Без NULL в списке ответ совпал с NOT EXISTS.',
+    },
+    {
+      key: 'unsold',
+      title: 'Пицца без заказов',
+      lab: 'ч. 2 · NOT EXISTS для меню',
+      text: 'Какую пиццу из меню не заказали ни разу? Её уберут из меню. Только название — через NOT EXISTS.',
+      q: 'Какую пиццу ни разу не заказывали?',
+      goals: ['Столбец: name', 'NOT EXISTS (SELECT 1 FROM orders o WHERE o.pizza_id = p.id)'],
+      ask: 'SELECT p.name FROM pizza p WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.pizza_id = p.id)',
+      must: [{re: /\bnot\s+exists\b/i, msg: 'вопрос этого уровня — про NOT EXISTS.'}],
+      hint: 'FROM pizza p WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.pizza_id = p.id)',
+      ok: `Это «${nameOf(D, D.unused)}» — для неё подзапрос не нашёл ни одного заказа.`,
+    },
+    {
+      key: 'quiet',
+      title: 'Гость без заказов',
+      lab: 'ч. 2 · NOT IN без ловушки',
+      text: 'Какой гость ни разу ничего не заказал? Фамилия — через NOT IN. В этот раз подумайте: может ли в списке подзапроса оказаться NULL?',
+      q: 'Какой гость ни разу не заказывал?',
+      goals: ['Столбец: full_name', 'id NOT IN (SELECT client_id FROM orders)'],
+      ask: 'SELECT full_name FROM client WHERE id NOT IN (SELECT client_id FROM orders)',
+      must: [{re: /\bnot\s+in\s*\(/i, msg: 'вопрос этого уровня — про NOT IN.'}],
+      pred: {
+        q: 'Простой NOT IN (SELECT client_id FROM orders) здесь…',
+        choices: [
+          {k: 'ok', t: 'сработает: client_id не бывает пустым (NOT NULL)'},
+          {k: 'zero', t: 'не вернёт ни одной строки, как с курьерами'},
+          {k: 'all', t: 'вернёт всех гостей'},
+        ],
+        answer: 'ok',
+      },
+      hint: 'У orders.client_id стоит NOT NULL — значит, NULL в списке не будет.',
+      ok: 'Ловушка NOT IN — только когда в списке может быть NULL. Здесь его нет: столбец объявлен NOT NULL.',
     },
     // ═══════════════════════════════ часть 3 · один вопрос — два решения
     {
@@ -152,6 +251,31 @@ export function levels(D) {
       },
       hint: 'Соединение даёт строку на каждый заказ — гость с двумя вегетарианскими заказами повторится. SELECT DISTINCT убирает повторы.',
       ok: 'Подзапрос отвечает «кто», соединение — «кто и какой заказ»; чтобы совпало, понадобился DISTINCT.',
+    },
+    {
+      key: 'exists',
+      title: 'Курьеры с тяжёлой сумкой',
+      lab: 'ч. 3 · EXISTS: «хотя бы раз»',
+      text: `Каким курьерам хоть раз доставались заказы по ${kCour} пиццы и больше? Им выдадут сумки побольше. Имя курьера — через EXISTS.`,
+      q: `Кто из курьеров возил заказы по ${kCour} пиццы и больше?`,
+      goals: ['Столбец: name', `EXISTS (SELECT 1 FROM orders o WHERE o.courier_id = c.id AND o.qty >= ${kCour})`],
+      ask: `SELECT c.name FROM courier c WHERE EXISTS (SELECT 1 FROM orders o WHERE o.courier_id = c.id AND o.qty >= ${kCour})`,
+      must: [{re: /(^|[^t]\s)exists\s*\(/i, msg: 'вопрос этого уровня — про EXISTS (без NOT).'}, NO_JOIN],
+      hint: 'EXISTS — правда, если подзапрос нашёл хоть одну строку. Условий в подзапросе может быть несколько: … AND o.qty >= …',
+      ok: 'EXISTS без NOT отвечает «хотя бы раз»: курьер попал в ответ, как только нашёлся один подходящий заказ.',
+    },
+    {
+      key: 'corr',
+      hard: true,
+      title: 'Больше обычного',
+      lab: 'сложный · связанный подзапрос со средним',
+      text: 'Какие заказы крупнее среднего заказа той же пиццы? Номер, пицца (pizza_id) и сумма. Среднее у каждой пиццы своё: подзапрос считается для каждой строки заново.',
+      q: 'Какие заказы крупнее среднего по своей пицце?',
+      goals: ['Столбцы: id, pizza_id, amount', 'amount > (SELECT avg(amount) … WHERE pizza_id = внешний pizza_id)'],
+      ask: 'SELECT o.id, o.pizza_id, o.amount FROM orders o WHERE o.amount > (SELECT avg(o2.amount) FROM orders o2 WHERE o2.pizza_id = o.pizza_id)',
+      must: [SUB],
+      hint: 'Таблице внутри подзапроса нужен свой псевдоним: FROM orders o WHERE o.amount > (SELECT avg(o2.amount) FROM orders o2 WHERE o2.pizza_id = o.pizza_id).',
+      ok: 'Связанный подзапрос ссылается на строку внешнего запроса и пересчитывается для каждой — как NOT EXISTS с курьерами.',
     },
     // ═══════════════════════════════ контрольный
     {
