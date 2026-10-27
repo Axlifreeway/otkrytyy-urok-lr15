@@ -340,7 +340,6 @@ async function practiceRun(lab, dir) {
     window.LAB.speed = 99;
     await window.LAB.begin(seed, true);
   }, SEED);
-  if (old) await page.evaluate(() => window.LAB.oldOrder());
   const res = [];
   for (let k = 0; k < 12; k++) {
     await page.evaluate(() => window.LAB.startPractice());
