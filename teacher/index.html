@@ -89,7 +89,7 @@
 <div id="app" hidden>
 <header>
   <h1>Пульт преподавателя</h1>
-  <select id="labSel"><option value="">все ЛР</option><option value="lr13">ЛР-13 INSERT</option><option value="lr14">ЛР-14 UPDATE/DELETE</option><option value="lr15">ЛР-15 SELECT</option><option value="lr16">ЛР-16 JOIN</option></select>
+  <select id="labSel"></select>
   <select id="grpSel"><option value="">все группы</option></select>
   <span class="days"><button class="btn" id="prevDay" title="Предыдущий день">◀</button><input type="date" id="day" title="За какой день показывать"><button class="btn" id="nextDay" title="Следующий день">▶</button></span>
   <button class="btn" id="newPair" title="Показывать только события с этой минуты (ещё раз — снова весь день)">Новая пара</button>
@@ -129,20 +129,21 @@
 <div id="repView" hidden><div class="rv-bar"><b id="rvTitle"></b><span id="rvVers"></span><span style="flex:1"></span>
   <button class="btn" id="rvPrint">Печать / PDF</button><button class="btn" id="rvX">✕ Закрыть</button></div>
   <iframe id="rvFrame" sandbox="allow-same-origin allow-modals" title="Отчёт студента"></iframe></div>
+<script src="levels.js"></script>
 <script type="module">
 // подсветка SQL в журнале — тем же кодом, что в пульте студента (ключевые слова жёлтым)
 import {highlight} from '../common/sqlhl.js';
-window.sqlHL = s => highlight(String(s || ''), ['flight', 'seat', 'passenger', 'baggage', 'loyalty']).replace(/\n$/, '');
+window.sqlHL = s => highlight(String(s || ''), ['flight', 'seat', 'passenger', 'baggage', 'loyalty', 'pizza', 'courier', 'client', 'orders', 'author', 'book', 'reader', 'loan']).replace(/\n$/, '');
 </script>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-const NAMES = {
-  lr13: ['Рейс на табло', 'Ещё два рейса', 'Бизнес-класс', 'Эконом по умолчанию', 'Первый пассажир', 'Семья', 'Багаж', 'Сначала кресло', 'Ошибка в списке', 'Охота на ограничения', 'Багаж по фамилиям', 'Последние на борт'],
-  lr15: ['Весь рейс', 'Посадочная ведомость', 'Земляки', 'Тяжёлый багаж', 'Ровесники', 'Два города', 'Места у окна', 'Разгрузка по полкам', 'Скобки решают', 'Кого спросить о питании', 'Откуда летят дети', 'Пять самых тяжёлых', 'Вопрос заказчика'],
-  lr16: ['Связи базы', 'Чей чемодан', 'Куда летит ряд', 'Багаж из города', 'Скидки по картам', 'Забыли условие', 'Приоритетная выдача', 'Пустая табличка', 'Налегке', 'Перевес со скидкой'],
-  lr14: ['Детское питание', 'Остальным — стандарт', 'К окну', 'Весы врали', 'Не пролезло', 'Неявка', 'Снят с рейса', 'Программа закрыта', 'Неудаляемый рейс', 'Возврат билетов', 'Охота на ограничения', 'Последний рейс'],
-};
+// названия уровней — teacher/levels.js, его собирает tools/build.mjs из самих лаб
+const NAMES = window.LEVEL_NAMES || {};
+// лабы в фильтре и в таблице групп: номер — тема
+const LABS = {lr13: 'INSERT', lr14: 'UPDATE/DELETE', lr15: 'SELECT', lr16: 'JOIN', lr17: 'GROUP BY', lr18: 'подзапросы', lr19: 'закрепление', lr20: 'транзакции', lr21: 'изменение структуры', lr22: 'EXPLAIN', lr23: 'индексы', lr24: 'права и копия'};
+$('labSel').innerHTML = '<option value="">все ЛР</option>' + Object.entries(LABS).map(([l, t]) => `<option value="${l}">ЛР-${l.slice(2)} ${t}</option>`).join('');
+let LEVELS = {};   // число уровней в лабе — с сервера
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
 // ключ можно передать ссылкой ?key=… — запоминаем и сразу убираем из адресной строки
 const urlKey = new URLSearchParams(location.search).get('key');
@@ -164,7 +165,7 @@ const hm = t => new Date(t).toLocaleTimeString('ru-RU', {hour: '2-digit', minute
 const dhm = t => new Date(t).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
 const mins = ms => ms < 60000 ? Math.round(ms / 1000) + ' с' : Math.floor(ms / 60000) + ' мин';
 const ruErr = t => { const ls = String(t).split('\n').map(x => x.trim()).filter(Boolean); const code = (/constraint "([^"]+)"/.exec(t) || [])[1]; const ru = ls.find(l => !/^ERROR/.test(l)) || ls[0] || ''; return (code ? code + ': ' : '') + ru; };
-const total = lab => (NAMES[lab] || []).length || 12;
+const total = lab => LEVELS[lab] || (NAMES[lab] || []).length || 12;
 const short = f => { const w = String(f || '').split(/\s+/); return w[0] + (w[1] ? ' ' + w[1][0] + '.' : ''); };
 
 async function api(path) {
@@ -189,14 +190,18 @@ async function loadGates() {
     });
   } catch (e) { $('gateList').textContent = 'Нет связи с сервером'; }
 }
-async function loadGroups() { try { groupsData = (await api('/api/admin/groups')).groups || []; } catch (e) { groupsData = []; } renderGroups(); }
+async function loadGroups() { try { const r = await api('/api/admin/groups'); groupsData = r.groups || []; Object.assign(LEVELS, r.levels); } catch (e) { groupsData = []; } renderGroups(); }
 function renderGroups() {
-  $('gCards').innerHTML = groupsData.map(g => `<div class="panel gcard" style="padding:10px 12px"><h3>${esc(g.name)} <span class="mu">${g.students.filter(s => s.idx).length} студ.</span>
+  $('gCards').innerHTML = groupsData.map(g => {
+    // колонки — аэропорт всегда, остальные лабы — если в группе по ним есть прогресс
+    const labs = Object.keys(LABS).filter(l => +l.slice(2) <= 16 || g.students.some(s => s.labs && s.labs[l] != null));
+    return `<div class="panel gcard" style="padding:10px 12px"><h3>${esc(g.name)} <span class="mu">${g.students.filter(s => s.idx).length} студ.</span>
       <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
-    <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th><th>ЛР-13</th><th>ЛР-14</th><th>ЛР-15</th><th>ЛР-16</th></tr>
+    <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th>${labs.map(l => `<th>${LABN[l]}</th>`).join('')}</tr>
     ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
       <td>${s.pin ? `${pins[s.id] ? `<span class="pinv">${pins[s.id]}</span>` : `задан <button class="btn" data-show="${s.id}">показать</button>`} <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>` : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
-      ${['lr13', 'lr14', 'lr15', 'lr16'].map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
+      ${labs.map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`;
+  }).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
   $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editGroup(groupsData.find(x => x.name === b.dataset.edit)));
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
   $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { if (!confirm('Сбросить PIN? Студент придумает новый при следующем входе.')) return; await post('/api/admin/resetpin', {id: +b.dataset.pin}); delete pins[b.dataset.pin]; loadGroups(); });
@@ -206,6 +211,7 @@ async function tick() {
   try {
     const R = range(), q = new URLSearchParams({lab: $('labSel').value, since: R.since, until: R.until});
     data = await api('/api/state?' + q);
+    Object.assign(LEVELS, data.levels);
     try { reportsData = (await api(`/api/admin/reports?since=${R.since}&until=${R.until}`)).items || []; } catch (e) { if (e.message === 'key') throw e; }
     renderReports();
     render();
@@ -225,7 +231,7 @@ function render() {
   const online = R.isToday ? ps.filter(p => p.idle < 60000).length : '—', stuck = ps.filter(p => p.stuck.length).length, sub = ps.filter(p => p.submit).length;
   $('kpi').innerHTML = `<div><b>${ps.length}</b><span>студентов</span></div><div><b>${online}</b><span>активны сейчас</span></div><div><b style="color:var(--red)">${stuck}</b><span>застряли</span></div><div><b>${sub}</b><span>сдали</span></div><div><b>${new Set(reportsData.filter(r => !g || r.grp === g).map(r => r.client)).size}</b><span>прислали отчёт</span></div>`;
   // где сейчас группа и сколько ошибок на каждом уровне
-  const lab = $('labSel').value || (ps[0] && ps[0].lab) || 'lr13', N = (NAMES[lab] || []).length || 12;
+  const lab = $('labSel').value || (ps[0] && ps[0].lab) || 'lr13', N = total(lab);
   const at = Array(N).fill(0), errs = Array(N).fill(0);
   ps.filter(p => !lab || p.lab === lab).forEach(p => { if (p.lv >= 1 && p.lv <= N) { at[p.lv - 1]++; errs[p.lv - 1] += p.lvErrors; } });
   const mx = Math.max(1, ...at);
@@ -247,7 +253,7 @@ function render() {
       <td>${p.lvErrors ? `<span class="tag ${p.lvErrors >= 3 ? 'warn' : ''}">${p.lvErrors}</span>` : '0'} <span style="color:var(--mute);font-size:12px">всего ${p.errors + p.lints}</span></td>
       <td><div class="err" title="${esc(p.lastErr)}">${p.lastErr ? esc(ruErr(p.lastErr)) : ''}</div>${p.lastErrTs ? `<div style="font-size:11.5px;color:var(--mute)">${mins(now - p.lastErrTs)} назад</div>` : ''}</td>
       <td>${mins(p.onLevel)}</td>
-      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''} ${p.shots ? `<span class="tag warn">снимков экрана ${p.shots}</span>` : ''}</td>
+      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''} ${p.inserts ? `<span class="tag warn" title="Текст появился в поле без вставки и без нажатий клавиш: программа-«набиратель», расширение браузера или подсказка буфера на телефоне">без клавиатуры ${p.inserts}</span>` : ''} ${p.shots ? `<span class="tag warn">снимков экрана ${p.shots}</span>` : ''}</td>
       <td>${p.submit ? `<span class="tag ok">${String(p.submit.pts).replace('.', ',')} б. · ${p.submit.done} ур.</span>` : ''}${p.practice ? ` <span class="tag" title="Тренировка после уровней: решено заданий (без баллов)">∞ ${p.practice}</span>` : ''}${lastReport(p.client) ? ` <button class="btn" data-rep="${lastReport(p.client).id}" title="Открыть отчёт">📄</button>` : ''}</td></tr>`;
   }).join('') || '<tr><td colspan="10" style="padding:20px;color:var(--mute)">Пока никого. Студенты появятся, как только откроют лабу и введут фамилию.</td></tr>';
   if (g) {
@@ -286,7 +292,7 @@ async function showLog(client, quiet) {
       const d = e.data || {}, t = new Date(e.ts).toLocaleTimeString('ru-RU');
       if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${hl(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
       if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">${esc(d.msg)}</b><pre>${hl(d.sql)}</pre></div>`;
-      if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">вставка заблокирована</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
+      if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">${d.via === 'input' ? 'текст появился без клавиатуры' : 'вставка заблокирована'}</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
       if (e.type === 'rollback') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">не совпало — откат</b><div class="bad" style="font-size:12.5px">${esc(d.msg)}</div></div>`;
       if (e.type === 'report') return `<div class="ev"><span class="t">${t}</span><b class="ok">отправил отчёт</b>${d.pts != null ? ` · ${String(d.pts).replace('.', ',')} б., ${d.done} ур.` : ''} <button class="btn" data-rep="${d.id}">📄 открыть</button></div>`;
       if (e.type === 'away') return `<div class="ev"><span class="t">${t}</span>ушёл со вкладки на ${mins(d.ms)}</div>`;

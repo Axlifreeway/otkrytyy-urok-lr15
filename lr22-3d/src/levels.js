@@ -77,7 +77,7 @@ export function levels(D) {
       lab: 'ч. 1 · № 3 · count(*)',
       text: 'Покажите число строк таблицы book запросом.',
       q: 'Сколько строк в book?',
-      goals: ['SELECT count(*) FROM book'],
+      goals: ['Число строк book — одним запросом'],
       ask: 'SELECT count(*) FROM book',
       allow: ALLOW,
       hint: 'SELECT count(*) FROM book;',
@@ -189,7 +189,7 @@ export function levels(D) {
       lab: 'сложный · № 10–11 · соединение со справочником',
       text: `Запрос 4 — книги автора ${au.full_name}: название книги и имя автора, соединение book с author, отбор по имени автора. EXPLAIN — способы чтения обеих таблиц и способ соединения, EXPLAIN ANALYZE — время.`,
       q: 'Как СУБД читает две таблицы при соединении?',
-      goals: ['book b JOIN author a ON a.id = b.author_id', `a.full_name = '${au.full_name}'`, 'EXPLAIN и EXPLAIN ANALYZE'],
+      goals: ['Столбцы: название книги и имя автора', 'EXPLAIN и EXPLAIN ANALYZE'],
       sol: [
         `EXPLAIN SELECT b.title, a.full_name FROM book b JOIN author a ON a.id = b.author_id WHERE a.full_name = '${au.full_name}'`,
         `EXPLAIN ANALYZE SELECT b.title, a.full_name FROM book b JOIN author a ON a.id = b.author_id WHERE a.full_name = '${au.full_name}'`,

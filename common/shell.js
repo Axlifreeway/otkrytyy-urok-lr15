@@ -443,7 +443,7 @@ function protocol() {
   <div class="pr-meta"><span>Студент</span><span><input id="fio" value="${esc(P.fio || [G.fio, G.grp].filter(Boolean).join(', '))}" placeholder="Фамилия И. О., группа"></span>
     <span>Вариант</span><span>№ ${G.seed} · ${esc(cfg.variant ? cfg.variant() : 'рейс ' + cfg.flight())}</span>
     <span>Сдано</span><span>${new Date().toLocaleString('ru-RU')} · пройдено ${done} из ${L.length}${done < L.length ? ' (досрочно)' : ''}</span>
-    <span>Запусков</span><span>${P.journal.length} · ошибок записи команд: ${P.lints || 0} · уходов со вкладки: ${P.away || 0}${awayMin ? ` (≈${awayMin} мин)` : ''} · заблокировано вставок: ${P.pastes || 0}${P.shots ? ` · снимков экрана: ${P.shots}` : ''}</span></div>
+    <span>Запусков</span><span>${P.journal.length} · ошибок записи команд: ${P.lints || 0} · уходов со вкладки: ${P.away || 0}${awayMin ? ` (≈${awayMin} мин)` : ''} · заблокировано вставок: ${P.pastes || 0}${P.inserts ? ` · текста без клавиатуры: ${P.inserts}` : ''}${P.shots ? ` · снимков экрана: ${P.shots}` : ''}</span></div>
   <h3>Уровни</h3><table><tr><th>Уровень</th><th>Команды</th><th>Ответ СУБД</th><th>Промахов</th><th>Баллы</th></tr>
   ${sc.rows
     .map(({l, pts, ok}) => {
@@ -732,14 +732,22 @@ export async function boot() {
   new ResizeObserver(placeMessages).observe($('deck'));
   addEventListener('resize', placeMessages);
   placeMessages();
-  paste = guardPaste($('sql'), () => {
-    if (G && G.demo) return;
-    toast('Вставка из других мест отключена — наберите команду сами. Свои прошлые команды: Ctrl+↑');
-    if (G) {
-      G.P.pastes = (G.P.pastes || 0) + 1;
+  paste = guardPaste(
+    $('sql'),
+    () => {
+      if (G && G.demo) return;
+      toast('Вставка из других мест отключена — наберите команду сами. Свои прошлые команды: Ctrl+↑');
+      if (G) {
+        G.P.pastes = (G.P.pastes || 0) + 1;
+        save();
+      }
+    },
+    () => {
+      if (!G || G.demo) return;
+      G.P.inserts = (G.P.inserts || 0) + 1;
       save();
-    }
-  });
+    },
+  );
   watchAway(
     ms => {
       if (G && !G.demo) {

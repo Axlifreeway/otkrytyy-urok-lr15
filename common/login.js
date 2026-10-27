@@ -127,7 +127,7 @@ export function mergeP(a, b) {
     if (v && String(v).length >= String(ans[k] || '').length) ans[k] = v;
   });
   out.answers = ans;
-  ['lints', 'away', 'awayMs', 'pastes', 'cur', 'practice', 'sentAt'].forEach(k => {
+  ['lints', 'away', 'awayMs', 'pastes', 'inserts', 'cur', 'practice', 'sentAt'].forEach(k => {
     out[k] = Math.max(a[k] || 0, b[k] || 0);
   });
   out.fio = b.fio || a.fio || '';

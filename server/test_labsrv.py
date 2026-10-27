@@ -297,6 +297,15 @@ class ServerTest(unittest.TestCase):
         ev = self.call(f'/api/log?client=c1&since={t0 - 1000}&until={t0 + day}', headers=A)[1]['events']
         self.assertEqual([e['type'] for e in ev], ['level', 'run'])
 
+    def test_paste_and_insert_counted_apart(self):
+        store = self.srv.RequestHandlerClass.store
+        t0 = labsrv.now_ms() - 60000
+        store.add_event(t0, 'c2', 'lr17', 'Вставкин В.', 'ИИ-25', 5, 'paste', {'len': 40}, '')
+        store.add_event(t0 + 1, 'c2', 'lr17', 'Вставкин В.', 'ИИ-25', 5, 'paste', {'len': 40, 'via': 'input'}, '')
+        store.add_event(t0 + 2, 'c2', 'lr17', 'Вставкин В.', 'ИИ-25', 5, 'paste', {'len': 30, 'via': 'input'}, '')
+        p = self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'][0]
+        self.assertEqual((p['pastes'], p['inserts']), (1, 2))
+
     def test_gated_labs_closed_until_teacher_opens(self):
         ids = self.group()
         tok = self.login('Иванов')[1]['token']

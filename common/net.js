@@ -132,8 +132,10 @@ export function watchAway(onAway, getState) {
   setInterval(() => report('hb', {...getState(), hidden: document.hidden || !!since}), 20000);
 }
 
-// в пульт можно вставлять только то, что скопировано из него же (свои прошлые команды)
-export function guardPaste(ta, onBlock) {
+// в пульт можно вставлять только то, что скопировано из него же (свои прошлые команды);
+// текст, появившийся без вставки и без клавиш (программы-«набиратели», расширения, подсказка буфера
+// на клавиатуре телефона), не блокируется — только отмечается для преподавателя
+export function guardPaste(ta, onBlock, onInsert = () => {}) {
   const own = new Set();
   const norm = s =>
     String(s || '')
@@ -156,6 +158,17 @@ export function guardPaste(ta, onBlock) {
   ta.addEventListener('drop', e => {
     e.preventDefault();
     onBlock(0);
+  });
+  let keyAt = 0;
+  ta.addEventListener('keydown', () => (keyAt = Date.now()));
+  ta.addEventListener('beforeinput', e => {
+    if (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') return;
+    const t = e.data || '';
+    const n = norm(t);
+    // одна клавиша — один символ; длинный кусок без нажатий набран не руками
+    if (n.length <= 15 || Date.now() - keyAt < 100 || own.has(n)) return;
+    onInsert(t.length);
+    report('paste', {len: t.length, text: t.slice(0, 200), via: 'input'});
   });
   return {add: s => own.add(norm(s))};
 }
