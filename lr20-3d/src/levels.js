@@ -30,8 +30,8 @@ export function levels(D) {
   const idleName = D.CR.find(c => c.id === D.idle).name;
   const parentRef = [
     `INSERT INTO client (id, full_name, district, phone) VALUES (${guest.id}, ${lit(guest.full_name)}, ${lit(guest.district)}, NULL)`,
-    `INSERT INTO orders (id, client_id, pizza_id, courier_id, qty, amount, ordered) VALUES (${nextOrder}, ${guest.id}, ${D.fav}, NULL, 1, ${D.PZ.find(p => p.id === D.fav).price}, ${lit(today)})`,
-  ];
+    `INSERT INTO orders (id, client_id, pizza_id, courier_id, qty, amount, ordered) VALUES (${nextOrder}, ${guest.id}, ${D.fav}, NULL, 1, (SELECT price FROM pizza WHERE id = ${D.fav}), ${lit(today)})`,
+  ]; // сумма — по цене на момент уровня: к нему цены уже менялись (вегетарианские +30 ₽, обмен ценами)
   // новые уровни: заказ с опечаткой в количестве, заказ на отмену (оба — с курьером), гость без телефона,
   // гость с заказами (его удалить нельзя), курьер, сменивший транспорт, две пиццы для обмена ценами
   const withCour = O.filter(o => o.courier_id !== null && o.ordered !== lastPick);
@@ -396,7 +396,7 @@ export function levels(D) {
       hard: true,
       title: 'Новый гость и его заказ',
       lab: 'сложный · № 8 · родитель и ссылка — в одной транзакции',
-      text: `Новый гость — ${guest.full_name}, район ${guest.district}, телефона нет (id ${guest.id}) — сразу делает заказ № ${nextOrder}: «${nameOf(D, D.fav)}», 1 шт., самовывоз, ${today}. Добавьте гостя и заказ в одной транзакции, подтвердите COMMIT и покажите обе строки SELECT.`,
+      text: `Новый гость — ${guest.full_name}, район ${guest.district}, телефона нет (id ${guest.id}) — сразу делает заказ № ${nextOrder}: «${nameOf(D, D.fav)}» (id ${D.fav}), 1 шт., самовывоз, ${today}; сумма — по текущей цене этой пиццы в таблице pizza (цену можно взять подзапросом). Добавьте гостя и заказ в одной транзакции, подтвердите COMMIT и покажите обе строки SELECT.`,
       q: 'Как добавить строку и ссылку на неё одним целым?',
       goals: ['Гость и заказ — как в задании', 'SELECT обеих строк после подтверждения'],
       ref: parentRef,
