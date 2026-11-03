@@ -152,3 +152,23 @@ test('разбор: HAVING, агрегаты и подзапросы', () => {
   );
   assert.deepEqual(subqueries('x IN (SELECT a FROM t WHERE b IN (SELECT c FROM u))'), ['SELECT a FROM t WHERE b IN (SELECT c FROM u)']);
 });
+
+test('ЛР-19: часть условия в зале — отмеченный ★ объект есть и задаёт ответ', async () => {
+  for (const s of SEEDS) {
+    const D = makeData(s);
+    await load(D);
+    for (const lv of L19(D).filter(l => l.clue)) {
+      const {t, k} = lv.clue;
+      const [row] = (await db.query(`SELECT * FROM ${t} WHERE id = $1`, [k])).rows;
+      assert.ok(row, `вариант ${s}, ${lv.key}: нет строки ${t} ${k}`);
+      // значение условия — из отмеченной строки, в тексте задания его нет
+      const v = {big: row.amount, letter: row.full_name && row.full_name[0], one: row.name, district: row.district}[lv.key];
+      assert.ok(v != null && lv.ask.includes(String(v)), `вариант ${s}, ${lv.key}: ${v} не в эталоне`);
+      const shown = lv.key === 'letter' ? `«${v}` : String(v); // одна буква встречается в любом тексте — ищем её как в прежнем условии
+      assert.ok(
+        !(lv.text + lv.title + lv.q + lv.goals.join(' ') + lv.hint).includes(shown),
+        `вариант ${s}, ${lv.key}: значение видно в тексте`,
+      );
+    }
+  }
+});

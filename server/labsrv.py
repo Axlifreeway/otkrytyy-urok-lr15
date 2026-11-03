@@ -161,7 +161,7 @@ def _person(ts, client, lab, fio, grp, seed):
     return {'client': client, 'lab': lab, 'fio': fio, 'grp': grp, 'seed': seed, 'first': ts, 'last': ts,
             'lv': 1, 'lvSince': ts, 'done': [], 'pts': 0, 'runs': 0, 'errors': 0, 'lints': 0, 'lvErrors': 0,
             'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'inserts': 0, 'shots': 0, 'submit': None, 'report': None, 'practice': 0,
-            'hidden': False, 'stars': {}, 'doneN': 0}
+            'hidden': False, 'stars': {}, 'starsAt': 0, 'doneN': 0, 'trust': None, 'trustWhy': '', 'trustLv': {}}
 
 
 def _error(p, d, ts, lv, text):
@@ -190,6 +190,8 @@ def summarize(rows, now, live=True):
         lv = d.get('lv')
         if typ in ('level', 'hello', 'hb') and lv and lv != p['lv']:
             p['lv'], p['lvSince'], p['lvErrors'] = lv, ts, 0
+        if isinstance(d.get('tAll'), (int, float)) and not isinstance(d.get('tAll'), bool):   # коэффициент доверия к набору (common/trust.js)
+            p['trust'], p['trustWhy'] = d['tAll'], clip(d.get('tWhy'), 120)
         if typ == 'run':
             p['runs'] += 1
             p['lastSql'] = clip(d.get('sql'), 600)
@@ -208,6 +210,9 @@ def summarize(rows, now, live=True):
                 p['done'].append(k)
             if lv:
                 p['stars'][str(lv)] = d.get('stars', 0)
+                p['starsAt'] = ts               # проектор: при равенстве звёзд выше тот, кто набрал их раньше
+                if isinstance(d.get('trust'), (int, float)):
+                    p['trustLv'][str(lv)] = d['trust']
             p['pts'] = max(p['pts'], d.get('pts') or 0)
         elif typ == 'paste':                   # via='input' — текст появился без вставки и без клавиш
             p['inserts' if d.get('via') == 'input' else 'pastes'] += 1
@@ -228,6 +233,7 @@ def summarize(rows, now, live=True):
     out = []
     for p in people.values():
         p['doneN'] = max(p['doneN'], len(p['done']))
+        p['starsN'] = sum(int(x or 0) for x in p['stars'].values())
         p['idle'] = now - p['last']
         p['onLevel'] = now - p['lvSince']
         p['total'] = LEVELS.get(p['lab'], 12)

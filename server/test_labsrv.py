@@ -306,6 +306,16 @@ class ServerTest(unittest.TestCase):
         p = self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'][0]
         self.assertEqual((p['pastes'], p['inserts']), (1, 2))
 
+    def test_trust_and_stars_for_projector(self):
+        store = self.srv.RequestHandlerClass.store
+        t0 = labsrv.now_ms() - 60000
+        store.add_event(t0, 'c3', 'lr19', 'Звёздов З.', 'ИИ-25', 5, 'done', {'lv': 1, 'stars': 3, 'trust': 90, 'tAll': 90, 'tWhy': ''}, '')
+        store.add_event(t0 + 5, 'c3', 'lr19', 'Звёздов З.', 'ИИ-25', 5, 'done', {'lv': 2, 'stars': 2, 'trust': 40, 'tAll': 62, 'tWhy': 'line,glance'}, '')
+        store.add_event(t0 + 9, 'c3', 'lr19', 'Звёздов З.', 'ИИ-25', 5, 'hb', {'lv': 3}, '')   # пульс без доверия его не стирает
+        p = self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'][0]
+        self.assertEqual((p['starsN'], p['trust'], p['trustWhy'], p['trustLv']), (5, 62, 'line,glance', {'1': 90, '2': 40}))
+        self.assertEqual(p['starsAt'], t0 + 5)
+
     def test_gated_labs_closed_until_teacher_opens(self):
         ids = self.group()
         tok = self.login('Иванов')[1]['token']

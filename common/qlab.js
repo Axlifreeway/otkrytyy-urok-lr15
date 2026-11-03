@@ -268,6 +268,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
         if ((G.P.lv[lv.key] || {}).done && left && !lv.final) break;
       }
     } finally {
+      clue();
       G.stmtTag = '';
       cmdBar(null);
       hud();
@@ -1228,6 +1229,14 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
   }
 
   // ═════════════════════════════════════════════════════ уровни ══
+  // lv.clue {t, k, where}: часть условия не в тексте, а в сцене — объект отмечен ★, его строка видна по щелчку.
+  // На фото текста задания этой части нет: запрос, написанный по фото, берёт выдуманное значение.
+  function clue() {
+    if (!W.mark) return;
+    W.clearMarks();
+    const lv = G && G.lv != null ? L[G.lv] : null;
+    if (lv && lv.clue) W.mark(lv.clue.t, String(lv.clue.k), '★');
+  }
   function renderMission() {
     const lv = L[G.lv],
       rec = G.P.lv[lv.key] || {};
@@ -1240,6 +1249,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       <h1>${esc(lv.title)}</h1><div class="lab">${esc(lv.lab)}</div>
       <p>${esc(lv.text)}</p>
       ${lv.q ? `<div class="askq"><span>Вопрос</span>${esc(lv.q)}</div>` : ''}
+      ${lv.clue ? `<div class="cluex"><b>★</b>Часть условия — в зале: ${esc(lv.clue.where)}. Щёлкните по нему — увидите его строку.</div>` : ''}
       <ul>${lv.goals.map(g => `<li class="${rec.done ? 'done' : ''}">${esc(g)}</li>`).join('')}</ul>
       ${lv.doc ? `<div class="docw">${lv.doc}</div>` : ''}
       <div class="ncmd">${esc(ncmd)}</div>
@@ -1274,6 +1284,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     W.clearConfetti();
     W.clearLinks();
     W.build(await state(), G.seed, D.meta);
+    clue();
     await refreshCatalog();
     W.home();
     (lv.say || []).forEach(s => W.say(s.id, s.t));
