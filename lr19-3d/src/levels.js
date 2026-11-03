@@ -26,6 +26,10 @@ export function levels(D) {
     perDist.set(d, (perDist.get(d) || 0) + 1);
   });
   const dist = [...perDist].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+  // часть условия — в зале (★): по фото текста задания значение не узнать
+  const bigO = O.find(o => o.amount === thr),
+    letterC = D.CL.find(c => c.full_name[0] === letter),
+    distC = D.CL.find(c => c.district === dist && O.some(o => o.client_id === c.id)) || D.CL.find(c => c.district === dist);
   const L = (key, title, lab, text, q, goals, ask, more = {}) => ({key, title, lab, text, q, goals, ask, ...more});
   return [
     // ═══════════════════════════════ часть 1 · отбор и сортировка
@@ -53,21 +57,28 @@ export function levels(D) {
       'big',
       'Крупные заказы',
       'ч. 1 · № 3 · больше порога, по убыванию',
-      `Заказы дороже ${thr} ₽: номер и сумма, от больших к меньшим.`,
-      `Какие заказы дороже ${thr} ₽?`,
-      ['Столбцы: id, amount', 'По убыванию суммы'],
+      'Заказы дороже, чем заказ, отмеченный ★ на столе выдачи: номер и сумма, от больших к меньшим.',
+      'Какие заказы дороже отмеченного?',
+      ['Столбцы: id, amount', 'Дороже отмеченного заказа', 'По убыванию суммы'],
       `SELECT id, amount FROM orders WHERE amount > ${thr} ORDER BY amount DESC`,
-      {order: ['amount'], hint: 'WHERE amount > … ORDER BY amount DESC'},
+      {
+        order: ['amount'],
+        clue: {t: 'orders', k: bigO.id, where: 'коробка с ★ на столе выдачи'},
+        hint: 'Сумму отмеченного заказа посмотрите щелчком по коробке; дальше — WHERE amount > … ORDER BY amount DESC',
+      },
     ),
     L(
       'letter',
-      `Гости на «${letter}»`,
+      'Фамилии на ту же букву',
       'ч. 1 · № 4 · LIKE',
-      `Найдите гостей, чья фамилия начинается на «${letter}»: номер и фамилия.`,
-      `У кого фамилия на «${letter}»?`,
-      ['Столбцы: id, full_name'],
+      'Найдите гостей, чья фамилия начинается на ту же букву, что у гостя с ★: номер и фамилия.',
+      'У кого фамилия на ту же букву?',
+      ['Столбцы: id, full_name', 'Гость с ★ — тоже в ответе'],
       `SELECT id, full_name FROM client WHERE full_name LIKE ${lit(letter + '%')}`,
-      {hint: `LIKE '${letter}%' — буква, затем что угодно.`},
+      {
+        clue: {t: 'client', k: letterC.id, where: 'гость с ★ за столиком'},
+        hint: "LIKE 'Б%' — буква, затем что угодно. Букву возьмите у гостя с ★.",
+      },
     ),
     L(
       'nophone',
@@ -92,13 +103,13 @@ export function levels(D) {
     ),
     L(
       'one',
-      `Только «${pz}»`,
+      'Только отмеченная',
       'ч. 2 · № 7 · то же для одной позиции',
-      `То же, но только заказы пиццы «${pz}».`,
-      `Какие заказы пиццы «${pz}»?`,
-      ['Столбцы: id, name, qty'],
+      'То же, но только заказы пиццы, отмеченной ★ на витрине.',
+      'Какие заказы отмеченной пиццы?',
+      ['Столбцы: id, name, qty', 'Только пицца с ★'],
       `SELECT o.id, p.name, o.qty ${POJ} WHERE p.name = ${lit(pz)}`,
-      {minTables: 2, hint: 'К соединению добавьте WHERE p.name = …'},
+      {minTables: 2, clue: {t: 'pizza', k: D.fav, where: 'пицца с ★ на витрине'}, hint: 'К соединению добавьте WHERE p.name = …'},
     ),
     L(
       'total',
@@ -220,13 +231,17 @@ export function levels(D) {
     ),
     L(
       'district',
-      `Заказы района ${dist}`,
+      'Заказы соседей',
       'ч. 4 · доп. 5 · соединение с условием',
-      `Заказы гостей из района ${dist}: номер заказа, фамилия гостя и сумма.`,
-      `Что заказывали в районе ${dist}?`,
-      ['Столбцы: id, full_name, amount'],
+      'Заказы гостей из того же района, где живёт гость с ★: номер заказа, фамилия гостя и сумма.',
+      'Что заказывали в районе отмеченного гостя?',
+      ['Столбцы: id, full_name, amount', 'Район — как у гостя с ★'],
       `SELECT o.id, c.full_name, o.amount FROM orders o JOIN client c ON c.id = o.client_id WHERE c.district = ${lit(dist)}`,
-      {minTables: 2, hint: 'FROM orders o JOIN client c ON c.id = o.client_id WHERE c.district = …'},
+      {
+        minTables: 2,
+        clue: {t: 'client', k: distC.id, where: 'гость с ★ за столиком'},
+        hint: 'FROM orders o JOIN client c ON c.id = o.client_id WHERE c.district = …',
+      },
     ),
     L(
       'percour',

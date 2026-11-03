@@ -696,6 +696,12 @@ export function createEngine(stage, o) {
         chips.delete(key);
       }
     });
+    marks.forEach((c, key) => {
+      if (inside(c, obj)) {
+        drop(c);
+        marks.delete(key);
+      }
+    });
     if (card && inside(card, obj)) hideCard();
     obj.traverse(x => {
       if (x.isCSS2DObject) x.element.remove();
@@ -712,6 +718,27 @@ export function createEngine(stage, o) {
   function clearChips() {
     chips.forEach(drop);
     chips.clear();
+  }
+  // метка-подсказка (★): часть условия, которой нет в тексте задания, — её не стирают ни запуск, ни метки строк
+  const marks = new Map();
+  function mark(t, k, text) {
+    const old = marks.get(keyOf(t, k));
+    if (old) drop(old);
+    const obj = objOf(t, k);
+    if (!obj) return;
+    const wrap = document.createElement('div'),
+      el = document.createElement('div');
+    wrap.appendChild(el);
+    el.className = 'chip clue';
+    el.textContent = text;
+    const c = new CSS2DObject(wrap);
+    c.position.set(0, chipH(t, obj) + 0.42, 0);
+    obj.add(c);
+    marks.set(keyOf(t, k), c);
+  }
+  function clearMarks() {
+    marks.forEach(drop);
+    marks.clear();
   }
   // связи соединения (JOIN): стержень от одной строки к другой — видно, какие пары собрал запрос
   const linksG = new THREE.Group();
@@ -1081,6 +1108,8 @@ export function createEngine(stage, o) {
     chip,
     removeChip,
     clearChips,
+    mark,
+    clearMarks,
     fadeNo,
     showCard,
     hideCard,

@@ -11,6 +11,7 @@ import {attachHighlight, highlight} from './sqlhl.js';
 import {snapshotHtml, sendReport} from './report.js';
 import {listenRobot, robotSay} from './robotsay.js';
 import {sqlRef} from './sqlref.js';
+import {watchTyping, scoreLab} from './trust.js';
 
 export let db = null,
   D = null,
@@ -21,7 +22,8 @@ export const setRunning = v => {
   running = v;
 };
 let cfg = null,
-  W = null;
+  W = null,
+  T = {level() {}, away() {}, flag() {}, ran() {}, finish: () => null}; // коэффициент доверия к набору (common/trust.js)
 const isErr = j => /^ERROR|ошибка/.test(j.o);
 
 /* cfg:
@@ -51,6 +53,7 @@ export function initShell(c) {
   c.startLevel = async i => {
     $('side').classList.remove('min');
     const r = await start(i);
+    if (G && L[i] && !(G.P.lv[L[i].key] || {}).done) T.level(L[i].key);
     fitScene();
     return r;
   };
@@ -77,6 +80,7 @@ const runFromUI = () => {
     $('side').classList.add('min');
     fitScene();
   }
+  T.ran();
   cfg.run();
 };
 
@@ -180,6 +184,11 @@ export const save = () => {
     /* без хранилища */
   }
   push(G.P);
+};
+// доверие по всей лабе — для пульта преподавателя (tAll — 0–100, tWhy — коды признаков)
+const trustAll = () => {
+  const t = scoreLab(L.filter(l => !l.practice).map(l => G.P.lv[l.key]));
+  return t ? {tAll: t.s, tWhy: t.why.join(',')} : {};
 };
 export const recOf = lv => (G.P.lv[lv.key] = G.P.lv[lv.key] || {runs: 0, fails: 0});
 const doneN = () => L.filter(l => !l.practice && (G.P.lv[l.key] || {}).done).length;
@@ -296,8 +305,18 @@ export async function success(lv, rec) {
   if (lv.practice) return practiceDone(lv, rec);
   rec.done = true;
   rec.at = new Date().toISOString();
+  const tr = T.finish();
+  if (tr) Object.assign(rec, {tr: tr.s, tw: tr.why.join(','), tn: tr.n});
   setTimeout(() => push(G.P, true), 0);
-  report('done', {lv: G.lv + 1, key: lv.key, fails: rec.fails || 0, stars: starsOf(rec), pts: score().sum});
+  report('done', {
+    lv: G.lv + 1,
+    key: lv.key,
+    fails: rec.fails || 0,
+    stars: starsOf(rec),
+    pts: score().sum,
+    trust: tr ? tr.s : null,
+    ...trustAll(),
+  });
   // в протокол — последние команды уровня; ошибки — только там, где отказ СУБД и был целью
   const keepErr = ['custom', 'error', 'tx'].includes(lv.check); // отказ СУБД здесь — часть решения
   const js = G.P.journal.filter(j => j.lv === lv.key && (keepErr || !isErr(j))).slice(lv.check === 'tx' ? -8 : -4);
@@ -638,13 +657,14 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
     hist: [],
   };
   setCtx({lab: cfg.lab, fio, grp, seed, client: sess && sess.sid ? 's' + sess.sid : clientId(), demo, token: (sess && sess.token) || ''});
+  watermark();
   if (!demo && cfg.added) {
     // порядок уровней выбирается один раз: есть пройденные прежние уровни — лаба начата до добавления новых
     if (!G.P.order) G.P.order = Object.entries(G.P.lv).some(([k, r]) => r.done && !cfg.added.includes(k)) ? 'old' : 'new';
     if (G.P.order === 'old') oldOrder();
   }
   if (!demo) credit(G.P);
-  report('hello', {done: doneN(), pts: score().sum});
+  report('hello', {done: doneN(), pts: score().sum, ...trustAll()});
   if (server || P) save();
   // продолжить с первого непройденного открытого уровня
   let i = Math.min(demo ? 0 : G.P.cur || 0, L.length - 1);
@@ -654,6 +674,18 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
   }
   while (i > 0 && !unlocked(i)) i--;
   await cfg.startLevel(i);
+}
+
+// водяной знак на карточке задания: чьё это задание, видно на любом фото экрана — даже обрезанном
+function watermark() {
+  const w = String(G.fio || G.P.fio || '')
+      .split(/\s+/)
+      .filter(Boolean),
+    who = w.length ? w[0] + (w[1] ? ' ' + w[1][0] + '.' : '') : '';
+  const text = G.demo ? 'ДЕМО' : [who, G.grp, 'вар. ' + G.seed].filter(Boolean).join(' · ');
+  const x = text.replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="250" height="120"><text x="125" y="66" text-anchor="middle" transform="rotate(-22 125 60)" font-family="Rubik,Arial,sans-serif" font-size="14" font-weight="700" fill="#22252b" fill-opacity=".1">${x}</text></svg>`;
+  $('mission').style.backgroundImage = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
 
 // ═════════════════════════════ пульт: подсветка, место ошибки, сообщения над ним ══
@@ -728,6 +760,7 @@ export async function boot() {
     } else histKey(e);
   });
   hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
+  T = watchTyping($('sql'));
   listenRobot(() => G && G.sess && G.sess.token); // объявления преподавателя
   new ResizeObserver(placeMessages).observe($('deck'));
   addEventListener('resize', placeMessages);
@@ -739,12 +772,14 @@ export async function boot() {
       toast('Вставка из других мест отключена — наберите команду сами. Свои прошлые команды: Ctrl+↑');
       if (G) {
         G.P.pastes = (G.P.pastes || 0) + 1;
+        T.flag('paste');
         save();
       }
     },
     () => {
       if (!G || G.demo) return;
       G.P.inserts = (G.P.inserts || 0) + 1;
+      T.flag('ins');
       save();
     },
   );
@@ -753,6 +788,7 @@ export async function boot() {
       if (G && !G.demo) {
         G.P.away = (G.P.away || 0) + 1;
         G.P.awayMs = (G.P.awayMs || 0) + ms;
+        T.away(ms);
         save();
       }
     },
@@ -764,6 +800,7 @@ export async function boot() {
             done: doneN(),
             pts: score().sum,
             fails: (G.P.lv[(L[G.lv] || {}).key] || {}).fails || 0,
+            ...trustAll(),
           }
         : {},
   );
@@ -834,6 +871,9 @@ export async function boot() {
     oldOrder,
     get D() {
       return D;
+    },
+    get trust() {
+      return T;
     },
   };
   startScreen();
