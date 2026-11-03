@@ -45,6 +45,57 @@ export function levels(D) {
   const pool = D.PZ.filter(p => p.id !== pk.id && p.id !== D.unused);
   const sa = pool[0],
     sb = pool.find(p => cur(p) !== cur(sa));
+  // ч. 3 (доп.): у каждого уровня — свои строки, которые не трогают ни прежние уровни, ни контрольный
+  const pickO = o => o.courier_id === null && o.ordered === lastPick; // самовывозы контрольного
+  const CRs = D.CR.filter(c => c.id !== D.idle);
+  const nOf = id => O.filter(o => o.courier_id === id && o.id !== cancel.id).length;
+  const sick = [...CRs].sort((a, b) => nOf(b.id) - nOf(a.id))[0],
+    heir = CRs.find(c => c.id !== sick.id && nOf(c.id) > 0) || CRs.find(c => c.id !== sick.id);
+  const raiseP = D.PZ.find(p => ![D.fav, D.unused, pk.id, sa.id, sb.id, pr.id].includes(p.id)) || D.PZ.find(p => p.id !== D.unused);
+  const guests = D.CL.filter(c => c.id !== D.quiet && c.id !== busyGuest.id && O.some(o => o.client_id === c.id));
+  const leaver = guests.find(c => !O.some(o => o.client_id === c.id && (pickO(o) || o.id === fix.id || o.id === cancel.id)));
+  const repeater = guests.find(c => c.id !== leaver.id && O.some(o => o.client_id === c.id && o.id !== cancel.id));
+  const mover = D.CL.find(c => c.id !== D.quiet && ![leaver.id, repeater.id].includes(c.id));
+  const nb = D.CL.find(c => c.id !== D.quiet && c.id !== leaver.id && c.district !== mover.district) || D.CL.find(c => c.id !== mover.id);
+  const dropP = D.PZ.find(
+    p =>
+      ![D.fav, D.unused, raiseP.id].includes(p.id) &&
+      O.some(o => o.pizza_id === p.id && o.client_id !== leaver.id && o.id !== cancel.id) &&
+      !O.some(o => o.pizza_id === p.id && pickO(o)),
+  );
+  // верно: изменения — в транзакции, подтверждены COMMIT, база — как у эталона; aim — перед этой командой SELECT с тем же WHERE
+  const commitCheck = aim => c => {
+    const T = c.trail;
+    const ch = T.filter(x => ['UPDATE', 'DELETE', 'INSERT'].includes(x.kind) && !x.code);
+    if (ch.some(x => !x.tx)) return {fail: 'Изменение выполнено без транзакции. Начните с BEGIN.'};
+    if (c.wrong.length && !c.tx) return {fail: 'Данные изменились не так, как в задании.'};
+    const cm = T.findIndex(x => x.kind === 'COMMIT' && x.tag === 'COMMIT');
+    if (cm < 0) return ch.length ? {wait: 'Изменения в транзакции. Проверьте их SELECT и подтвердите COMMIT.'} : null;
+    if (!c.atTarget) return {fail: 'После COMMIT данные не такие, как в задании.'};
+    if (aim) {
+      const u = T.findIndex(x => x.kind === aim && !x.code);
+      if (!T.slice(0, u).some(x => x.kind === 'SELECT' && !x.code && x.where && x.where === T[u].where))
+        return {fail: `Перед ${aim} не было SELECT с тем же условием WHERE.`};
+    }
+    return {ok: true, note: ['BEGIN', ...ch.map(x => x.tag), 'COMMIT'].join(' · ')};
+  };
+  const X = (key, title, lab, text, q, goals, ref, tables, hint, ok, more = {}) => ({
+    key,
+    title,
+    lab,
+    text,
+    q,
+    goals,
+    ref,
+    sol: ['BEGIN', ...(more.pre || []), ...ref, 'COMMIT'],
+    tables,
+    check: 'tx',
+    allow: ALLOW,
+    verify: commitCheck(more.aim),
+    hint,
+    ok,
+    ...more,
+  });
   const insTwo = `INSERT INTO pizza (id, name, price, veg) VALUES (${newId}, ${lit(n1[0])}, ${n1[1]}, ${n1[2]}), (${newId + 1}, ${lit(n2[0])}, ${n2[1]}, ${n2[2]})`;
   return [
     // ═══════════════════════════════ часть 1 · повторение
@@ -461,6 +512,141 @@ export function levels(D) {
       hint: "INSERT INTO pizza (id, name) VALUES (…, 'Ошибка'); — цены нет, NOT NULL откажет.",
       ok: 'После ошибки транзакция «всё или ничего» выбрала «ничего»: отменено и верное изменение.',
     },
+    // ═══════════════════════════════ часть 3 · ещё транзакции (условие — частью в зале, ★)
+    X(
+      'raise',
+      'Подорожание по отметке',
+      'ч. 3 · № 1 · вычисление в SET',
+      'Пицца, отмеченная ★ на витрине, дорожает на 10 % (округлить до рубля). В транзакции, с COMMIT.',
+      'Как поднять цену на процент?',
+      ['Цена пиццы с ★ — на 10 % больше, округлена', 'BEGIN … COMMIT'],
+      [`UPDATE pizza SET price = round(price * 1.1) WHERE id = ${raiseP.id}`],
+      ['pizza'],
+      'SET price = round(price * 1.1) — новое значение считается из старого.',
+      'Новое значение вычислено из старого прямо в SET.',
+      {clue: {t: 'pizza', k: raiseP.id, where: 'пицца с ★ на витрине'}},
+    ),
+    X(
+      'sick',
+      'Курьер заболел',
+      'ч. 3 · № 2 · все строки по условию',
+      `Курьер, отмеченный ★ у двери, заболел. Все его заказы передайте курьеру ${heir.name} (id ${heir.id}). Сначала SELECT этих заказов, затем UPDATE с тем же условием — в транзакции, с COMMIT.`,
+      'Как передать все заказы одного курьера другому?',
+      ['SELECT заказов курьера с ★ — до UPDATE', 'UPDATE с тем же условием', 'COMMIT'],
+      [`UPDATE orders SET courier_id = ${heir.id} WHERE courier_id = ${sick.id}`],
+      ['orders'],
+      'WHERE courier_id = … — номер курьера посмотрите щелчком по нему.',
+      'Условие одно и то же — SELECT показал ровно то, что изменил UPDATE.',
+      {
+        aim: 'UPDATE',
+        pre: [`SELECT id, courier_id FROM orders WHERE courier_id = ${sick.id}`],
+        clue: {t: 'courier', k: sick.id, where: 'курьер с ★ у двери'},
+      },
+    ),
+    X(
+      'repeat',
+      'Повторите мой заказ',
+      'ч. 3 · № 3 · INSERT … SELECT',
+      `Гость с ★ за столиком просит повторить свой последний заказ (с самым большим номером): новый заказ № ${nextOrder + 1}, та же пицца, количество, сумма и курьер, дата ${today}. Одной командой INSERT … SELECT, в транзакции, с COMMIT.`,
+      'Как вставить строку, взяв значения из другой строки?',
+      ['Заказ № ' + (nextOrder + 1) + ' — копия последнего заказа гостя с ★', 'Одна команда INSERT … SELECT', 'COMMIT'],
+      [
+        `INSERT INTO orders (id, client_id, pizza_id, courier_id, qty, amount, ordered) SELECT ${nextOrder + 1}, client_id, pizza_id, courier_id, qty, amount, ${lit(today)} FROM orders WHERE id = (SELECT max(id) FROM orders WHERE client_id = ${repeater.id})`,
+      ],
+      ['orders'],
+      `INSERT INTO orders (…) SELECT ${nextOrder + 1}, client_id, … FROM orders WHERE id = (SELECT max(id) …);`,
+      'INSERT … SELECT берёт значения прямо из базы — переписывать их руками не нужно.',
+      {
+        clue: {t: 'client', k: repeater.id, where: 'гость с ★ за столиком'},
+      },
+    ),
+    X(
+      'leave',
+      'Гость уходит насовсем',
+      'ч. 3 · № 4 · ссылки, затем родитель',
+      'Гость с ★ за столиком просит удалить все его данные — и заказы, и его самого. Сделайте это одной транзакцией. Подумайте, что удалять первым: внешний ключ не даст оставить заказы без гостя.',
+      'В каком порядке удалять родителя и ссылки на него?',
+      ['Заказы гостя с ★ удалены', 'Сам гость удалён', 'Всё — одной транзакцией, COMMIT'],
+      [`DELETE FROM orders WHERE client_id = ${leaver.id}`, `DELETE FROM client WHERE id = ${leaver.id}`],
+      ['orders', 'client'],
+      'Сначала DELETE FROM orders WHERE client_id = …, потом DELETE FROM client WHERE id = ….',
+      'Сначала ссылки, потом родитель — и всё одним целым.',
+      {clue: {t: 'client', k: leaver.id, where: 'гость с ★ за столиком'}},
+    ),
+    X(
+      'cheapup',
+      'Дешевле среднего',
+      'ч. 3 · № 5 · условие с подзапросом',
+      'Все пиццы, которые дешевле средней цены меню, дорожают на 20 ₽. Сначала SELECT с этим условием (среднее — подзапросом), затем UPDATE с тем же условием — в транзакции, с COMMIT.',
+      'Сколько пицц дешевле среднего — и все ли они подорожали?',
+      ['SELECT с подзапросом — до UPDATE', 'UPDATE с тем же условием', 'COMMIT'],
+      ['UPDATE pizza SET price = price + 20 WHERE price < (SELECT avg(price) FROM pizza)'],
+      ['pizza'],
+      'WHERE price < (SELECT avg(price) FROM pizza) — одинаково в SELECT и в UPDATE.',
+      'Условие с подзапросом работает в UPDATE так же, как в SELECT.',
+      {aim: 'UPDATE', pre: ['SELECT name, price FROM pizza WHERE price < (SELECT avg(price) FROM pizza)']},
+    ),
+    X(
+      'late',
+      'Опоздал — скидка',
+      'ч. 3 · № 6 · вычисление по условию',
+      'Курьер с ★ у двери опаздывал: по всем его заказам сумма снижается на 10 % (округлить до рубля). Перед UPDATE посчитайте общую выручку sum(amount), после — ещё раз, и только тогда COMMIT.',
+      'Насколько уменьшилась выручка?',
+      ['Суммы заказов курьера с ★ — на 10 % меньше', 'sum(amount) до и после', 'COMMIT'],
+      [`UPDATE orders SET amount = round(amount * 0.9) WHERE courier_id = ${heir.id}`],
+      ['orders'],
+      'SET amount = round(amount * 0.9) WHERE courier_id = …',
+      'Выручку до и после видно до COMMIT — ошибку ещё можно было бы откатить.',
+      {
+        sol: [
+          'BEGIN',
+          'SELECT sum(amount) FROM orders',
+          `UPDATE orders SET amount = round(amount * 0.9) WHERE courier_id = ${heir.id}`,
+          'SELECT sum(amount) FROM orders',
+          'COMMIT',
+        ],
+        clue: {t: 'courier', k: heir.id, where: 'курьер с ★ у двери'},
+        verify: c => {
+          const r = commitCheck()(c);
+          if (!r || !r.ok) return r;
+          const T = c.trail,
+            u = T.findIndex(x => x.kind === 'UPDATE' && !x.code);
+          const sums = i => T.slice(...i).some(x => x.kind === 'SELECT' && !x.code && /sum\s*\(\s*amount\s*\)/i.test(x.sql));
+          return sums([0, u]) && sums([u + 1]) ? r : {fail: 'Нужна выручка sum(amount) и до UPDATE, и после него (до COMMIT).'};
+        },
+      },
+    ),
+    X(
+      'move',
+      'Переезд',
+      'ч. 3 · № 7 · значение из другой строки',
+      `Гость с ★ за столиком переехал — теперь он живёт в том же районе, что и ${nb.full_name} (id ${nb.id}). Обновите район одной командой (район возьмите подзапросом), в транзакции, с COMMIT.`,
+      'Как взять значение для SET из другой строки?',
+      ['Район гостя с ★ — как у ' + nb.full_name, 'COMMIT'],
+      [`UPDATE client SET district = (SELECT district FROM client WHERE id = ${nb.id}) WHERE id = ${mover.id}`],
+      ['client'],
+      'SET district = (SELECT district FROM client WHERE id = …) WHERE id = …',
+      'Подзапрос в SET подставил значение из другой строки.',
+      {clue: {t: 'client', k: mover.id, where: 'гость с ★ за столиком'}},
+    ),
+    X(
+      'dropmenu',
+      'Снять с продажи',
+      'ч. 3 · № 8 · две таблицы — одно целое',
+      'Пицца с ★ на витрине снимается с продажи: её заказы отменяются, а сама она убирается из меню. Перед удалением заказов покажите их SELECT с тем же условием. Всё — одной транзакцией.',
+      'Как убрать пиццу, на которую ссылаются заказы?',
+      ['SELECT заказов этой пиццы — до DELETE', 'Заказы и пицца удалены', 'COMMIT'],
+      [`DELETE FROM orders WHERE pizza_id = ${dropP.id}`, `DELETE FROM pizza WHERE id = ${dropP.id}`],
+      ['orders', 'pizza'],
+      'SELECT … WHERE pizza_id = …; DELETE FROM orders WHERE pizza_id = …; DELETE FROM pizza WHERE id = …;',
+      'Ссылки, затем родитель — одной транзакцией: меню и заказы согласованы.',
+      {
+        aim: 'DELETE',
+        hard: true,
+        pre: [`SELECT id, pizza_id FROM orders WHERE pizza_id = ${dropP.id}`],
+        clue: {t: 'pizza', k: dropP.id, where: 'пицца с ★ на витрине'},
+      },
+    ),
     // ═══════════════════════════════ контрольный
     {
       key: 'final',
