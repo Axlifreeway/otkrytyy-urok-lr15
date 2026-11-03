@@ -5,6 +5,7 @@
 import {build} from 'esbuild';
 import {readFileSync, writeFileSync, existsSync} from 'node:fs';
 import {join, dirname} from 'node:path';
+import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,6 +40,23 @@ for (const lab of LABS) {
     if (!same) stale++;
     console.log(`${lab}/game.js: ${same ? 'актуален' : 'УСТАРЕЛ — выполните npm run build'}`);
   } else console.log(`${lab}/game.js собран`);
+  // версия в адресе game.js и стилей: после выкладки браузер берёт новый файл по обычному F5, а не из кэша
+  const ver = buf => createHash('sha256').update(buf).digest('hex').slice(0, 10);
+  const page = join(ROOT, lab, 'index.html'),
+    html = readFileSync(page, 'utf8');
+  const js = check ? r.outputFiles[0].contents : readFileSync(outfile);
+  const next = html
+    .replace(/src="game\.js(\?v=\w+)?"/, `src="game.js?v=${ver(js)}"`)
+    .replace(
+      /href="\.\.\/common\/lab3d\.css(\?v=\w+)?"/,
+      `href="../common/lab3d.css?v=${ver(readFileSync(join(ROOT, 'common/lab3d.css')))}"`,
+    );
+  if (check) {
+    if (next !== html) {
+      stale++;
+      console.log(`${lab}/index.html: версия файлов УСТАРЕЛА — выполните npm run build`);
+    }
+  } else if (next !== html) writeFileSync(page, next);
 }
 
 // названия уровней для пульта: у части уровней в названии — данные варианта («Земляки из города Омск»);
