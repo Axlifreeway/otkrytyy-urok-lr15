@@ -645,11 +645,14 @@ export function createEngine(stage, o) {
 
   // ═══════════════════════════════════════ метки, карточки, реплики ══
   // какой объект сцены отвечает строке (t, k) и на какой высоте над ним подпись — задаёт сцена лабы
+  // markAt(t, obj) — где у объекта звезда-подсказка [x, y, z]; по умолчанию — над подписью строки
   let objOf = () => null,
-    chipH = () => 0.5;
-  const resolve = (fn, h) => {
+    chipH = () => 0.5,
+    markAt = null;
+  const resolve = (fn, h, at = null) => {
     objOf = fn;
     chipH = h;
+    markAt = at;
   };
   function sweepLabels() {
     const live = new Set();
@@ -698,7 +701,7 @@ export function createEngine(stage, o) {
     });
     marks.forEach((c, key) => {
       if (inside(c, obj)) {
-        drop(c);
+        dropMark(c);
         marks.delete(key);
       }
     });
@@ -719,11 +722,35 @@ export function createEngine(stage, o) {
     chips.forEach(drop);
     chips.clear();
   }
-  // метка-подсказка (★): часть условия, которой нет в тексте задания, — её не стирают ни запуск, ни метки строк
+  // метка-подсказка (★): часть условия, которой нет в тексте задания, — её не стирают ни запуск, ни метки строк.
+  // Курьеры стоят тесно, заказы лежат стопкой — по одной звезде сверху не понять, кто имеется в виду. Поэтому
+  // сам объект подсвечивается жёлтым, а щелчок по звезде показывает строку именно этого объекта.
   const marks = new Map();
+  const GLOW = new THREE.Color(0xff9d00);
+  function glow(obj) {
+    let g = obj;
+    const hasMesh = x => {
+      let m = false;
+      x.traverse(y => (m = m || y.isMesh));
+      return m;
+    };
+    while (g.parent && !hasMesh(g)) g = g.parent; // метка висит на «якоре» над головой — светиться должен весь объект
+    const was = [];
+    g.traverse(m => {
+      if (!m.isMesh || !m.material || !m.material.emissive || !m.userData.pick) return;
+      if (!m.userData.ownMat) {
+        m.material = m.material.clone(); // материал бывает общим у нескольких объектов
+        m.userData.ownMat = true;
+      }
+      was.push([m.material, m.material.emissive.clone(), m.material.emissiveIntensity]);
+      m.material.emissive.copy(GLOW);
+      m.material.emissiveIntensity = 0.6;
+    });
+    return () => was.forEach(([mt, e, i]) => (mt.emissive.copy(e), (mt.emissiveIntensity = i)));
+  }
   function mark(t, k, text) {
     const old = marks.get(keyOf(t, k));
-    if (old) drop(old);
+    if (old) dropMark(old);
     const obj = objOf(t, k);
     if (!obj) return;
     const wrap = document.createElement('div'),
@@ -731,13 +758,25 @@ export function createEngine(stage, o) {
     wrap.appendChild(el);
     el.className = 'chip clue';
     el.textContent = text;
+    el.title = 'Щёлкните — покажу строку';
+    el.addEventListener('pointerdown', e => e.stopPropagation());
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (hooks.pick) hooks.pick({t, k: isNaN(+k) ? k : +k});
+    });
     const c = new CSS2DObject(wrap);
-    c.position.set(0, chipH(t, obj) + 0.42, 0);
+    const at = (markAt && markAt(t, obj)) || [0, chipH(t, obj) + 0.42, 0];
+    c.position.set(at[0], at[1], at[2]);
     obj.add(c);
+    c.unglow = glow(obj);
     marks.set(keyOf(t, k), c);
   }
+  function dropMark(c) {
+    if (c.unglow) c.unglow();
+    drop(c);
+  }
   function clearMarks() {
-    marks.forEach(drop);
+    marks.forEach(dropMark);
     marks.clear();
   }
   // связи соединения (JOIN): стержень от одной строки к другой — видно, какие пары собрал запрос

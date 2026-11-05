@@ -8,6 +8,7 @@ import {tmpdir} from 'node:os';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
+import {jobsOf} from './e2e-groups.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -22,7 +23,11 @@ const PORT = 8000 + Math.floor(Math.random() * 900);
 const BASE = `http://127.0.0.1:${PORT}`;
 const KEY = 'e2e-key';
 const SEED = +(process.env.SEED || 7);
-const only = process.argv.slice(2);
+// --group pizza — одна группа из tests/e2e-groups.mjs (в CI группы идут параллельно)
+const argv = process.argv.slice(2),
+  gi = argv.indexOf('--group');
+const GROUP = gi >= 0 ? argv[gi + 1] : process.env.E2E_GROUP || '';
+let only = gi >= 0 ? argv.filter((a, i) => i !== gi && i !== gi + 1) : argv;
 const SHOTS = process.env.SHOTS || ''; // папка для снимков сцены (необязательно)
 if (SHOTS) mkdirSync(SHOTS, {recursive: true});
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -544,6 +549,7 @@ const jobs = {
   teacher: () =>
     plain('teacher', `/teacher/index.html?key=${KEY}`, () => document.getElementById('app') && !document.getElementById('app').hidden),
 };
+if (GROUP) only = jobsOf(GROUP, Object.keys(jobs));
 try {
   for (const [k, f] of Object.entries(jobs))
     if ((!only.length && !k.startsWith('old-')) || only.includes(k) || (only.includes('old') && k.startsWith('old-'))) {
@@ -556,7 +562,7 @@ try {
   srv.kill();
 }
 mkdirSync(join(ROOT, 'tests/out'), {recursive: true});
-writeFileSync(join(ROOT, 'tests/out/e2e.json'), JSON.stringify(out, null, 1));
+writeFileSync(join(ROOT, `tests/out/e2e${GROUP ? '-' + GROUP : ''}.json`), JSON.stringify(out, null, 1));
 for (const [lab, o] of Object.entries(out))
   if (o.levels) console.log(lab, o.levels.map(l => `${l.key ?? l.i + 1}:${l.skipped ? 'skip' : l.done ? 'ok' : 'нет'}`).join(' '));
 if (fails.length) {

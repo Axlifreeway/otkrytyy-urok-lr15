@@ -536,7 +536,8 @@ code {
   background: var(--sun);
   color: var(--ink);
   font-size: 17px;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   animation: clue 1.6s ease-in-out infinite;
 }
 @keyframes clue {
