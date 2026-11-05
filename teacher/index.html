@@ -37,6 +37,13 @@
   .dot.on { background: var(--green) } .dot.off { background: #c9c3b3 } .dot.hid { background: var(--sun) }
   .lvl { display: flex; gap: 2px } .lvl i { width: 13px; height: 16px; border: 1.5px solid var(--ink); border-radius: 2px; background: #fff }
   .lvl i.d { background: var(--green) } .lvl i.c { background: var(--sun) }
+  #rows .lvl i { cursor: help } #rows .lvl i:hover { outline: 2px solid var(--teal); outline-offset: 1px }
+  #ans { position: fixed; inset: 0; z-index: 7; background: rgba(20,22,26,.55); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow: auto }
+  #ans[hidden] { display: none } #ans .box { background: var(--paper); border: 3px solid var(--ink); border-radius: 8px; box-shadow: 6px 6px 0 #000; padding: 16px 18px; width: min(820px, 100%) }
+  #ans h2 { font-size: 20px; margin: 0 0 4px } #ans h3 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 4px }
+  #ans pre { font: 500 13px var(--mono); font-variant-ligatures: none; white-space: pre-wrap; background: #23262c; color: #f6f1e3; padding: 8px 10px; border-radius: 4px; margin: 4px 0 }
+  #ans .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px } @media (max-width: 700px) { #ans .two { grid-template-columns: 1fr } }
+  #ans .t { color: var(--mute); font: 500 12px var(--mono) } #ans .bad { color: var(--red) } #ans ul { margin: 4px 0 0 18px; padding: 0 }
   .err { font: 500 12px var(--mono); color: var(--red); max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
   .why { font-size: 12px; color: var(--red); font-weight: 600 }
   .tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--ink); color: var(--sun) }
@@ -60,9 +67,10 @@
   #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
   /* проектор: пьедестал — трое лучших по звёздам, при равенстве — кто набрал раньше */
   #proj .podium { grid-column: 1 / -1; display: flex; justify-content: center; align-items: flex-end; gap: 16px; padding: 8px 0 6px }
-  #proj .pod { width: min(300px, 31vw); text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: 10px 10px 0 0; box-shadow: 4px 4px 0 #000; padding: 12px 10px 14px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px }
+  #proj .pod { width: min(260px, 19vw); text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: 10px 10px 0 0; box-shadow: 4px 4px 0 #000; padding: 12px 10px 14px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px }
   #proj .pod .m { font-size: 46px; line-height: 1 } #proj .pod b { font-size: 26px } #proj .pod .st { font-size: 30px; font-weight: 800; color: #c99700 } #proj .pod .mu { font-size: 14px }
-  #proj .pod.p1 { min-height: 250px; background: var(--sun) } #proj .pod.p1 .st { color: var(--ink) } #proj .pod.p2 { min-height: 205px } #proj .pod.p3 { min-height: 170px }
+  #proj .pod.p1 { min-height: 250px; background: var(--sun) } #proj .pod.p1 .st { color: var(--ink) } #proj .pod.p2 { min-height: 205px } #proj .pod.p3 { min-height: 170px } #proj .pod.p4 { min-height: 145px } #proj .pod.p5 { min-height: 125px }
+  #proj .pod.p4 .m, #proj .pod.p5 .m { font: 800 34px var(--font); color: var(--mute) }
   #proj .card .rk { display: inline-block; min-width: 30px; font: 800 18px var(--font); color: var(--mute) }
   #proj .ph { grid-column: 1 / -1; color: var(--sun); font-size: 22px; font-weight: 800; text-align: center; padding-top: 4px }
   .tr { font-weight: 700; font-size: 12.5px; padding: 1px 7px; border-radius: 10px; border: 2px solid var(--ink) } .tr.hi { background: #d8efdc } .tr.mid { background: #fff0b8 } .tr.lo { background: var(--red); color: #fff }
@@ -133,6 +141,7 @@
 <button class="btn" id="projX" hidden>✕ Закрыть проектор</button>
 </div>
 <div id="drawer" hidden></div>
+<div id="ans" hidden><div class="box" id="ansBox"></div></div>
 <div id="reports" class="panel" hidden><h2>Отчёты <span class="mu" id="repWhen"></span></h2><div id="repList"></div></div>
 <div id="repView" hidden><div class="rv-bar"><b id="rvTitle"></b><span id="rvVers"></span><span style="flex:1"></span>
   <button class="btn" id="rvPrint">Печать / PDF</button><button class="btn" id="rvX">✕ Закрыть</button></div>
@@ -256,7 +265,7 @@ function render() {
   $('rows').innerHTML = ps.map(p => {
     const N2 = p.total || 12;
     const names = NAMES[p.lab] || [];
-    const cells = Array.from({length: N2}, (_, i) => `<i class="${i + 1 === p.lv && !p.submit ? 'c' : i < p.doneN ? 'd' : ''}" title="${i + 1}. ${esc(names[i] || '')}"></i>`).join('');
+    const cells = Array.from({length: N2}, (_, i) => `<i data-lv="${i + 1}" class="${i + 1 === p.lv && !p.submit ? 'c' : i < p.doneN ? 'd' : ''}" title="${i + 1}. ${esc(names[i] || '')} — щёлкните: эталон и решение студента"></i>`).join('');
     const st = p.idle > 180000 ? 'off' : p.hidden ? 'hid' : 'on';
     return `<tr class="row ${p.stuck.length ? 'stuck' : ''} ${p.idle > 600000 ? 'idle' : ''}" data-c="${esc(p.client)}">
       <td><span class="dot ${st}" title="${st === 'hid' ? 'вкладка не активна' : st === 'off' ? 'нет действий ' + mins(p.idle) : 'активен'}"></span><b>${esc(p.fio || '—')}</b>${p.stuck.length ? `<div class="why">${esc(p.stuck.join(' · '))}</div>` : ''}</td>
@@ -277,30 +286,70 @@ function render() {
     $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span>${esc(s.name)}</td><td>${esc(g)}</td><td>${s.seed}</td><td colspan="8">не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/' + total(l)).join(', ') : ''}</td></tr>`).join(''));
   }
   $('rows').querySelectorAll('tr.row').forEach(tr => tr.onclick = () => showLog(tr.dataset.c));
+  $('rows').querySelectorAll('tr.row .lvl i').forEach(c => c.onclick = e => { e.stopPropagation(); showAnswer(c.closest('tr').dataset.c, +c.dataset.lv); });
   $('rows').querySelectorAll('[data-rep]').forEach(b => b.onclick = e => { e.stopPropagation(); openReport(+b.dataset.rep); });
   if (document.body.classList.contains('proj')) renderProj(ps);
 }
-// проектор: трое лучших по звёздам на пьедестале; при равенстве выше тот, кто набрал эти звёзды раньше
+// проектор: только пятеро лучших на пьедестале. Место — по звёздам с поправкой на доверие:
+// очки = звёзды × доверие (доверия ещё нет — считаем 100%); при равенстве выше тот, кто набрал звёзды раньше
 const starsOf = p => p.starsN != null ? p.starsN : Object.values(p.stars || {}).reduce((s, x) => s + (x || 0), 0);
-const rankProj = ps => ps.slice().sort((a, b) => starsOf(b) - starsOf(a) || (a.starsAt || Infinity) - (b.starsAt || Infinity) || b.doneN - a.doneN || a.onLevel - b.onLevel);
+const trustK = p => p.trust == null ? 1 : Math.max(0, Math.min(100, p.trust)) / 100;
+const scoreOf = p => Math.round(starsOf(p) * trustK(p) * 10) / 10;
+const num1 = x => String(x).replace('.', ',');
+const rankProj = ps => ps.slice().sort((a, b) => scoreOf(b) - scoreOf(a) || starsOf(b) - starsOf(a) || (a.starsAt || Infinity) - (b.starsAt || Infinity) || b.doneN - a.doneN || a.onLevel - b.onLevel);
 function renderProj(ps) {
-  const list = rankProj(ps), top = list.filter(p => starsOf(p) > 0).slice(0, 3);
-  const MEDAL = ['🥇', '🥈', '🥉'];
-  // на пьедестале — второй, первый, третий
-  const pod = [top[1], top[0], top[2]].map(p => {
+  const top = rankProj(ps).filter(p => scoreOf(p) > 0).slice(0, 5);
+  const MEDAL = ['🥇', '🥈', '🥉', '4', '5'];
+  // на пьедестале — четвёртый, второй, первый, третий, пятый
+  const pod = [top[3], top[1], top[0], top[2], top[4]].map(p => {
     if (!p) return '';
     const k = top.indexOf(p);
     return `<div class="pod p${k + 1}"><div class="m">${MEDAL[k]}</div><b>${esc(short(p.fio))}</b><span class="mu">${esc(p.grp)}${p.starsAt ? ' · ' + hm(p.starsAt) : ''}</span>
-      <div class="st">★ ${starsOf(p)}</div><span class="mu">пройдено ${p.doneN} из ${p.total || 12}</span></div>`;
+      <div class="st">${num1(scoreOf(p))}</div><span class="mu">★ ${starsOf(p)} × доверие ${p.trust == null ? 100 : p.trust}%</span><span class="mu">пройдено ${p.doneN} из ${p.total || 12}</span></div>`;
   }).join('');
-  $('proj').innerHTML = (top.length ? `<div class="podium">${pod}</div>` : '<div class="ph">Первые звёзды — за первый пройденный уровень</div>') +
-    list.map((p, i) => {
-      const names = NAMES[p.lab] || [], N2 = p.total || 12;
-      return `<div class="card ${i === 0 && top.length ? 'top1' : ''}"><span class="rk">${i + 1}.</span><b>${esc(short(p.fio))}</b> <span style="color:var(--mute)">${esc(p.grp)}</span>
-      <div class="lvl" style="margin-top:6px">${Array.from({length: N2}, (_, k) => `<i class="${k < p.doneN ? 'd' : p.lv === k + 1 ? 'c' : ''}"></i>`).join('')}</div>
-      <div class="s">★ ${starsOf(p)} <span style="color:var(--ink);font-size:14px">${p.doneN}/${N2} · ${esc(names[p.lv - 1] || '')}</span></div></div>`;
-    }).join('');
+  $('proj').innerHTML = top.length ? `<div class="podium">${pod}</div>` : '<div class="ph">Первые звёзды — за первый пройденный уровень</div>';
 }
+// эталон уровня и решение студента: щелчок по прямоугольнику уровня в строке.
+// Эталоны — teacher/answers.js (собирает tools/build.mjs из самих лаб), грузится при первом щелчке:
+// у каждого варианта свои данные, поэтому эталон считается по номеру варианта студента
+let ansLoad = null;
+const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=7305c8cf91'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
+const sqlBlock = qs => qs.map(q => `<pre>${hl(String(q).replace(/;?\s*$/, ';'))}</pre>`).join('');
+async function showAnswer(client, lvN) {
+  const p = data.people.find(x => x.client === client); if (!p) return;
+  const box = $('ansBox'), lab = (p.lab || '').slice(0, 4);
+  $('ans').hidden = false;
+  box.innerHTML = '<p class="mu">Загружаю…</p>';
+  const R = range(), q = new URLSearchParams({client, since: R.since, until: R.until});
+  const [okA, r] = await Promise.all([loadAnswers().then(() => true, () => false), api('/api/log?' + q).catch(() => ({events: []}))]);
+  const ev = r.events || [];
+  // какой уровень стоит у студента под этим номером — по журналу (порядок уровней у давних студентов бывает другим)
+  const key = (ev.filter(e => e.data && e.data.lv === lvN && e.data.key).pop() || {data: {}}).data.key;
+  const A = okA && window.labAnswers ? window.labAnswers(lab, p.seed) : null;
+  const a = A && key !== 'practice' && (A.find(x => x.key === key) || A[lvN - 1]) || null;
+  const names = NAMES[p.lab] || [];
+  const title = a ? a.title : names[lvN - 1] || '';
+  // решение студента: успешные команды этого уровня после последнего отката — до отметки «пройден»
+  const mine = ev.filter(e => e.data && (key ? e.data.key === key : e.data.lv === lvN));
+  const doneAt = mine.map(e => e.type).lastIndexOf('done');
+  let solved = [], tried = null;
+  if (doneAt >= 0) {
+    const before = mine.slice(0, doneAt), cut = before.map(e => e.type).lastIndexOf('rollback');
+    solved = before.slice(cut + 1).filter(e => e.type === 'run' && e.data.ok && e.data.sql).slice(-10);
+  } else tried = mine.filter(e => e.type === 'run' || e.type === 'lint').pop() || null;
+  const sol = a && a.sol.length ? sqlBlock(a.sol) : `<p class="mu">${a && a.note ? esc(a.note) : 'Готовой команды у этого уровня нет'}${a && a.hint ? '<br>Подсказка студенту: ' + esc(a.hint) : ''}</p>`;
+  const his = doneAt >= 0
+    ? `<span class="t">пройден в ${hm(mine[doneAt].ts)} · ${'★'.repeat(mine[doneAt].data.stars || 0)}</span>` + (solved.length ? solved.map(e => `<div class="t">${hm(e.ts)}</div>` + sqlBlock([e.data.sql])).join('') : '<p class="mu">Команд в журнале не нашлось</p>')
+    : tried ? `<span class="t">ещё не прошёл · последняя попытка в ${hm(tried.ts)}${tried.type === 'lint' || !tried.data.ok ? ' — с ошибкой' : ''}</span>` + sqlBlock([tried.data.sql || ''])
+    : `<p class="mu">${lvN < p.lv || lvN <= p.doneN ? 'Пройден, но не в выбранный день — в журнале за этот день команд нет' : 'Ещё не брался за этот уровень'}</p>`;
+  box.innerHTML = `<button class="btn" id="ansX" style="float:right">✕</button>
+    <h2>${lvN}. ${esc(title)}</h2><div class="mu">${esc(p.fio)} · ${esc(p.grp)} · вариант № ${p.seed ?? '—'} · ${esc(LABN[p.lab] || p.lab || '')}</div>
+    ${a ? `<p style="margin:10px 0 0">${esc(a.text)}</p>${a.goals.length ? `<ul>${a.goals.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}` : `<p class="bad">${A ? 'Этого уровня нет среди эталонов лабы' : p.seed == null ? 'У студента не записан вариант — эталон не посчитать' : 'Эталоны для этой лабы недоступны'}</p>`}
+    <div class="two"><div><h3>Эталон</h3>${a ? sol : ''}</div><div><h3>Как прошёл студент</h3>${his}</div></div>`;
+  $('ansX').onclick = () => { $('ans').hidden = true; };
+}
+$('ans').onclick = e => { if (e.target === $('ans')) $('ans').hidden = true; };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('ans').hidden) $('ans').hidden = true; });
 async function showLog(client, quiet) {
   open = client;
   const p = data.people.find(x => x.client === client); if (!p) return;

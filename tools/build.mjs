@@ -75,6 +75,32 @@ async function levelNames(lab) {
     return t.slice(0, k).replace(/[\s«]*$/, '') + ' …';
   });
 }
+// эталоны для пульта (клик по уровню студента): teacher/answers.js из tools/answers-entry.mjs
+{
+  const outfile = join(ROOT, 'teacher/answers.js');
+  const r = await build({
+    entryPoints: [join(ROOT, 'tools/answers-entry.mjs')],
+    bundle: true,
+    format: 'iife',
+    minify: true,
+    outfile,
+    write: !check,
+  });
+  if (check) {
+    const same = existsSync(outfile) && Buffer.compare(r.outputFiles[0].contents, readFileSync(outfile)) === 0;
+    if (!same) stale++;
+    console.log(`teacher/answers.js: ${same ? 'актуален' : 'УСТАРЕЛ — выполните npm run build'}`);
+  } else console.log('teacher/answers.js собран');
+  // версия в адресе answers.js — после выкладки пульт берёт новые эталоны, а не из кэша
+  const page = join(ROOT, 'teacher/index.html'),
+    html = readFileSync(page, 'utf8');
+  const js = check ? r.outputFiles[0].contents : readFileSync(outfile);
+  const next = html.replace(/'answers\.js\?v=\w+'/, `'answers.js?v=${createHash('sha256').update(js).digest('hex').slice(0, 10)}'`);
+  if (check && next !== html) {
+    stale++;
+    console.log('teacher/index.html: версия answers.js УСТАРЕЛА — выполните npm run build');
+  } else if (next !== html) writeFileSync(page, next);
+}
 const names = {};
 for (const lab of LABS) names[lab.slice(0, 4)] = await levelNames(lab);
 const namesOut = join(ROOT, 'teacher/levels.js');
