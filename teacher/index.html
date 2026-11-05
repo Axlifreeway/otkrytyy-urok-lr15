@@ -67,9 +67,10 @@
   #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
   /* проектор: пьедестал — трое лучших по звёздам, при равенстве — кто набрал раньше */
   #proj .podium { grid-column: 1 / -1; display: flex; justify-content: center; align-items: flex-end; gap: 16px; padding: 8px 0 6px }
-  #proj .pod { width: min(300px, 31vw); text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: 10px 10px 0 0; box-shadow: 4px 4px 0 #000; padding: 12px 10px 14px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px }
+  #proj .pod { width: min(260px, 19vw); text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: 10px 10px 0 0; box-shadow: 4px 4px 0 #000; padding: 12px 10px 14px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px }
   #proj .pod .m { font-size: 46px; line-height: 1 } #proj .pod b { font-size: 26px } #proj .pod .st { font-size: 30px; font-weight: 800; color: #c99700 } #proj .pod .mu { font-size: 14px }
-  #proj .pod.p1 { min-height: 250px; background: var(--sun) } #proj .pod.p1 .st { color: var(--ink) } #proj .pod.p2 { min-height: 205px } #proj .pod.p3 { min-height: 170px }
+  #proj .pod.p1 { min-height: 250px; background: var(--sun) } #proj .pod.p1 .st { color: var(--ink) } #proj .pod.p2 { min-height: 205px } #proj .pod.p3 { min-height: 170px } #proj .pod.p4 { min-height: 145px } #proj .pod.p5 { min-height: 125px }
+  #proj .pod.p4 .m, #proj .pod.p5 .m { font: 800 34px var(--font); color: var(--mute) }
   #proj .card .rk { display: inline-block; min-width: 30px; font: 800 18px var(--font); color: var(--mute) }
   #proj .ph { grid-column: 1 / -1; color: var(--sun); font-size: 22px; font-weight: 800; text-align: center; padding-top: 4px }
   .tr { font-weight: 700; font-size: 12.5px; padding: 1px 7px; border-radius: 10px; border: 2px solid var(--ink) } .tr.hi { background: #d8efdc } .tr.mid { background: #fff0b8 } .tr.lo { background: var(--red); color: #fff }
@@ -289,7 +290,7 @@ function render() {
   $('rows').querySelectorAll('[data-rep]').forEach(b => b.onclick = e => { e.stopPropagation(); openReport(+b.dataset.rep); });
   if (document.body.classList.contains('proj')) renderProj(ps);
 }
-// проектор: только трое лучших на пьедестале. Место — по звёздам с поправкой на доверие:
+// проектор: только пятеро лучших на пьедестале. Место — по звёздам с поправкой на доверие:
 // очки = звёзды × доверие (доверия ещё нет — считаем 100%); при равенстве выше тот, кто набрал звёзды раньше
 const starsOf = p => p.starsN != null ? p.starsN : Object.values(p.stars || {}).reduce((s, x) => s + (x || 0), 0);
 const trustK = p => p.trust == null ? 1 : Math.max(0, Math.min(100, p.trust)) / 100;
@@ -297,10 +298,10 @@ const scoreOf = p => Math.round(starsOf(p) * trustK(p) * 10) / 10;
 const num1 = x => String(x).replace('.', ',');
 const rankProj = ps => ps.slice().sort((a, b) => scoreOf(b) - scoreOf(a) || starsOf(b) - starsOf(a) || (a.starsAt || Infinity) - (b.starsAt || Infinity) || b.doneN - a.doneN || a.onLevel - b.onLevel);
 function renderProj(ps) {
-  const top = rankProj(ps).filter(p => scoreOf(p) > 0).slice(0, 3);
-  const MEDAL = ['🥇', '🥈', '🥉'];
-  // на пьедестале — второй, первый, третий
-  const pod = [top[1], top[0], top[2]].map(p => {
+  const top = rankProj(ps).filter(p => scoreOf(p) > 0).slice(0, 5);
+  const MEDAL = ['🥇', '🥈', '🥉', '4', '5'];
+  // на пьедестале — четвёртый, второй, первый, третий, пятый
+  const pod = [top[3], top[1], top[0], top[2], top[4]].map(p => {
     if (!p) return '';
     const k = top.indexOf(p);
     return `<div class="pod p${k + 1}"><div class="m">${MEDAL[k]}</div><b>${esc(short(p.fio))}</b><span class="mu">${esc(p.grp)}${p.starsAt ? ' · ' + hm(p.starsAt) : ''}</span>
