@@ -114,6 +114,7 @@
   <button class="btn" id="sayBtn" title="Сообщение появится у студента: робот на полэкрана">🤖 Робот скажет</button>
   <button class="btn" id="grpBtn">Группы и списки</button>
   <button class="btn" id="projBtn">Проектор</button>
+  <button class="btn" id="trBtn" title="Обезличенная выгрузка набора по уровням (без ФИО, IP и групп) — для разбора коэффициента доверия. Файл .jsonl">⬇ Данные набора</button>
 </header>
 <div id="sayBox" class="panel" hidden>
   <h2>Робот скажет студентам</h2>
@@ -185,7 +186,7 @@ const ruErr = t => { const ls = String(t).split('\n').map(x => x.trim()).filter(
 const total = lab => LEVELS[lab] || (NAMES[lab] || []).length || 12;
 // коэффициент доверия к набору (common/trust.js): ≥75 — спокойно, 50–74 — присмотреться, ниже — подойти
 // признаки — те же, что в common/trust.js (WHY); их совпадение проверяет tests/trust.test.mjs
-const TRUST_WHY = {line: 'набор подряд, без возвратов внутрь текста', clean: 'почти без исправлений', glance: 'паузы посреди слов, как при переписывании', wait: 'долго ничего, затем сразу верный запрос', dead: 'долгие остановки посреди набора', away: 'уходы со вкладки', ins: 'текст появлялся без клавиатуры', paste: 'попытки вставки'};
+const TRUST_WHY = {line: 'набор подряд, без возвратов внутрь текста', rework: 'правились только опечатки, ни одной переделки', rhythm: 'ровный ритм кусками, как при переписывании', glance: 'паузы посреди слов, как при переписывании', wait: 'долго ничего, затем сразу верный запрос', dead: 'долгие остановки посреди набора', away: 'уходы со вкладки', ins: 'текст появлялся без клавиатуры', paste: 'попытки вставки'};
 const whyText = w => String(w || '').split(',').filter(Boolean).map(c => TRUST_WHY[c] || c).join('; ');
 const trustCell = (v, why) => v == null ? '<span class="mu">—</span>' : `<span class="tr ${v >= 75 ? 'hi' : v >= 50 ? 'mid' : 'lo'}" title="${esc(whyText(why) || 'признаков переписывания нет')}">${v}%</span>`;
 const short = f => { const w = String(f || '').split(/\s+/); return w[0] + (w[1] ? ' ' + w[1][0] + '.' : ''); };
@@ -345,8 +346,18 @@ async function showAnswer(client, lvN) {
   box.innerHTML = `<button class="btn" id="ansX" style="float:right">✕</button>
     <h2>${lvN}. ${esc(title)}</h2><div class="mu">${esc(p.fio)} · ${esc(p.grp)} · вариант № ${p.seed ?? '—'} · ${esc(LABN[p.lab] || p.lab || '')}</div>
     ${a ? `<p style="margin:10px 0 0">${esc(a.text)}</p>${a.goals.length ? `<ul>${a.goals.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}` : `<p class="bad">${A ? 'Этого уровня нет среди эталонов лабы' : p.seed == null ? 'У студента не записан вариант — эталон не посчитать' : 'Эталоны для этой лабы недоступны'}</p>`}
-    <div class="two"><div><h3>Эталон</h3>${a ? sol : ''}</div><div><h3>Как прошёл студент</h3>${his}</div></div>`;
+    <div class="two"><div><h3>Эталон</h3>${a ? sol : ''}</div><div><h3>Как прошёл студент</h3>${his}</div></div>
+    <p style="margin:12px 0 0" title="Пометка уходит только в обезличенную выгрузку «Данные набора» — по ней настраивается коэффициент доверия. Студент её не видит">Для разбора доверия: <span id="lbBox" class="mu">…</span></p>`;
   $('ansX').onclick = () => { $('ans').hidden = true; };
+  // пометка «честно / переписывал» по уровню — разметка для настройки common/trust.js
+  const LB = {honest: 'честно', copy: 'переписывал'};
+  const drawLb = cur => {
+    $('lbBox').innerHTML = Object.entries(LB).map(([v, t]) => `<button class="btn${cur === v ? ' on' : ''}" data-lb="${cur === v ? '' : v}">${t}</button>`).join(' ') + (cur ? ' <span class="mu">— щелчок ещё раз снимает</span>' : '');
+    $('lbBox').querySelectorAll('[data-lb]').forEach(b => b.onclick = async () => {
+      try { drawLb((await post('/api/admin/label', {client, lab: p.lab, lv: lvN, val: b.dataset.lb})).labels[lvN]); } catch (e) { $('lbBox').textContent = 'не сохранилось: ' + e.message; }
+    });
+  };
+  api('/api/admin/labels?' + new URLSearchParams({client, lab: p.lab || ''})).then(r => drawLb((r.labels || {})[lvN]), () => { $('lbBox').textContent = 'нет связи'; });
 }
 $('ans').onclick = e => { if (e.target === $('ans')) $('ans').hidden = true; };
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('ans').hidden) $('ans').hidden = true; });
@@ -414,6 +425,18 @@ async function openReport(id) {
 $('rvX').onclick = () => { $('repView').hidden = true; $('rvFrame').srcdoc = ''; };
 $('rvPrint').onclick = () => $('rvFrame').contentWindow.print();
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('repView').hidden) $('rvX').click(); });
+// обезличенная выгрузка трасс набора (server/labsrv.py → /api/admin/traces): работает из любой сети, где открыт пульт
+$('trBtn').onclick = async () => {
+  try {
+    const r = await fetch('/api/admin/traces', {headers: {'X-Labs-Key': KEY}});
+    if (!r.ok) throw new Error(r.status);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = `traces-${new Date().toISOString().slice(0, 10)}.jsonl`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (e) { alert('Не удалось выгрузить: ' + e.message); }
+};
 $('repBtn').onclick = () => { const on = $('reports').hidden; $('reports').hidden = !on; $('repBtn').classList.toggle('on', on); renderReports(); };
 
 let started = false;

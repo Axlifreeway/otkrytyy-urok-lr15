@@ -182,6 +182,31 @@ class ServerTest(unittest.TestCase):
         p = people[0]
         self.assertEqual((p['client'], p['fio'], p['grp'], p['seed'], p['errors']), (f's{sid}', 'Иванов Иван', 'ИИ-25', 101, 1))
 
+    def test_traces_export_is_anonymous(self):
+        sid = self.group()['Иванов И.']
+        tok = self.login('Иванов')[1]['token']
+        tr = {'lv': 3, 'key': 'k3', 'tr': 40, 'tw': 'line,rework', 'c': {'n': 80}, 'k': 'aaas', 'd': [0, 3, 2, 20]}
+        self.assertEqual(self.call('/api/ev', {'type': 'trace', 'client': 'x', 'lab': 'lr15', 'token': tok, 'data': tr})[0], 200)
+        self.assertEqual(self.call('/api/progress', {'token': tok, 'lab': 'lr15', 'data': {'lv': {}, 'journal': [{'lv': 'k3', 'q': 'SELECT 1'}, {'lv': 'k1', 'q': 'SELECT 2'}]}})[0], 200)
+        self.assertEqual(self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'], [])     # трасса не событие пульта
+        self.assertEqual(self.call('/api/admin/label', {'key': 'нет', 'client': f's{sid}', 'lab': 'lr15', 'lv': 3, 'val': 'copy'})[0], 403)
+        st, r = self.call('/api/admin/label', {'key': KEY, 'client': f's{sid}', 'lab': 'lr15', 'lv': 3, 'val': 'copy'})
+        self.assertEqual((st, r['labels']), (200, {'3': 'copy'}))
+        self.assertEqual(self.call(f'/api/admin/labels?client=s{sid}&lab=lr15', headers={'X-Labs-Key': KEY})[1]['labels'], {'3': 'copy'})
+        req = urllib.request.Request(self.base + '/api/admin/traces', headers={'X-Labs-Key': KEY})
+        with urllib.request.urlopen(req) as resp:
+            text = resp.read().decode()
+        rows = [json.loads(x) for x in text.splitlines()]
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual((r['lab'], r['group'], r['lv'], r['label'], r['k'], r['sql']), ('lr15', 'g1', 3, 'copy', 'aaas', ['SELECT 1']))
+        self.assertEqual(len(r['student']), 12)
+        for bad in ('Иванов', 'ИИ-25', f's{sid}', '127.0.0.1'):
+            self.assertNotIn(bad, text)
+        with urllib.request.urlopen(urllib.request.Request(self.base + '/api/admin/traces', headers={'X-Labs-Key': KEY})) as resp:
+            self.assertEqual(json.loads(resp.read().decode().splitlines()[0])['student'], r['student'])   # псевдоним постоянный
+        self.assertEqual(self.call('/api/admin/label', {'key': KEY, 'client': f's{sid}', 'lab': 'lr15', 'lv': 3, 'val': ''})[1]['labels'], {})
+
     def test_delayed_event_keeps_its_time(self):
         self.group()
         tok = self.login('Иванов')[1]['token']
