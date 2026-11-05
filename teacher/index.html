@@ -280,26 +280,24 @@ function render() {
   $('rows').querySelectorAll('[data-rep]').forEach(b => b.onclick = e => { e.stopPropagation(); openReport(+b.dataset.rep); });
   if (document.body.classList.contains('proj')) renderProj(ps);
 }
-// проектор: трое лучших по звёздам на пьедестале; при равенстве выше тот, кто набрал эти звёзды раньше
+// проектор: только трое лучших на пьедестале. Место — по звёздам с поправкой на доверие:
+// очки = звёзды × доверие (доверия ещё нет — считаем 100%); при равенстве выше тот, кто набрал звёзды раньше
 const starsOf = p => p.starsN != null ? p.starsN : Object.values(p.stars || {}).reduce((s, x) => s + (x || 0), 0);
-const rankProj = ps => ps.slice().sort((a, b) => starsOf(b) - starsOf(a) || (a.starsAt || Infinity) - (b.starsAt || Infinity) || b.doneN - a.doneN || a.onLevel - b.onLevel);
+const trustK = p => p.trust == null ? 1 : Math.max(0, Math.min(100, p.trust)) / 100;
+const scoreOf = p => Math.round(starsOf(p) * trustK(p) * 10) / 10;
+const num1 = x => String(x).replace('.', ',');
+const rankProj = ps => ps.slice().sort((a, b) => scoreOf(b) - scoreOf(a) || starsOf(b) - starsOf(a) || (a.starsAt || Infinity) - (b.starsAt || Infinity) || b.doneN - a.doneN || a.onLevel - b.onLevel);
 function renderProj(ps) {
-  const list = rankProj(ps), top = list.filter(p => starsOf(p) > 0).slice(0, 3);
+  const top = rankProj(ps).filter(p => scoreOf(p) > 0).slice(0, 3);
   const MEDAL = ['🥇', '🥈', '🥉'];
   // на пьедестале — второй, первый, третий
   const pod = [top[1], top[0], top[2]].map(p => {
     if (!p) return '';
     const k = top.indexOf(p);
     return `<div class="pod p${k + 1}"><div class="m">${MEDAL[k]}</div><b>${esc(short(p.fio))}</b><span class="mu">${esc(p.grp)}${p.starsAt ? ' · ' + hm(p.starsAt) : ''}</span>
-      <div class="st">★ ${starsOf(p)}</div><span class="mu">пройдено ${p.doneN} из ${p.total || 12}</span></div>`;
+      <div class="st">${num1(scoreOf(p))}</div><span class="mu">★ ${starsOf(p)} × доверие ${p.trust == null ? 100 : p.trust}%</span><span class="mu">пройдено ${p.doneN} из ${p.total || 12}</span></div>`;
   }).join('');
-  $('proj').innerHTML = (top.length ? `<div class="podium">${pod}</div>` : '<div class="ph">Первые звёзды — за первый пройденный уровень</div>') +
-    list.map((p, i) => {
-      const names = NAMES[p.lab] || [], N2 = p.total || 12;
-      return `<div class="card ${i === 0 && top.length ? 'top1' : ''}"><span class="rk">${i + 1}.</span><b>${esc(short(p.fio))}</b> <span style="color:var(--mute)">${esc(p.grp)}</span>
-      <div class="lvl" style="margin-top:6px">${Array.from({length: N2}, (_, k) => `<i class="${k < p.doneN ? 'd' : p.lv === k + 1 ? 'c' : ''}"></i>`).join('')}</div>
-      <div class="s">★ ${starsOf(p)} <span style="color:var(--ink);font-size:14px">${p.doneN}/${N2} · ${esc(names[p.lv - 1] || '')}</span></div></div>`;
-    }).join('');
+  $('proj').innerHTML = top.length ? `<div class="podium">${pod}</div>` : '<div class="ph">Первые звёзды — за первый пройденный уровень</div>';
 }
 async function showLog(client, quiet) {
   open = client;
