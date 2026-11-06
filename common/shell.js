@@ -23,7 +23,7 @@ export const setRunning = v => {
 };
 let cfg = null,
   W = null,
-  T = {level() {}, away() {}, flag() {}, ran() {}, finish: () => null, trace: () => null}; // коэффициент доверия к набору (common/trust.js)
+  T = {level() {}, away() {}, flag() {}, ran() {}, result() {}, finish: () => null, trace: () => null}; // коэффициент доверия к набору (common/trust.js)
 const isErr = j => /^ERROR|ошибка/.test(j.o);
 
 /* cfg:
@@ -199,6 +199,7 @@ export function score() {
 }
 const MARK = s => (s >= 8.5 ? '5' : s >= 6.5 ? '4' : s >= 4.5 ? '3' : '2');
 export function journal(sql, out) {
+  T.result(sql, isErr({o: out}) ? out : '');
   G.P.journal.push({t: new Date().toISOString().slice(11, 19), lv: L[G.lv].key, q: sql.slice(0, 600), o: out});
   save();
   report('run', {

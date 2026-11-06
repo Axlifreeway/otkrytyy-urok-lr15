@@ -2,7 +2,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {scoreLevel, scoreLab, rhythmic, WHY} from '../common/trust.js';
+import {scoreLevel, scoreLab, rhythmic, WHY, watchTyping} from '../common/trust.js';
 
 const m = o => ({
   t0: 0,
@@ -76,4 +76,47 @@ test('доверие: неровный ритм думающего челове�
   assert.equal(rhythmic([3, 25, 6, 40, 2, 14]), false);
   assert.equal(rhythmic([9, 8]), false);
   assert.equal(rhythmic([8, 9, 8, 10, 9]), true);
+});
+
+test('доверие: ту же команду с той же ошибкой запускает снова и снова — ответ СУБД не читает', () => {
+  const t = watchTyping({addEventListener() {}});
+  t.level('del');
+  const run = (...qs) => {
+    t.ran();
+    t.cur.lastRun -= 5000; // запуски — с паузой, не двойное нажатие
+    for (const [q, e] of qs) t.result(q, e);
+  };
+  // как на паре: BEGIN; DELETE с ошибкой ключа, потом в прерванной транзакции — BEGIN, BEGIN, BEGIN, DELETE, DELETE
+  run(['BEGIN', ''], ['DELETE FROM pizza id', 'ERROR fk_orders_pizza']);
+  run(['BEGIN', 'ERROR 25P02']);
+  run(['BEGIN', 'ERROR 25P02']);
+  run(['begin;', 'ERROR 25P02']);
+  run(['BEGIN', 'ERROR 25P02']);
+  run(['DELETE FROM pizza WHERE id = 10', 'ERROR 25P02']);
+  run(['DELETE FROM  pizza WHERE id = 10', 'ERROR 25P02']);
+  assert.equal(t.cur.deaf, 4);
+  assert.deepEqual(t.finish(), {s: 75, why: ['deaf'], n: 0});
+});
+
+test('доверие: исправлял команду после ошибки или ошибся один раз — не признак', () => {
+  const t = watchTyping({addEventListener() {}});
+  t.level('x');
+  const run = (q, e) => {
+    t.ran();
+    t.cur.lastRun -= 5000;
+    t.result(q, e);
+  };
+  run('SELEC * FROM pizza', 'ERROR 42601');
+  run('SELECT * FRM pizza', 'ERROR 42601'); // та же ошибка, но команда другая — исправляет
+  run('SELECT * FROM pizza', '');
+  run('DELETE FROM pizza WHERE id = 2', 'ERROR fk_orders_pizza');
+  run('DELETE FROM pizza WHERE id = 2', 'ERROR fk_orders_pizza'); // один повтор — «а вдруг»
+  assert.equal(t.cur.deaf, 1);
+  assert.equal(t.finish(), null);
+  // ещё раз после паузы — уже второй повтор, а двойное нажатие «Пуск» повтором не считается
+  t.ran();
+  t.result('DELETE FROM pizza WHERE id = 2', 'ERROR fk_orders_pizza');
+  t.ran(); // сразу же, через доли секунды
+  t.result('DELETE FROM pizza WHERE id = 2', 'ERROR fk_orders_pizza');
+  assert.equal(t.cur.deaf, 2);
 });

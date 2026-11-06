@@ -13,7 +13,11 @@
 //   glance — длинные паузы посреди слова: человек поднял глаза на другой экран и ищет, где остановился;
 //   wait   — долго ничего, затем сразу верный запрос с первого запуска;
 //   dead   — остановка больше 30 с посреди набора, хотя вкладка не покидалась;
-//   away   — уходы со вкладки на уровне; ins — текст появился без клавиатуры; paste — попытки вставки.
+//   away   — уходы со вкладки на уровне; ins — текст появился без клавиатуры; paste — попытки вставки;
+//   deaf   — ответ СУБД не читается: та же команда с той же ошибкой запускается снова и снова
+//            (BEGIN четыре раза подряд в прерванной транзакции). Кто думает, после ошибки меняет команду;
+//            кто перепечатывает чужое — перезапускает, не понимая, что ему ответили. Не зависит ни от лабы,
+//            ни от длины набора, поэтому считается и на коротких командах.
 const WORD = /[\wА-яЁё]/;
 export const WHY = {
   line: 'набор подряд, без возвратов внутрь текста',
@@ -25,7 +29,15 @@ export const WHY = {
   away: 'уходы со вкладки',
   ins: 'текст появлялся без клавиатуры',
   paste: 'попытки вставки',
+  deaf: 'та же команда с той же ошибкой — снова и снова',
 };
+// команда без разницы в регистре, пробелах и «;» — опечатку в одну букву студент исправил бы, это уже другая команда
+const norm = q =>
+  String(q || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[\s;]+$/, '')
+    .trim()
+    .toLowerCase();
 const fresh = key => ({
   key,
   t0: Date.now(),
@@ -49,6 +61,9 @@ const fresh = key => ({
   tk: '',
   td: [],
   tl: 0,
+  deaf: 0,
+  fails: {}, // команда → ошибка, которую она уже получила на уровне
+  lastRun: 0,
 });
 
 // Трасса набора для разбора алгоритма (уходит на сервер, выгружается обезличенно).
@@ -70,6 +85,8 @@ export function scoreLevel(m, runs = 1, touch = false) {
   if (m.ins) pen.ins = 45;
   if (m.paste) pen.paste = 15;
   if (m.awayMs > 8000) pen.away = Math.min(35, Math.round(10 + m.awayMs / 3000));
+  // один повтор бывает у всех («а вдруг») — признак со второго
+  if (m.deaf >= 2) pen.deaf = Math.min(30, 15 + 5 * (m.deaf - 2));
   if (m.n >= 25) {
     const typing = {};
     if (m.n >= 40 && m.mid / m.n < 0.05 && !touch) typing.line = 15;
@@ -185,8 +202,19 @@ export function watchTyping(ta) {
       cur[k]++;
     },
     ran() {
+      const now = Date.now();
+      cur.dbl = cur.lastRun && now - cur.lastRun < 1500; // двойное нажатие «Пуск» — не повтор
+      cur.lastRun = now;
       cur.runs++; // нажатия «Пуск» на уровне (команд в одном запуске может быть несколько)
-      mark(cur, 'r', Date.now());
+      mark(cur, 'r', now);
+    },
+    // ответ СУБД на одну команду запуска (common/shell.js, journal): err — код ошибки или '' при успехе
+    result(sql, err) {
+      const q = norm(sql);
+      if (!q) return;
+      if (!err) delete cur.fails[q];
+      else if (cur.fails[q] === err) cur.dbl || cur.deaf++;
+      else cur.fails[q] = err;
     },
     finish() {
       return scoreLevel(cur, cur.runs, touch);
@@ -194,7 +222,7 @@ export function watchTyping(ta) {
     // сырые данные уровня: счётчики и трасса — для обезличенной выгрузки (server/labsrv.py, /api/admin/traces)
     trace() {
       const c = {};
-      for (const k of ['n', 'del', 'rework', 'mid', 'pauses', 'midWord', 'runs', 'dead', 'awayMs', 'ins', 'paste']) c[k] = cur[k];
+      for (const k of ['n', 'del', 'rework', 'mid', 'pauses', 'midWord', 'runs', 'dead', 'awayMs', 'ins', 'paste', 'deaf']) c[k] = cur[k];
       c.firstMs = cur.first ? cur.first - cur.t0 : null;
       c.totalMs = Date.now() - cur.t0;
       return {c, chunks: cur.chunks.slice(0, 300), k: cur.tk, d: cur.td, touch};
