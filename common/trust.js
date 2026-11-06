@@ -133,8 +133,8 @@ export function watchTyping(ta) {
       const sel = ta.selectionEnd - ta.selectionStart;
       // стёрт кусок/слово или правится середина — это переделка, а не опечатка
       if (sel >= 4 || /Word|Line|Soft|Hard/.test(t) || (t === 'deleteContentBackward' && ta.value.slice(ta.selectionEnd).trim()))
-        (cur.rework++, mark(cur, 'x', now));
-      else ((cur.dRun += Math.max(1, sel)), mark(cur, 'b', now));
+        cur.rework++, mark(cur, 'x', now);
+      else (cur.dRun += Math.max(1, sel)), mark(cur, 'b', now);
       cur.last = now;
       return;
     }
@@ -150,7 +150,7 @@ export function watchTyping(ta) {
       cur.midNow = true;
       cur.mid += data.length;
       mark(cur, 'm', now);
-    } else ((cur.midNow = false), mark(cur, kindOf(data[0]), now));
+    } else (cur.midNow = false), mark(cur, kindOf(data[0]), now);
     if (!cur.first) cur.first = now;
     else if (!cur.skip) {
       const gap = now - cur.last;
