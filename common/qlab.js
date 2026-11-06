@@ -1249,7 +1249,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
       <h1>${esc(lv.title)}</h1><div class="lab">${esc(lv.lab)}</div>
       <p>${esc(lv.text)}</p>
       ${lv.q ? `<div class="askq"><span>Вопрос</span>${esc(lv.q)}</div>` : ''}
-      ${lv.clue ? `<div class="cluex"><b>★</b>Часть условия — в зале: ${esc(lv.clue.where)}. Щёлкните по нему — увидите его строку.</div>` : ''}
+      ${lv.clue ? `<div class="cluex"><b>★</b>Часть условия — в зале: ${esc(lv.clue.where)}. Объект подсвечен жёлтым: щёлкните по нему или по самой звезде — откроется его строка.</div>` : ''}
       <ul>${lv.goals.map(g => `<li class="${rec.done ? 'done' : ''}">${esc(g)}</li>`).join('')}</ul>
       ${lv.doc ? `<div class="docw">${lv.doc}</div>` : ''}
       <div class="ncmd">${esc(ncmd)}</div>

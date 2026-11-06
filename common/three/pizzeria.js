@@ -426,6 +426,8 @@ export function createPizzeria(stage, {pizzaColor = () => 0xd2483c} = {}) {
       return O.g.userData.anchor || O.g;
     },
     t => (t === 'client' || t === 'courier' ? 0.45 : t === 'orders' ? 0.16 : 0.32),
+    // заказы лежат стопкой: звезда над стопкой указала бы на верхнюю коробку — ставим её сбоку, у самой коробки
+    t => (t === 'orders' ? [0.34, 0, 0.34] : null),
   );
   function say(t, id, text, ms = 0) {
     const O = objs[t] && objs[t].get(+id);

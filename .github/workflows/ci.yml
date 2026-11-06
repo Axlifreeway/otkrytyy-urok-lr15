@@ -1,15 +1,31 @@
-# Проверки на каждый push и pull request: тесты, актуальность собранных game.js, все уровни в браузере.
+# Проверки: тесты, актуальность собранных game.js, все уровни в браузере.
+# Сквозные тесты (e2e) разбиты на группы (tests/e2e-groups.mjs) и идут параллельно.
+# В pull request запускаются только группы, которых касаются изменённые файлы;
+# в main, по ночам и вручную (Actions → Проверки → Run workflow) — все.
 name: Проверки
 on:
+  # push — только в main: ветка с открытым pull request и так проверяется через pull_request (раньше прогон шёл дважды)
   push:
+    branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 1 * * *' # каждую ночь — полный прогон, даже если в main ничего не менялось
+  workflow_dispatch:
+concurrency:
+  # новый push в тот же pull request отменяет прогон предыдущего — не ждём устаревших проверок
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     # ubuntu-latest уже 26.04, а Playwright 1.56 её не поддерживает — версия закреплена
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 15
+    outputs:
+      groups: ${{ steps.plan.outputs.groups }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -21,13 +37,42 @@ jobs:
         run: npm test
       - name: game.js собраны из текущих исходников
         run: npm run check
+      - name: Какие группы e2e нужны
+        id: plan
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            git diff --name-only "origin/${{ github.base_ref }}...HEAD" > changed.txt
+            echo "Изменены:"; cat changed.txt
+            G=$(node tests/e2e-groups.mjs < changed.txt)
+          else
+            G=$(node -e "import('./tests/e2e-groups.mjs').then(m => console.log(JSON.stringify(Object.keys(m.GROUPS))))")
+          fi
+          echo "Группы e2e: $G"
+          echo "groups=$G" >> "$GITHUB_OUTPUT"
+  e2e:
+    needs: test
+    if: needs.test.outputs.groups != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.test.outputs.groups) }}
+    name: e2e (${{ matrix.group }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Браузер для сквозных тестов
         run: npx playwright install --with-deps chromium
-      - name: Все уровни в браузере, телефон, вход по PIN
-        run: npm run e2e
+      - name: Уровни в браузере — группа ${{ matrix.group }}
+        run: npm run e2e -- --group ${{ matrix.group }}
       - name: Итоги e2e
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e
+          name: e2e-${{ matrix.group }}
           path: tests/out/
