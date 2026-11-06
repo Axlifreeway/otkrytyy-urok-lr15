@@ -9,8 +9,11 @@ import urllib.error
 import urllib.request
 from urllib.parse import quote
 
+import logging
+
 import labsrv
 
+logging.getLogger('labsrv').setLevel(logging.CRITICAL)   # предупреждения сервера (блокировка PIN и т. п.) не засоряют вывод тестов
 KEY = 'test-key'
 
 
@@ -170,6 +173,66 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((list(d['lv']), d['journal'], d['answers']), (['links'], [], {}))
         labs = next(x for x in self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['groups'][0]['students'] if x['id'] == sid)['labs']
         self.assertEqual(labs, {'lr15': 4, 'lr16': 1})
+
+    def raw(self, path):
+        req = urllib.request.Request(self.base + path, headers={'X-Labs-Key': KEY})
+        with urllib.request.urlopen(req) as r:
+            return r.read().decode('utf-8-sig')
+
+    def test_results_export(self):
+        # обычные уровни, бесконечная тренировка, отчёт тетради и студент без работы — в одной ведомости
+        self.group(('Иванов Иван', 'Петрова Анна', 'Сидоров Пётр'))
+        tok = self.login('Иванов')[1]['token']
+        self.call('/api/progress', {'token': tok, 'lab': 'lr15', 'data': {'lv': {'star': {'done': True, 'fails': 0}, 'cols': {'runs': 2}}, 'practice': 2}})
+        ev = lambda typ, data, lab='lr15': self.call('/api/ev', {'type': typ, 'client': 'x', 'lab': lab, 'token': tok, 'data': data})
+        ev('run', {'lv': 2, 'sql': 'SELECT', 'ok': False})
+        ev('run', {'lv': 2, 'sql': 'SELECT 1', 'ok': True})
+        ev('done', {'lv': 2, 'key': 'cols', 'fails': 3, 'pts': 1.5, 'tAll': 81})
+        for f in (0, 0, 2):
+            ev('practice', {'n': 1, 'fails': f})
+        self.call('/api/report', {'token': tok, 'lab': 'lr13t', 'html': '<p>тетрадь</p>', 'pts': 8, 'done': 10})
+        rows = self.call('/api/admin/results?fmt=json', headers={'X-Labs-Key': KEY})[1]['rows']
+        iv = {r['lab']: r for r in rows if r['fio'] == 'Иванов Иван'}
+        self.assertEqual(set(iv), {'lr15', 'lr13t'})
+        r = iv['lr15']
+        self.assertEqual((r['done'], r['total'], r['stars'], r['fails'], r['pts'], r['mark']), (2, 22, 4, 3, 1.5, '2'))
+        self.assertEqual((r['practice'], r['pxFirst'], r['pxFails'], r['trust'], r['runs'], r['errors']), (3, 2, 2, 81, 2, 1))
+        self.assertEqual((iv['lr13t']['repPts'], iv['lr13t']['total']), (8, None))
+        self.assertEqual(sorted(r['fio'] for r in rows if not r['lab']), ['Петрова Анна', 'Сидоров Пётр'])   # без работы — тоже в ведомости
+        # фильтр по лабе: строка на каждого студента группы
+        rows = self.call('/api/admin/results?fmt=json&lab=lr15&grp=' + quote('ИИ-25'), headers={'X-Labs-Key': KEY})[1]['rows']
+        self.assertEqual([(r['fio'], r['done']) for r in rows], [('Иванов Иван', 2), ('Петрова Анна', 0), ('Сидоров Пётр', 0)])
+        # CSV для Excel: «;», запятая в дробях
+        csv = self.raw('/api/admin/results').splitlines()
+        self.assertTrue(csv[0].startswith('Группа;ФИО;Вариант;Лаба;Уровней пройдено'))
+        self.assertIn('ИИ-25;Иванов Иван;101;ЛР-15;2;22;0;нет;4;3;1,5;2;3;2;2;81;2;1;', csv[1] + csv[2])
+        wide = self.raw('/api/admin/results?view=wide').splitlines()
+        self.assertIn('ЛР-13 тетрадь: отчёт', wide[0])
+        self.assertEqual(len(wide), 4)
+        self.assertEqual(self.call('/api/admin/results')[0], 403)
+
+    def test_health_and_errors_logged(self):
+        self.call('/api/ping')
+        self.call('/api/nope')
+        h = self.call('/api/admin/health', headers={'X-Labs-Key': KEY})[1]
+        self.assertGreaterEqual(h['now']['req'], 2)
+        self.assertGreaterEqual(h['now']['err4'], 1)
+        self.assertEqual(h['counts']['students'], 0)
+        # необработанная ошибка: студенту 500, в пульте — текст ошибки, сервер работает дальше
+        store = self.srv.RequestHandlerClass.store
+        orig, store.groups = store.groups, lambda: 1 / 0
+        with self.assertLogs('labsrv', 'ERROR'):
+            self.assertEqual(self.call('/api/groups')[0], 500)
+        store.groups = orig
+        h = self.call('/api/admin/health', headers={'X-Labs-Key': KEY})[1]
+        self.assertEqual(h['now']['err5'], 1)
+        self.assertIn('ZeroDivisionError', h['problems'][0]['text'])
+        self.assertEqual(self.call('/api/groups')[0], 200)
+        # строка состояния: в журнал и в таблицу health
+        s = self.srv.stats.snapshot(store, reset=True)
+        store.add_health(s['now'], s)
+        self.assertIn('работают 0', labsrv.status_line(s))
+        self.assertEqual(len(self.call('/api/admin/health', headers={'X-Labs-Key': KEY})[1]['history']), 1)
 
     def test_events_identity_comes_from_token(self):
         sid = self.group()['Иванов И.']

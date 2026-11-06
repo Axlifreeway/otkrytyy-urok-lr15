@@ -5,6 +5,8 @@ After=network.target
 [Service]
 Environment=LABS_KEY=ЗАМЕНИТЕ-НА-СВОЙ-КЛЮЧ
 Environment=LABS_DB=/opt/labsrv/labs.db
+Environment=LABS_STATUS_MIN=5
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /opt/labsrv/labsrv.py
 User=www-data
 Restart=always

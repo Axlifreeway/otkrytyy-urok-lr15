@@ -74,8 +74,12 @@
   #proj .card .rk { display: inline-block; min-width: 30px; font: 800 18px var(--font); color: var(--mute) }
   #proj .ph { grid-column: 1 / -1; color: var(--sun); font-size: 22px; font-weight: 800; text-align: center; padding-top: 4px }
   .tr { font-weight: 700; font-size: 12.5px; padding: 1px 7px; border-radius: 10px; border: 2px solid var(--ink) } .tr.hi { background: #d8efdc } .tr.mid { background: #fff0b8 } .tr.lo { background: var(--red); color: #fff }
-  #sayBox { margin: 0 16px 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 760px }
-  #sayBox h2 { font-size: 18px } #sayText { font: 500 16px var(--font); padding: 8px 10px; border: 2.5px solid var(--ink); border-radius: 6px; resize: vertical }
+  #sayBox, #expBox, #hlBox { margin: 0 16px 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 760px }
+  #expBox[hidden], #hlBox[hidden] { display: none }
+  #sayBox h2, #expBox h2, #hlBox h2 { font-size: 18px } #hlBox { max-width: 980px }
+  #hlNow { display: flex; gap: 8px; flex-wrap: wrap } #hlNow div { border: 2px solid var(--ink); border-radius: 6px; padding: 4px 10px; background: #fff } #hlNow b { font: 700 18px var(--mono); display: block }
+  #hlNow .bad { background: #fde8e4 } #hlProb pre { font: 500 12px var(--mono); white-space: pre-wrap; max-height: 160px; overflow: auto; background: #23262c; color: #f6f1e3; padding: 6px 8px; border-radius: 4px; margin: 2px 0 6px }
+  #hlHist { font: 500 12px var(--mono); border-collapse: collapse } #hlHist td, #hlHist th { padding: 2px 8px; position: static; cursor: default } #sayText { font: 500 16px var(--font); padding: 8px 10px; border: 2.5px solid var(--ink); border-radius: 6px; resize: vertical }
   .sayrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap } .sayrow select { font-size: 14px; padding: 3px 6px; border: 2.5px solid var(--ink); border-radius: 6px }
   #sayList div { padding: 3px 0; border-top: 1px dashed #d8d0bd }
   .days { display: inline-flex; gap: 6px; align-items: center }
@@ -114,6 +118,8 @@
   <button class="btn" id="sayBtn" title="Сообщение появится у студента: робот на полэкрана">🤖 Робот скажет</button>
   <button class="btn" id="grpBtn">Группы и списки</button>
   <button class="btn" id="projBtn">Проектор</button>
+  <button class="btn" id="expBtn" title="Итоги студентов для ведомости: уровни, звёзды, баллы, бесконечная тренировка, отчёты. Файл .csv для Excel">⬇ Результаты</button>
+  <button class="btn" id="hlBtn" title="Состояние сервера: кто сейчас работает, запросы, ошибки, база, память">🩺 Сервер</button>
   <button class="btn" id="trBtn" title="Обезличенная выгрузка набора по уровням (без ФИО, IP и групп) — для разбора коэффициента доверия. Файл .jsonl">⬇ Данные набора</button>
 </header>
 <div id="sayBox" class="panel" hidden>
@@ -122,6 +128,20 @@
   <div class="sayrow"><label>Кому <select id="sayTo"><option value="">всем</option></select></label>
     <button class="btn on" id="sayGo">Отправить</button><span id="sayMsg" class="mu"></span></div>
   <div id="sayList" class="mu"></div>
+</div>
+<div id="expBox" class="panel" hidden>
+  <h2>Выгрузка результатов</h2>
+  <div class="mu">Все студенты из списков групп, даже кто ещё не начинал. Обычные уровни — пройдено, звёзды, промахи, баллы и оценка по шкале лабы (без ответов на вопросы); бесконечная тренировка — сколько решено и сколько с первой попытки; доверие, команды, время работы, отправленный отчёт (и отчёты тетрадей). Файл открывается в Excel двойным щелчком.</div>
+  <div class="sayrow"><label>Группа <select id="expGrp"></select></label><label>Лаба <select id="expLab"></select></label>
+    <label>Вид <select id="expView"><option value="long">строка — студент × лаба</option><option value="wide">строка — студент, лабы столбцами</option></select></label>
+    <button class="btn on" id="expGo">Скачать .csv</button><span id="expMsg" class="mu"></span></div>
+</div>
+<div id="hlBox" class="panel" hidden>
+  <h2>Состояние сервера <span class="mu" id="hlWhen"></span></h2>
+  <div id="hlNow"></div>
+  <div id="hlProb"></div>
+  <details><summary class="mu">Журнал состояния за сутки</summary><table id="hlHist"></table></details>
+  <div class="mu">То же пишется в журнал сервера: <code>journalctl -u labsrv</code> (строка состояния — раз в несколько минут, ошибки — сразу).</div>
 </div>
 <main>
   <div class="top"><div class="panel kpi" id="kpi"></div><div class="panel hist" id="hist"></div></div>
@@ -437,6 +457,53 @@ $('trBtn').onclick = async () => {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   } catch (e) { alert('Не удалось выгрузить: ' + e.message); }
 };
+// выгрузка результатов для ведомости (server/labsrv.py → /api/admin/results)
+$('expBtn').onclick = () => {
+  const on = $('expBox').hidden; $('expBox').hidden = !on; $('expBtn').classList.toggle('on', on);
+  if (!on) return;
+  const g = $('grpSel').value, lab = $('labSel').value;
+  $('expGrp').innerHTML = '<option value="">все группы</option>' + groupsData.map(x => `<option ${x.name === g ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('expLab').innerHTML = '<option value="">все лабы</option>' + Object.entries(LABS).map(([l, t]) => `<option value="${l}" ${l === lab ? 'selected' : ''}>ЛР-${l.slice(2)} ${t}</option>`).join('')
+    + ['lr13t', 'lr14t', 'lr16t'].map(l => `<option value="${l}">${LABN[l]}</option>`).join('');
+};
+$('expGo').onclick = async () => {
+  const g = $('expGrp').value, lab = $('expLab').value, p = new URLSearchParams({view: $('expView').value});
+  if (g) p.set('grp', g);
+  if (lab) p.set('lab', lab);
+  $('expMsg').textContent = 'Готовлю…';
+  try {
+    const r = await fetch('/api/admin/results?' + p, {headers: {'X-Labs-Key': KEY}});
+    if (!r.ok) throw new Error(r.status);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = ['результаты', g, lab && LABN[lab], dstr(Date.now())].filter(Boolean).join(' ') + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    $('expMsg').textContent = '';
+  } catch (e) { $('expMsg').textContent = 'Не удалось выгрузить: ' + e.message; }
+};
+// состояние сервера (/api/admin/health): обновляется, пока открыто
+let hlTimer = 0;
+$('hlBtn').onclick = () => {
+  const on = $('hlBox').hidden; $('hlBox').hidden = !on; $('hlBtn').classList.toggle('on', on);
+  clearInterval(hlTimer);
+  if (on) { loadHealth(); hlTimer = setInterval(loadHealth, 15000); }
+};
+const PROB = {error: 'ошибка сервера', slow: 'медленный запрос', pin: 'блокировка PIN'};
+async function loadHealth() {
+  let h;
+  try { h = await api('/api/admin/health'); } catch (e) { $('hlWhen').textContent = '— нет связи с сервером'; return; }
+  const n = h.now, up = n.uptimeMin, c = h.counts;
+  const box = (v, t, bad) => `<div class="${bad ? 'bad' : ''}"><b>${v ?? '—'}</b>${t}</div>`;
+  $('hlWhen').textContent = `· работает ${up < 120 ? up + ' мин' : Math.floor(up / 60) + ' ч'} · обновлено ${hm(Date.now())}`;
+  $('hlNow').innerHTML = box(n.active2, 'работают сейчас') + box(n.active15, 'за 15 мин')
+    + box(n.req, `запросов за ${h.everyMin} мин`) + box(n.err5, 'ошибок сервера', n.err5 > 0) + box(n.err4, 'отказов (4xx)')
+    + box(n.slow, 'медленных', n.slow > 0) + box(n.dbMb + ' МБ', 'база') + box(n.memMb != null ? n.memMb + ' МБ' : null, 'память')
+    + box(c.withPin + ' / ' + c.students, 'вошли / студентов') + box(c.reports, 'отчётов');
+  $('hlProb').innerHTML = h.problems.length ? '<b>Последние проблемы:</b>' + h.problems.slice(0, 10).map(p => `<div><span class="mu">${dhm(p.ts)}</span> · ${esc(PROB[p.kind] || p.kind)}${p.kind === 'error' ? `<pre>${esc(p.text)}</pre>` : ' — ' + esc(p.text)}</div>`).join('') : '<span class="mu">Ошибок с запуска нет.</span>';
+  $('hlHist').innerHTML = '<tr><th>Время</th><th>Работают</th><th>Запросов</th><th>Событий</th><th>5xx</th><th>4xx</th><th>Медл.</th><th>База, МБ</th><th>Память, МБ</th></tr>'
+    + h.history.slice().reverse().map(x => `<tr><td>${dhm(x.ts)}</td><td>${x.active2}</td><td>${x.req}</td><td>${x.ev}</td><td class="${x.err5 ? 'bad' : ''}">${x.err5}</td><td>${x.err4}</td><td>${x.slow}</td><td>${x.dbMb}</td><td>${x.memMb ?? ''}</td></tr>`).join('');
+}
 $('repBtn').onclick = () => { const on = $('reports').hidden; $('reports').hidden = !on; $('repBtn').classList.toggle('on', on); renderReports(); };
 
 let started = false;

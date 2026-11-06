@@ -12,22 +12,32 @@
 Ключ преподавателя и токен студента передаются в заголовках X-Labs-Key и X-Labs-Token
 (чтобы не попадать в журналы nginx). Старый способ — параметром в адресе — тоже принимается.
 """
+import collections
+import csv
 import hashlib
 import hmac
+import io
 import json
+import logging
 import mimetypes
 import os
 import re
 import sqlite3
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 KEY = os.environ.get('LABS_KEY', '')
 PORT = int(os.environ.get('LABS_PORT', '8090'))
 DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs.db'))
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
+STATUS_MIN = float(os.environ.get('LABS_STATUS_MIN', '5'))   # раз в сколько минут писать строку состояния в журнал (0 — не писать)
+SLOW_MS = 1500                              # запрос дольше — пишется в журнал как медленный
+HEALTH_DAYS = 30                            # сколько дней хранить строки состояния в базе (таблица health)
+
+LOG = logging.getLogger('labsrv')
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice', 'trace'}   # 'report' пишет сам сервер
 LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 18, 'lr22': 14, 'lr23': 13, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
@@ -66,6 +76,7 @@ CREATE TABLE IF NOT EXISTS setting (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS trace (id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, grp TEXT, data TEXT);
 CREATE INDEX IF NOT EXISTS trace_ts ON trace(ts);
 CREATE TABLE IF NOT EXISTS label (client TEXT, lab TEXT, lv INTEGER, val TEXT, ts INTEGER, PRIMARY KEY (client, lab, lv));
+CREATE TABLE IF NOT EXISTS health (ts INTEGER PRIMARY KEY, data TEXT);
 '''
 MAX_TRACE = 60000                           # трасса набора одного уровня (common/trust.js) — обычно 2–15 КБ
 LABELS = {'honest', 'copy'}                 # пометка преподавателя для разбора: честно / переписывал
@@ -125,6 +136,11 @@ def credit(lab, d):
         if not (lv.get(k) or {}).get('done'):
             lv[k] = {'done': True, 'auto': True, 'runs': 0, 'fails': 0}
     return {**d, 'lv': lv}
+
+
+def mark(pts):
+    """Оценка за уровни 3D-лабы (из 9 баллов, без ответов на вопросы) — та же шкала, что в common/shell.js (MARK)."""
+    return '5' if pts >= 8.5 else '4' if pts >= 6.5 else '3' if pts >= 4.5 else '2'
 
 
 def merge(a, b):
@@ -261,6 +277,7 @@ class Store:
 
     def __init__(self, path, key):
         self.key = key
+        self.path = path
         self.lock = threading.Lock()
         self.con = sqlite3.connect(path, check_same_thread=False)
         self.con.execute('PRAGMA journal_mode=WAL')
@@ -650,6 +667,105 @@ class Store:
             self.con.commit()
 
 
+    # ── журнал состояния сервера ──
+    def db_bytes(self):
+        return sum(os.path.getsize(f) for f in (self.path, self.path + '-wal') if os.path.isfile(f))
+
+    def counts(self):
+        with self.lock:
+            q = lambda sql: self.con.execute(sql).fetchone()[0]
+            return {'students': q('SELECT count(*) FROM student'), 'withPin': q('SELECT count(*) FROM student WHERE pin IS NOT NULL'),
+                    'events': q('SELECT coalesce(max(id), 0) FROM ev'), 'reports': q('SELECT count(*) FROM report')}
+
+    def add_health(self, ts, data):
+        with self.lock:
+            self.con.execute('INSERT OR REPLACE INTO health (ts, data) VALUES (?, ?)', (ts, json.dumps(data, ensure_ascii=False)))
+            self.con.execute('DELETE FROM health WHERE ts < ?', (ts - HEALTH_DAYS * 86400000,))
+            self.con.commit()
+
+    def health(self, since):
+        with self.lock:
+            return [{'ts': ts, **json.loads(d)} for ts, d in self.con.execute('SELECT ts, data FROM health WHERE ts >= ? ORDER BY ts', (since,))]
+
+    # ── итоги студентов для ведомости (пульт → «Выгрузка результатов») ──
+    def results(self, grp='', lab=''):
+        """Строка — студент × лаба: обычные уровни (пройдено, звёзды, промахи, баллы), бесконечная тренировка
+        (решено, с первой попытки), доверие, команды, время работы, отчёт. Студенты без работы тоже попадают
+        в выгрузку — пустой строкой, чтобы ведомость была полной."""
+        cond, args = '', []
+        if grp:
+            cond, args = ' WHERE s.grp = ?', [grp]
+        with self.lock:
+            students = self.con.execute('SELECT s.id, s.name, s.grp, g.ord * 100 + s.idx, s.idx FROM student s JOIN grp g ON g.name = s.grp'
+                                        + cond + ' ORDER BY g.ord, s.idx = 0, s.idx, s.name', args).fetchall()
+            prog = {}
+            for sid, lb, lv, px in self.con.execute("SELECT sid, lab, json_extract(data, '$.lv'), json_extract(data, '$.practice') FROM progress"):
+                try:
+                    prog[(sid, lb)] = {'lv': json.loads(lv or '{}'), 'practice': int(px or 0)}
+                except (ValueError, TypeError):
+                    pass
+            for k, e in self.ev_progress().items():
+                prog[k] = merge(prog.get(k), e)
+            ev = self.con.execute("SELECT client, lab, type, ts, json_extract(data, '$.pts'), json_extract(data, '$.fails'), "
+                                  "json_extract(data, '$.tAll'), json_extract(data, '$.ok') FROM ev WHERE client LIKE 's%' AND type != 'report' ORDER BY ts").fetchall()
+            reps = self.con.execute('SELECT client, lab, ts, pts, done FROM report WHERE client LIKE \'s%\' ORDER BY id').fetchall()
+        A = {}
+        new = lambda: {'pts': None, 'trust': None, 'runs': 0, 'errors': 0, 'pxN': 0, 'pxFirst': 0, 'pxFails': 0, 'first': 0, 'last': 0,
+                       'activeMs': 0, 'prev': 0, 'days': set(), 'rep': None, 'reps': 0}
+        for client, lb, typ, ts, pts, fails, tall, ok in ev:
+            a = A.setdefault((client, lb), new())
+            if isinstance(pts, (int, float)) and typ in ('done', 'hb', 'hello', 'submit'):
+                a['pts'] = max(a['pts'] or 0, pts)
+            if isinstance(tall, (int, float)):
+                a['trust'] = tall
+            if typ == 'hb':                     # пульс идёт и от открытой, но брошенной вкладки — во время работы не входит
+                continue
+            a['first'] = a['first'] or ts
+            a['last'] = ts
+            if a['prev'] and ts - a['prev'] < 5 * 60000:
+                a['activeMs'] += ts - a['prev']
+            a['prev'] = ts
+            a['days'].add(time.strftime('%Y-%m-%d', time.localtime(ts / 1000)))
+            if typ == 'run':
+                a['runs'] += 1
+                a['errors'] += 0 if ok else 1
+            elif typ == 'lint':
+                a['runs'] += 1
+                a['errors'] += 1
+            elif typ == 'practice':
+                a['pxN'] += 1
+                a['pxFirst'] += 1 if not fails else 0
+                a['pxFails'] += fails if isinstance(fails, int) else 0
+        for client, lb, ts, pts, done in reps:
+            a = A.setdefault((client, lb), new())
+            a['rep'], a['reps'] = {'ts': ts, 'pts': pts, 'done': done}, a['reps'] + 1
+        out = []
+        for sid, name, g, seed, idx in students:
+            labs = sorted({lb for (c, lb) in A if c == f's{sid}'} | {lb for (n, lb) in prog if n == sid})
+            if lab:
+                labs = [lab]
+            for lb in labs or ['']:
+                a = A.get((f's{sid}', lb)) or new()
+                d = credit(lb, prog.get((sid, lb)) or {})
+                lv = {k: r for k, r in (d.get('lv') or {}).items() if k != 'practice' and isinstance(r, dict) and r.get('done')}
+                own = [r for r in lv.values() if not r.get('auto')]
+                fails = [int(r.get('fails') or 0) for r in own]
+                total = LEVELS.get(lb)
+                pts = round(a['pts'], 1) if a['pts'] is not None else (a['rep'] or {}).get('pts')
+                out.append({
+                    'fio': name, 'grp': g, 'seed': seed, 'inList': bool(idx), 'lab': lb,
+                    'done': min(len(lv), total or len(lv)), 'total': total, 'auto': len(lv) - len(own),
+                    'final': bool((lv.get(FINAL.get(lb, 'final')) or {})) if total else None,
+                    'stars': sum(3 if f == 0 else 2 if f <= 2 else 1 for f in fails), 'fails': sum(fails),
+                    'pts': pts, 'mark': mark(pts) if total and pts is not None else '',
+                    'practice': max(a['pxN'], int(d.get('practice') or 0)), 'pxFirst': a['pxFirst'], 'pxFails': a['pxFails'],
+                    'trust': a['trust'], 'runs': a['runs'], 'errors': a['errors'],
+                    'minutes': round(a['activeMs'] / 60000), 'days': len(a['days']), 'first': a['first'] or None, 'last': a['last'] or None,
+                    'report': a['rep'], 'reports': a['reps'],
+                })
+        return out
+
+
 class RateLimit:
     """Не больше N запросов в секунду с одного IP."""
 
@@ -669,15 +785,119 @@ class RateLimit:
             return w[1] <= self.per_sec
 
 
+class Stats:
+    """Счётчики для журнала состояния: запросы и ответы за окно (между строками состояния) и с запуска,
+    кто из студентов сейчас работает, последние ошибки (их видно в пульте → «Сервер»)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.started = now_ms()
+        self.total = collections.Counter()
+        self.win = collections.Counter()
+        self.slowest = 0
+        self.active = {}                    # client → время последнего события
+        self.problems = collections.deque(maxlen=50)
+
+    def hit(self, method, path, code, ms):
+        kind = 'ok' if code < 400 else 'err4' if code < 500 else 'err5'
+        with self.lock:
+            for c in (self.total, self.win):
+                c['req'] += 1
+                c[kind] += 1
+                if code == 429:
+                    c['rate'] += 1
+                if ms > SLOW_MS:
+                    c['slow'] += 1
+                if path == '/api/ev' and code == 200:
+                    c['ev'] += 1
+            self.slowest = max(self.slowest, ms)
+        if ms > SLOW_MS:
+            self.problem('slow', f'{method} {path} — {ms} мс')
+
+    def seen(self, client):
+        with self.lock:
+            self.active[client] = now_ms()
+
+    def problem(self, kind, text):
+        with self.lock:
+            self.problems.append({'ts': now_ms(), 'kind': kind, 'text': clip(text, 2000)})
+        (LOG.error if kind == 'error' else LOG.warning)('%s: %s', kind, text)
+
+    def snapshot(self, store, reset=False):
+        """Текущее состояние: работают (по событиям за 2 и 15 минут), запросы за окно, база, память."""
+        now = now_ms()
+        with self.lock:
+            self.active = {c: t for c, t in self.active.items() if now - t < 3600000}
+            act2 = sum(1 for t in self.active.values() if now - t < 120000)
+            act15 = sum(1 for t in self.active.values() if now - t < 900000)
+            win, slowest = dict(self.win), self.slowest
+            if reset:
+                self.win, self.slowest = collections.Counter(), 0
+        return {'now': now, 'uptimeMin': (now - self.started) // 60000, 'active2': act2, 'active15': act15,
+                'req': win.get('req', 0), 'ev': win.get('ev', 0), 'err4': win.get('err4', 0), 'err5': win.get('err5', 0),
+                'rate': win.get('rate', 0), 'slow': win.get('slow', 0), 'slowestMs': slowest,
+                'dbMb': round(store.db_bytes() / 1048576, 1), 'memMb': mem_mb(), 'threads': threading.active_count()}
+
+
+def mem_mb():
+    try:
+        with open('/proc/self/status') as f:
+            return round(int(next(x for x in f if x.startswith('VmRSS:')).split()[1]) / 1024, 1)
+    except (OSError, StopIteration, ValueError, IndexError):
+        return None
+
+
+def status_line(s):
+    return (f"состояние: работают {s['active2']} (за 15 мин — {s['active15']}), запросов {s['req']}, событий {s['ev']}, "
+            f"ошибок 4xx {s['err4']} / 5xx {s['err5']}, отказов по частоте {s['rate']}, медленных {s['slow']} "
+            f"(самый долгий {s['slowestMs']} мс), база {s['dbMb']} МБ, память {s['memMb']} МБ, потоков {s['threads']}")
+
+
+def monitor(store, stats, every_min, stop=None):
+    """Раз в every_min минут — строка состояния в журнал (journalctl -u labsrv) и в таблицу health (график в пульте)."""
+    stop = stop or threading.Event()
+    while not stop.wait(every_min * 60):
+        try:
+            s = stats.snapshot(store, reset=True)
+            LOG.info(status_line(s))
+            store.add_health(s['now'], {k: v for k, v in s.items() if k != 'now'})
+        except Exception:                   # журнал не должен ронять сервер
+            LOG.exception('monitor')
+
+
 # ═══════════════════════════════════════════════════════════════ HTTP ══
 class Handler(BaseHTTPRequestHandler):
     server_version = 'labsrv/2'
     store = None          # задаются в make_server
     rate = None
+    stats = None
     static_root = ''
+    code = 0
 
     def log_message(self, *a):
-        pass
+        pass                  # обычный журнал запросов не пишем: его ведёт nginx; ошибки и состояние — через Stats
+
+    def send_response(self, code, message=None):
+        self.code = code
+        super().send_response(code, message)
+
+    def run(self, method, fn):
+        """Выполнить обработчик: время, код ответа и необработанные исключения — в Stats и журнал."""
+        t0 = time.monotonic()
+        try:
+            fn()
+        except (BrokenPipeError, ConnectionResetError):
+            pass                              # студент закрыл вкладку посреди ответа
+        except Exception:
+            self.stats.problem('error', f'{method} {urlparse(self.path).path}\n{traceback.format_exc()}')
+            if not self.code:
+                try:
+                    self.send(500, {'err': 'server'})
+                except OSError:
+                    pass
+        path = urlparse(self.path).path
+        if path.startswith('/api/'):
+            self.stats.hit(method, path, self.code or 500, int((time.monotonic() - t0) * 1000))
 
     # ── ответ и разбор запроса ──
     def send(self, code, obj):
@@ -709,6 +929,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── маршруты ──
     def do_GET(self):
+        self.run('GET', self._get)
+
+    def do_POST(self):
+        self.run('POST', self._post)
+
+    def _get(self):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         route = GET_ROUTES.get(u.path)
@@ -721,7 +947,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.static(u.path)
         return self.send(404, {'err': 'not found'})
 
-    def do_POST(self):
+    def _post(self):
         path = urlparse(self.path).path
         if not self.rate.allow(self.ip()):
             return self.send(429, {'err': 'rate'})
@@ -820,6 +1046,76 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def admin_health(self, q):
+        """Пульт → «Сервер»: состояние сейчас, строки состояния за сутки (или ?hours=…), последние ошибки."""
+        try:
+            hours = min(max(float(q.get('hours') or 24), 1), 24 * HEALTH_DAYS)
+        except ValueError:
+            hours = 24
+        now = now_ms()
+        with self.stats.lock:
+            problems = list(self.stats.problems)[::-1]
+            total = dict(self.stats.total)
+        self.send(200, {'now': self.stats.snapshot(self.store), 'total': total, 'counts': self.store.counts(),
+                        'history': self.store.health(now - int(hours * 3600000)), 'problems': problems, 'everyMin': STATUS_MIN})
+
+    RESULT_COLS = [   # (ключ, заголовок) — длинная выгрузка: строка — студент × лаба
+        ('grp', 'Группа'), ('fio', 'ФИО'), ('seed', 'Вариант'), ('lab', 'Лаба'),
+        ('done', 'Уровней пройдено'), ('total', 'Уровней всего'), ('auto', 'Зачтено автоматически'), ('final', 'Контрольный пройден'),
+        ('stars', 'Звёзды'), ('fails', 'Промахов на уровнях'), ('pts', 'Баллы за уровни (из 9)'), ('mark', 'Оценка по баллам'),
+        ('practice', 'Тренировка: решено'), ('pxFirst', 'Тренировка: с первой попытки'), ('pxFails', 'Тренировка: промахов'),
+        ('trust', 'Доверие, %'), ('runs', 'Команд'), ('errors', 'Из них с ошибкой'), ('minutes', 'Время работы, мин'), ('days', 'Дней работы'),
+        ('first', 'Начал'), ('last', 'Последнее действие'), ('repTs', 'Отчёт отправлен'), ('repPts', 'Баллы в отчёте'), ('reports', 'Отправок отчёта'),
+        ('inList', 'В списке группы'),
+    ]
+    WIDE = [('done', 'уровней'), ('stars', 'звёзд'), ('pts', 'баллы'), ('mark', 'оценка'), ('practice', '∞ решено'), ('trust', 'доверие'), ('repPts', 'отчёт')]
+
+    @staticmethod
+    def cell(k, v):
+        if v is None or v == '':
+            return ''
+        if isinstance(v, bool):
+            return 'да' if v else 'нет'
+        if k in ('first', 'last', 'repTs'):
+            return time.strftime('%Y-%m-%d %H:%M', time.localtime(v / 1000))
+        if k == 'lab':
+            return 'ЛР-' + v[2:].replace('t', ' тетрадь') if v.startswith('lr') else v
+        if isinstance(v, float):
+            return f'{v:g}'.replace('.', ',')      # Excel с русскими настройками ждёт запятую
+        return v
+
+    def admin_results(self, q):
+        """Выгрузка итогов: ?grp=…&lab=…&view=long|wide&fmt=csv|json. CSV — для Excel: «;», UTF-8 с BOM."""
+        rows = self.store.results(clip(q.get('grp'), 20), clip(q.get('lab'), 10))
+        for r in rows:
+            rep = r.pop('report') or {}
+            r['repTs'], r['repPts'] = rep.get('ts'), rep.get('pts')
+        if q.get('fmt') == 'json':
+            return self.send(200, {'rows': rows, 'levels': LEVELS})
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=';', lineterminator='\r\n')
+        if q.get('view') == 'wide':             # строка — студент, по столбцу на каждую лабу
+            labs = sorted({r['lab'] for r in rows if r['lab']}, key=lambda x: (int(re.sub(r'\D', '', x) or 0), x))
+            w.writerow(['Группа', 'ФИО', 'Вариант'] + [f'{self.cell("lab", lb)}: {t}' for lb in labs for _, t in self.WIDE])
+            people = {}
+            for r in rows:
+                people.setdefault((r['grp'], r['fio'], r['seed']), {})[r['lab']] = r
+            for (g, fio, seed), by in people.items():
+                w.writerow([g, fio, seed] + [self.cell(k, (by.get(lb) or {}).get(k)) for lb in labs for k, _ in self.WIDE])
+        else:
+            w.writerow([t for _, t in self.RESULT_COLS])
+            for r in rows:
+                w.writerow([self.cell(k, r.get(k)) for k, _ in self.RESULT_COLS])
+        body = ('﻿' + buf.getvalue()).encode('utf-8')
+        name = '-'.join(x for x in ('results', q.get('grp') or '', q.get('lab') or '', time.strftime('%Y%m%d')) if x)
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/csv; charset=utf-8')
+        self.send_header('Content-Disposition', f"attachment; filename=\"results.csv\"; filename*=UTF-8''{quote(name)}.csv")
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     # POST
     def admin_label(self, e):
         try:
@@ -855,6 +1151,7 @@ class Handler(BaseHTTPRequestHandler):
         # событие, досланное после обрыва связи, — со своим временем: age — сколько оно ждало в очереди у студента
         age = e.get('age') if isinstance(e.get('age'), int) and not isinstance(e.get('age'), bool) else 0
         ts = now_ms() - min(max(age, 0), MAX_AGE)
+        self.stats.seen(client)
         if typ == 'trace':                      # сырые данные набора — отдельно, в сводку и журнал пульта не идут
             self.store.add_trace(ts, client, e.get('lab'), grp, e.get('data'))
         else:
@@ -870,7 +1167,10 @@ class Handler(BaseHTTPRequestHandler):
         sid, err = self.store.find(clip(e.get('grp'), 20), clip(e.get('name'), 60), dev, self.ip())
         if err:
             return self.send(*err)
-        self.send(*self.store.login(sid, pin, dev, self.ip()))
+        code, r = self.store.login(sid, pin, dev, self.ip())
+        if 'закрыт' in str(r.get('err', '')):
+            self.stats.problem('pin', f'вход закрыт на 10 минут: студент № {sid}, IP {self.ip()}')
+        self.send(code, r)
 
     def post_progress(self, e):
         sid = self.sid(e)
@@ -987,6 +1287,8 @@ GET_ROUTES = {
     '/api/admin/report': (Handler.admin_report, True),
     '/api/admin/labels': (Handler.admin_labels, True),
     '/api/admin/traces': (Handler.admin_traces, True),
+    '/api/admin/health': (Handler.admin_health, True),
+    '/api/admin/results': (Handler.admin_results, True),
 }
 POST_ROUTES = {
     '/api/ev': (Handler.ev, False),
@@ -1008,13 +1310,24 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def make_server(port=PORT, db=DB, key=KEY, static=STATIC, host='127.0.0.1'):
-    h = type('H', (Handler,), {'store': Store(db, key), 'rate': RateLimit(RATE_PER_SEC), 'static_root': static})
-    return Server((host, port), h)
+def make_server(port=PORT, db=DB, key=KEY, static=STATIC, host='127.0.0.1', status_min=0):
+    """status_min > 0 — раз в столько минут строка состояния в журнал и в таблицу health."""
+    store, stats = Store(db, key), Stats()
+    h = type('H', (Handler,), {'store': store, 'rate': RateLimit(RATE_PER_SEC), 'stats': stats, 'static_root': static})
+    srv = Server((host, port), h)
+    srv.stats = stats
+    if status_min > 0:
+        threading.Thread(target=monitor, args=(store, stats, status_min), daemon=True).start()
+    return srv
 
 
 if __name__ == '__main__':
+    # в systemd строки уходят в journald: journalctl -u labsrv (время ставит сам journald)
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
     if not KEY:
-        print('ВНИМАНИЕ: не задан LABS_KEY — панель преподавателя будет недоступна')
-    print(f'labsrv: 127.0.0.1:{PORT}, база {DB}')
-    make_server().serve_forever()
+        LOG.warning('не задан LABS_KEY — панель преподавателя будет недоступна')
+    srv = make_server(status_min=STATUS_MIN)
+    c = srv.RequestHandlerClass.store.counts()
+    LOG.info('labsrv запущен: 127.0.0.1:%s, база %s (%s МБ), студентов %s, событий %s, отчётов %s, строка состояния — раз в %s мин',
+             PORT, DB, round(srv.RequestHandlerClass.store.db_bytes() / 1048576, 1), c['students'], c['events'], c['reports'], STATUS_MIN)
+    srv.serve_forever()
