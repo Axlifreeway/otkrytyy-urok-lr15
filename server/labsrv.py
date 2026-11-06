@@ -29,7 +29,7 @@ PORT = int(os.environ.get('LABS_PORT', '8090'))
 DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs.db'))
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
-TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice'}   # 'report' пишет сам сервер
+TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice', 'trace'}   # 'report' пишет сам сервер
 LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 18, 'lr22': 14, 'lr23': 13, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
 GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24')   # пиццерия и библиотека: открывает преподаватель
 MAX_BODY = 400000
@@ -63,7 +63,12 @@ CREATE TABLE IF NOT EXISTS report (
 CREATE INDEX IF NOT EXISTS report_ts ON report(ts);
 CREATE INDEX IF NOT EXISTS report_client ON report(client, lab, ts);
 CREATE TABLE IF NOT EXISTS setting (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS trace (id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, grp TEXT, data TEXT);
+CREATE INDEX IF NOT EXISTS trace_ts ON trace(ts);
+CREATE TABLE IF NOT EXISTS label (client TEXT, lab TEXT, lv INTEGER, val TEXT, ts INTEGER, PRIMARY KEY (client, lab, lv));
 '''
+MAX_TRACE = 60000                           # трасса набора одного уровня (common/trust.js) — обычно 2–15 КБ
+LABELS = {'honest', 'copy'}                 # пометка преподавателя для разбора: честно / переписывал
 # столбцы, добавленные позже: (таблица, столбец, тип) — для баз, созданных старой версией
 COLUMNS = [
     ('student', 'pin_dev', 'TEXT'),         # с какого устройства задан PIN
@@ -296,7 +301,7 @@ class Store:
         return sid if self.key and hmac.compare_digest(self.token_for(sid), str(token)) else None
 
     def key_ok(self, key):
-        return bool(self.key) and hmac.compare_digest(str(key or ''), self.key)
+        return bool(self.key) and hmac.compare_digest(str(key or '').encode(), self.key.encode())   # байты: ключ не из ASCII ронял обработчик
 
     # ── студенты ──
     def has_groups(self):
@@ -399,6 +404,67 @@ class Store:
             rows = self.con.execute('SELECT ts, type, data FROM ev WHERE client = ? AND ts >= ? AND ts < ? ORDER BY ts',
                                     (client, since, until or 1 << 62)).fetchall()
         return [{'ts': r[0], 'type': r[1], 'data': json.loads(r[2] or '{}')} for r in rows if r[1] != 'hb']
+
+    # ── трассы набора и пометки для разбора коэффициента доверия ──
+    def add_trace(self, ts, client, lab, grp, data):
+        body = json.dumps(data if isinstance(data, dict) else {}, ensure_ascii=False)
+        if len(body) > MAX_TRACE:
+            return
+        with self.lock:
+            self.con.execute('INSERT INTO trace (ts, client, lab, grp, data) VALUES (?,?,?,?,?)',
+                             (ts, clip(client, 40), clip(lab, 10), clip(grp, 20), body))
+            self.con.commit()
+
+    def set_label(self, client, lab, lv, val):
+        with self.lock:
+            if val in LABELS:
+                self.con.execute('INSERT OR REPLACE INTO label (client, lab, lv, val, ts) VALUES (?,?,?,?,?)', (client, lab, lv, val, now_ms()))
+            else:
+                self.con.execute('DELETE FROM label WHERE client = ? AND lab = ? AND lv = ?', (client, lab, lv))
+            self.con.commit()
+
+    def labels(self, client, lab):
+        with self.lock:
+            return {str(r[0]): r[1] for r in self.con.execute('SELECT lv, val FROM label WHERE client = ? AND lab = ?', (client, lab))}
+
+    def anon_salt(self):
+        with self.lock:
+            r = self.con.execute("SELECT v FROM setting WHERE k = 'anon_salt'").fetchone()
+            if r:
+                return r[0]
+            v = os.urandom(16).hex()            # своя соль: псевдонимы постоянны между выгрузками, но по ним не узнать студента
+            self.con.execute("INSERT INTO setting (k, v) VALUES ('anon_salt', ?)", (v,))
+            self.con.commit()
+            return v
+
+    def export_traces(self, since=0, lab='', with_sql=True):
+        """Обезличенная выгрузка: без ФИО, IP, устройства; студент и группа — псевдонимы.
+        Строка — один пройденный уровень: трасса набора, итог доверия, пометка преподавателя, команды уровня."""
+        salt = self.anon_salt().encode()
+        pid = lambda c: hmac.new(salt, str(c).encode(), 'sha256').hexdigest()[:12]
+        sql, args = 'SELECT ts, client, lab, grp, data FROM trace WHERE ts >= ?', [since]
+        if lab:
+            sql += ' AND lab = ?'
+            args.append(lab)
+        with self.lock:
+            rows = self.con.execute(sql + ' ORDER BY ts', args).fetchall()
+            labels = {(r[0], r[1], r[2]): r[3] for r in self.con.execute('SELECT client, lab, lv, val FROM label')}
+            journals = {}
+            if with_sql:
+                for sid, lb, data in self.con.execute('SELECT sid, lab, data FROM progress'):
+                    try:
+                        journals[(f's{sid}', lb)] = json.loads(data).get('journal') or []
+                    except (ValueError, AttributeError):
+                        pass
+        groups = {g: f'g{i + 1}' for i, g in enumerate(sorted({r[3] or '' for r in rows}))}
+        for ts, client, lb, grp, data in rows:
+            d = json.loads(data or '{}')
+            lv = d.get('lv') if isinstance(d.get('lv'), int) else 0
+            out = {'student': pid(client), 'group': groups[grp or ''], 'lab': lb, 'day': time.strftime('%Y-%m-%d', time.localtime(ts / 1000)), **d,
+                   'label': labels.get((client, lb, lv)) or labels.get((client, lb, 0))}
+            if with_sql:
+                out['sql'] = [j.get('q') for j in journals.get((client, lb), []) if isinstance(j, dict) and j.get('lv') == d.get('key')][-20:]
+            yield out
 
     # ── робот говорит: объявления преподавателя ──
     def add_say(self, grp, text, mode, sid=None):
@@ -735,7 +801,37 @@ class Handler(BaseHTTPRequestHandler):
             r = None
         self.send(200, r) if r else self.send(404, {'err': 'not found'})
 
+    def admin_labels(self, q):
+        self.send(200, {'labels': self.store.labels(q.get('client', ''), q.get('lab', ''))})
+
+    def admin_traces(self, q):
+        """JSONL для скачивания (пульт → «Данные набора»): ?since=мс&lab=lr15&sql=0"""
+        try:
+            since = int(q.get('since') or 0)
+        except ValueError:
+            since = 0
+        lines = [json.dumps(r, ensure_ascii=False) for r in self.store.export_traces(since, q.get('lab') or '', q.get('sql') != '0')]
+        body = ('\n'.join(lines) + ('\n' if lines else '')).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/x-ndjson; charset=utf-8')
+        self.send_header('Content-Disposition', f'attachment; filename="traces-{time.strftime("%Y%m%d")}.jsonl"')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     # POST
+    def admin_label(self, e):
+        try:
+            lv = int(e.get('lv') or 0)
+        except (TypeError, ValueError):
+            return self.send(400, {'err': 'lv'})
+        client, lab = clip(e.get('client'), 40), clip(e.get('lab'), 10)
+        if not client or not lab:
+            return self.send(400, {'err': 'client'})
+        self.store.set_label(client, lab, lv, e.get('val'))
+        self.send(200, {'labels': self.store.labels(client, lab)})
+
     def closed(self, lab):
         return lab in GATED and not self.store.labs_open().get(lab)
 
@@ -759,7 +855,10 @@ class Handler(BaseHTTPRequestHandler):
         # событие, досланное после обрыва связи, — со своим временем: age — сколько оно ждало в очереди у студента
         age = e.get('age') if isinstance(e.get('age'), int) and not isinstance(e.get('age'), bool) else 0
         ts = now_ms() - min(max(age, 0), MAX_AGE)
-        self.store.add_event(ts, client, e.get('lab'), fio, grp, seed, typ, e.get('data'), self.ip())
+        if typ == 'trace':                      # сырые данные набора — отдельно, в сводку и журнал пульта не идут
+            self.store.add_trace(ts, client, e.get('lab'), grp, e.get('data'))
+        else:
+            self.store.add_event(ts, client, e.get('lab'), fio, grp, seed, typ, e.get('data'), self.ip())
         self.send(200, {'ok': True})
 
     def login(self, e):
@@ -886,6 +985,8 @@ GET_ROUTES = {
     '/api/admin/reports': (Handler.admin_reports, True),
     '/api/labs': (Handler.get_labs, False),
     '/api/admin/report': (Handler.admin_report, True),
+    '/api/admin/labels': (Handler.admin_labels, True),
+    '/api/admin/traces': (Handler.admin_traces, True),
 }
 POST_ROUTES = {
     '/api/ev': (Handler.ev, False),
@@ -898,6 +999,7 @@ POST_ROUTES = {
     '/api/admin/say': (Handler.admin_say, True),
     '/api/admin/delgroup': (Handler.admin_delgroup, True),
     '/api/admin/labs': (Handler.admin_labs, True),
+    '/api/admin/label': (Handler.admin_label, True),
 }
 
 

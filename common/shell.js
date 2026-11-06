@@ -23,7 +23,7 @@ export const setRunning = v => {
 };
 let cfg = null,
   W = null,
-  T = {level() {}, away() {}, flag() {}, ran() {}, finish: () => null}; // коэффициент доверия к набору (common/trust.js)
+  T = {level() {}, away() {}, flag() {}, ran() {}, finish: () => null, trace: () => null}; // коэффициент доверия к набору (common/trust.js)
 const isErr = j => /^ERROR|ошибка/.test(j.o);
 
 /* cfg:
@@ -317,6 +317,18 @@ export async function success(lv, rec) {
     trust: tr ? tr.s : null,
     ...trustAll(),
   });
+  // сырые данные набора — для разбора алгоритма доверия (выгружаются с сервера обезличенно)
+  const raw = T.trace();
+  if (raw)
+    report('trace', {
+      lv: G.lv + 1,
+      key: lv.key,
+      fails: rec.fails || 0,
+      stars: starsOf(rec),
+      tr: tr ? tr.s : null,
+      tw: tr ? tr.why.join(',') : '',
+      ...raw,
+    });
   // в протокол — последние команды уровня; ошибки — только там, где отказ СУБД и был целью
   const keepErr = ['custom', 'error', 'tx'].includes(lv.check); // отказ СУБД здесь — часть решения
   const js = G.P.journal.filter(j => j.lv === lv.key && (keepErr || !isErr(j))).slice(lv.check === 'tx' ? -8 : -4);
