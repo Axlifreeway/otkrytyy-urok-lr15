@@ -221,29 +221,138 @@ export function parsePlan(text) {
 const kindOf = t =>
   /Seq Scan/.test(t)
     ? 'seq'
-    : /Index Only Scan|Index Scan|Bitmap/.test(t)
-      ? 'idx'
-      : /Join|Nested Loop|Hash$/.test(t)
-        ? 'join'
-        : /Sort|Aggregate|Limit|Unique|Group/.test(t)
-          ? 'op'
-          : 'other';
+    : /Bitmap/.test(t)
+      ? 'bmp'
+      : /Index Only Scan|Index Scan/.test(t)
+        ? 'idx'
+        : /Join|Nested Loop/.test(t)
+          ? 'join'
+          : /^Hash$/.test(t)
+            ? 'hash'
+            : /Sort/.test(t)
+              ? 'sort'
+              : /Aggregate|Group/.test(t)
+                ? 'agg'
+                : /Limit/.test(t)
+                  ? 'lim'
+                  : 'other';
+// «Index Scan using pk_book on book b» → вид, индекс, таблица
+const split = t => {
+  const m = /^(.*?)(?:\s+using\s+(\w+))?(?:\s+on\s+(\w+)(?:\s+\w+)?)?$/.exec(t) || [];
+  return {op: m[1] || t, index: m[2] || '', table: m[3] || ''};
+};
+const fmt = n => (n == null ? '—' : Math.round(n).toLocaleString('ru-RU'));
+const ms = n => (n == null ? '—' : n < 0.01 ? '<0.01' : n < 10 ? n.toFixed(2).replace(/0$/, '') : n.toFixed(1));
+// значок узла 52×52 (центр — 0,0): таблица, которую читают подряд; дерево индекса; соединение; сортировка…
+function icon(k, d) {
+  const b = `begin="${d}s"`;
+  switch (k) {
+    case 'seq':
+      // строки таблицы и полоса, которая проходит их все по очереди
+      return `<rect x="-15" y="-14" width="30" height="28" rx="2" class="ix-t"/>${[-7, 0, 7].map(y => `<line x1="-15" x2="15" y1="${y}" y2="${y}" class="ix-l"/>`).join('')}<rect x="-15" y="-14" width="30" height="7" class="ix-sw" opacity="0"><set attributeName="opacity" to=".55" ${b}/><animate attributeName="y" values="-14;-7;0;7;-14" keyTimes="0;.25;.5;.75;1" calcMode="discrete" dur="1.2s" ${b} repeatCount="indefinite"/></rect>`;
+    case 'idx':
+    case 'bmp':
+      // дерево индекса: путь от корня к одному листу подсвечивается
+      return `<line x1="0" y1="-11" x2="-10" y2="2" class="ix-l"/><line x1="0" y1="-11" x2="10" y2="2" class="ix-l"/><line x1="10" y1="2" x2="4" y2="13" class="ix-l"/><line x1="10" y1="2" x2="15" y2="13" class="ix-l"/><circle cx="0" cy="-12" r="4" class="ix-t"/><circle cx="-10" cy="2" r="3.5" class="ix-t"/><circle cx="10" cy="2" r="3.5" class="ix-t"/><circle cx="4" cy="13" r="3" class="ix-t"/><circle cx="15" cy="13" r="3" class="ix-t"/><path d="M0 -12 L10 2 L4 13" class="ix-hot" opacity="0"><animate attributeName="opacity" values="0;1;1;0" dur="1.6s" ${b} repeatCount="indefinite"/></path>${k === 'bmp' ? '<rect x="-17" y="8" width="12" height="8" class="ix-t"/>' : ''}`;
+    case 'join':
+      return `<text class="ix-g" y="9">⋈</text>`;
+    case 'hash':
+      return `<text class="ix-g" y="8">#</text>`;
+    case 'sort':
+      return [8, 16, 24].map((w, i) => `<rect x="-12" y="${-10 + i * 8}" width="${w}" height="5" rx="1" class="ix-f"/>`).join('');
+    case 'agg':
+      return `<text class="ix-g" y="9">Σ</text>`;
+    case 'lim':
+      return `<line x1="-12" x2="8" y1="0" y2="0" class="ix-l w"/><line x1="12" x2="12" y1="-10" y2="10" class="ix-l w"/>`;
+    default:
+      return `<circle r="9" class="ix-t"/>`;
+  }
+}
+// План EXPLAIN схемой, как в pgAdmin: корень слева, источники строк справа. Узлы появляются от источников к корню,
+// по стрелкам «текут» строки: толщина стрелки и число точек — сколько строк передано наверх.
 export function planHtml(text) {
   const {nodes, total} = parsePlan(text);
-  const card = x => {
-    const [, op, rest] = /^(.*?)(?:\s+((?:using|on)\s.*))?$/.exec(x.title) || [0, x.title, ''];
-    const nums = [
-      x.rows != null ? `rows ${x.rows}${x.est != null ? ` <s>(план ${x.est})</s>` : ''}` : x.est != null ? `rows ≈ ${x.est}` : '',
-      x.time != null ? `${x.time} ms` : '',
-      x.cost != null ? `cost ${x.cost}` : '',
-      x.loops > 1 ? `loops ${x.loops}` : '',
-    ].filter(Boolean);
-    const info = x.info.map(s => `<div class="${/Rows Removed/.test(s) ? 'rm' : ''}">${esc(s)}</div>`).join('');
-    return `<li><div class="pn ${kindOf(op)}"><b>${esc(op)}</b>${rest ? ` <span>${esc(rest)}</span>` : ''}<div class="pm">${nums.join(' · ')}</div>${info ? `<div class="pi">${info}</div>` : ''}</div>${
-      x.kids.length ? `<ul>${x.kids.map(card).join('')}</ul>` : ''
-    }</li>`;
+  if (!nodes.length) return '';
+  const all = [];
+  let leaf = 0;
+  const walk = (x, d) => {
+    x.d = d;
+    all.push(x);
+    if (!x.kids.length) x.y = leaf++;
+    else {
+      x.kids.forEach(k => walk(k, d + 1));
+      x.y = (x.kids[0].y + x.kids[x.kids.length - 1].y) / 2;
+    }
+    Object.assign(x, split(x.title));
+    x.k = kindOf(x.op);
+    x.out = x.rows != null ? x.rows * (x.loops || 1) : x.est;
+    x.tot = x.time != null ? x.time * (x.loops || 1) : null;
+    x.removed = +((x.info.map(s => /Rows Removed by (?:Filter|Index Recheck): (\d+)/.exec(s)).find(Boolean) || [])[1] || 0);
   };
-  return `<ul class="ptree">${nodes.map(card).join('')}</ul>${total.length ? `<div class="ptot">${total.map(esc).join(' · ')}</div>` : ''}`;
+  nodes.forEach(n => walk(n, 0));
+  all.forEach(x => (x.self = x.tot == null ? null : Math.max(0, x.tot - x.kids.reduce((s, k) => s + (k.tot || 0), 0))));
+  const sumSelf = all.reduce((s, x) => s + (x.self || 0), 0) || 1;
+  const maxOut = Math.max(1, ...all.map(x => x.out || 0));
+  const depth = Math.max(...all.map(x => x.d));
+  const CW = 190,
+    RH = 132,
+    PX = 120,
+    PY = 46;
+  all.forEach(x => {
+    x.cx = PX + x.d * CW;
+    x.cy = PY + x.y * RH;
+  });
+  // порядок появления: сначала самые глубокие узлы (источники строк), последним — корень
+  [...all].sort((a, b) => b.d - a.d || a.y - b.y).forEach((x, i) => (x.at = 0.15 + i * 0.4));
+  const W = PX + depth * CW + 150,
+    H = PY + Math.max(0, leaf - 1) * RH + 104;
+  // стрелка: строки идут от узла-источника (x1) к узлу, который их принимает (x2)
+  const edge = (x1, y1, x2, y2, r, at, end = '') => {
+    const xm = (x1 + x2) / 2;
+    const path = `M${x1} ${y1} C${xm} ${y1} ${xm} ${y2} ${x2} ${y2}`;
+    const w = 1.5 + (6 * Math.log10(r + 1)) / Math.log10(maxOut + 1);
+    const n = r ? Math.min(6, 1 + Math.round(Math.log10(r + 1) * 1.4)) : 0;
+    const dur = 1.8;
+    const dots = Array.from({length: n}, (_, i) => {
+      const t = (at + (i * dur) / n).toFixed(2);
+      return `<circle r="${Math.min(4.5, 2 + w / 3).toFixed(1)}" class="pgx-dot" visibility="hidden"><set attributeName="visibility" to="visible" begin="${t}s"/><animateMotion dur="${dur}s" begin="${t}s" repeatCount="indefinite" path="${path}"/></circle>`;
+    }).join('');
+    return `<g class="pgx-e${r ? '' : ' zero'}" style="--at:${at}s"><path d="${path}" pathLength="1" class="pgx-ln" style="stroke-width:${w.toFixed(1)}px"/><path d="M${x2 - 10} ${y2} l10 -5.5 v11z" class="pgx-ah"/><text x="${xm}" y="${(y1 + y2) / 2 - 7}" class="pgx-rn">${fmt(r)}</text>${end}${dots}</g>`;
+  };
+  const edges =
+    all
+      .filter(x => x.d > 0)
+      .map(c => {
+        const p = all.find(x => x.kids.includes(c));
+        return edge(c.cx - 30, c.cy, p.cx + 38, p.cy, c.out || 0, c.at + 0.3);
+      })
+      .join('') +
+    // корень отдаёт ответ клиенту
+    nodes
+      .map(x => edge(x.cx - 30, x.cy, 36, x.cy, x.out || 0, x.at + 0.3, `<text x="8" y="${x.cy + 4}" class="pgx-res">ответ</text>`))
+      .join('');
+  const tip = x => esc([x.title, ...x.info].join('\n'));
+  const nodesSvg = all
+    .map(x => {
+      const share = x.self != null ? x.self / sumSelf : null;
+      return `<g class="pgx-n ${x.k}" transform="translate(${x.cx} ${x.cy})" style="--at:${x.at}s"><title>${tip(x)}</title>
+<g class="pgx-pop"><rect x="-26" y="-26" width="52" height="52" rx="8" class="pgx-box"/>${icon(x.k, x.at)}
+${x.removed ? `<g class="pgx-rm" transform="translate(20 -24)"><rect x="-2" y="-9" width="${12 + String(fmt(x.removed)).length * 6.2}" height="15" rx="7"/><text x="4" y="2">−${fmt(x.removed)}</text></g>` : ''}</g>
+<text y="44" class="pgx-op">${esc(x.op)}</text>${x.table || x.index ? `<text y="58" class="pgx-tb">${esc([x.table, x.index && 'по ' + x.index].filter(Boolean).join(' · '))}</text>` : ''}
+${share != null ? `<rect x="-45" y="66" width="90" height="4" rx="2" class="pgx-tr"/><rect x="-45" y="66" width="${Math.max(2, 90 * share).toFixed(1)}" height="4" rx="2" class="pgx-tm${share > 0.5 ? ' hot' : ''}"/><text y="82" class="pgx-ms">${ms(x.self)} ms</text>` : ''}</g>`;
+    })
+    .join('');
+  // таблица — в порядке плана: корень сверху, вложенные узлы с отступом
+  const rows = all
+    .map(x => {
+      const share = x.self != null ? x.self / sumSelf : 0;
+      return `<tr><td style="padding-left:${8 + x.d * 14}px"><i class="pgx-k ${x.k}"></i>${esc(x.op)}${x.table ? ` <span>${esc(x.table)}</span>` : ''}${x.index ? ` <span>по ${esc(x.index)}</span>` : ''}</td><td>${fmt(x.out)}</td><td>${fmt(x.est != null ? x.est * (x.loops || 1) : null)}</td><td class="pgx-bar" style="--w:${(share * 100).toFixed(1)}%">${ms(x.self)}</td><td class="${x.removed ? 'rm' : ''}">${x.removed ? fmt(x.removed) : ''}</td></tr>`;
+    })
+    .join('');
+  const an = all.some(x => x.tot != null);
+  return `<div class="pgx-bar0"><button class="btn sm" data-replay>↻ Повторить анимацию</button>${total.map(t => `<span>${esc(t)}</span>`).join('')}${an ? '' : '<span class="mu">без ANALYZE — числа строк по оценке планировщика, времени нет</span>'}</div>
+<div class="pgx-wrap"><svg class="pgx" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto">${edges}${nodesSvg}</svg></div>
+<table class="pgx-t"><tr><th>Узел</th><th>Строк${an ? '' : ' (оценка)'}</th><th>План, строк</th><th>Своё время, ms</th><th>Отброшено фильтром</th></tr>${rows}</table>`;
 }
 
 // ═══════════════════════════ окно результата: Data Output / Messages / Explain ══
@@ -259,7 +368,11 @@ function outputTabs() {
     tabs.forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   };
   tabs.forEach(b => (b.onclick = () => !b.disabled && show(b.dataset.tab)));
-  let t0 = 0;
+  let t0 = 0,
+    lastPlan = '';
+  plan.addEventListener('click', e => {
+    if (e.target.closest('[data-replay]')) plan.innerHTML = planHtml(lastPlan);
+  });
   $('runBtn').addEventListener('click', () => (t0 = performance.now()), true);
   const sync = () => {
     const head = res.querySelector(':scope > .ok, :scope > .bad');
@@ -268,8 +381,12 @@ function outputTabs() {
     const grid = res.querySelector(':scope > .rtab');
     out.classList.toggle('has-data', !!(grid || qp));
     tabs.find(b => b.dataset.tab === 'plan').disabled = !qp;
-    if (qp) plan.innerHTML = planHtml(qp.textContent);
-    else plan.innerHTML = '';
+    // наблюдатель срабатывает на каждую правку #result — схему рисуем заново, только если план другой
+    const pt = qp ? qp.textContent : '';
+    if (pt !== lastPlan) {
+      lastPlan = pt;
+      plan.innerHTML = pt ? planHtml(pt) : '';
+    }
     if (!res.childNodes.length) {
       st.textContent = '';
       st.className = '';

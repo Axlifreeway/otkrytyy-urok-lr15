@@ -628,89 +628,278 @@ body.pg {
   color: var(--mu) !important;
 }
 
-/* графический план */
+/* графический план (common/pgworld.js, planHtml): узлы появляются от источников строк к корню, по стрелкам текут строки */
 #pgPlan {
-  padding: 10px 12px 16px;
+  padding: 8px 12px 16px;
 }
-.ptree,
-.ptree ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.pgx-bar0 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font: 12px var(--mono);
+  color: #344054;
 }
-.ptree ul {
-  padding-left: 30px;
+.pgx-bar0 .btn {
+  font-family: var(--font);
 }
-.ptree li {
-  position: relative;
-  padding-top: 8px;
+.pgx-bar0 .mu {
+  font-family: var(--font);
 }
-.ptree ul > li::before {
-  content: '';
-  position: absolute;
-  left: -18px;
-  top: 0;
-  bottom: 0;
-  border-left: 1px solid #b8c0cc;
+.pgx-wrap {
+  overflow: auto;
+  margin: 6px 0 10px;
+  background: #fbfcfd;
+  border: 1px solid #eceef1;
+  background-image: radial-gradient(#e4e7ec 1px, transparent 1px);
+  background-size: 16px 16px;
 }
-.ptree ul > li:last-child::before {
-  bottom: auto;
-  height: 24px;
+.pgx {
+  display: block;
+  font-family: var(--font);
 }
-.ptree ul > li::after {
-  content: '';
-  position: absolute;
-  left: -18px;
-  top: 24px;
-  width: 16px;
-  border-top: 1px solid #b8c0cc;
+.pgx-n {
+  --c: #8a94a3;
+  --c2: #f2f4f7;
 }
-.pn {
-  display: inline-block;
-  min-width: 280px;
-  max-width: 100%;
-  background: #fff;
-  border: 1px solid #d0d5dd;
-  border-left: 4px solid #98a2b3;
-  border-radius: 3px;
-  padding: 5px 10px;
+.pgx-n.seq {
+  --c: #d9822b;
+  --c2: #fdf0e3;
 }
-.pn.seq {
-  border-left-color: #d9822b;
+.pgx-n.idx,
+.pgx-n.bmp {
+  --c: #2e8b57;
+  --c2: #e7f4ec;
 }
-.pn.idx {
-  border-left-color: #2e8b57;
+.pgx-n.join,
+.pgx-n.hash {
+  --c: #326690;
+  --c2: #e6eef6;
 }
-.pn.join {
-  border-left-color: var(--blue);
+.pgx-n.sort,
+.pgx-n.agg,
+.pgx-n.lim {
+  --c: #6b5fa8;
+  --c2: #eeecf7;
 }
-.pn b {
+.pgx-n > :not(title) {
+  opacity: 0;
+  animation: pgx-in 0.35s ease-out var(--at) forwards;
+}
+.pgx-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pgx-pop 0.45s cubic-bezier(0.3, 1.5, 0.6, 1) var(--at) both !important;
+}
+.pgx-box {
+  fill: var(--c2);
+  stroke: var(--c);
+  stroke-width: 1.5;
+}
+.pgx-n:hover .pgx-box {
+  stroke-width: 2.5;
+}
+.ix-t {
+  fill: #fff;
+  stroke: var(--c);
+  stroke-width: 1.4;
+}
+.ix-l {
+  stroke: var(--c);
+  stroke-width: 1.2;
+  opacity: 0.7;
+}
+.ix-l.w {
+  stroke-width: 2.5;
+  opacity: 1;
+}
+.ix-f {
+  fill: var(--c);
+}
+.ix-sw {
+  fill: var(--c);
+}
+.ix-hot {
+  fill: none;
+  stroke: #f5b301;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ix-g {
+  fill: var(--c);
+  font: 700 26px var(--font);
+  text-anchor: middle;
+}
+.pgx-rm rect {
+  fill: #b42318;
+}
+.pgx-rm text {
+  fill: #fff;
+  font: 600 10px var(--mono);
+}
+.pgx-op {
+  font-size: 12.5px;
   font-weight: 600;
+  text-anchor: middle;
+  fill: var(--ink);
 }
-.pn > span {
-  color: #475467;
+.pgx-tb {
+  font-size: 11.5px;
+  text-anchor: middle;
+  fill: #667085;
 }
-.pm,
-.pi {
-  font: 12px/1.5 var(--mono);
-  color: #475467;
+.pgx-tr {
+  fill: #eceef1;
 }
-.pm s {
-  text-decoration: none;
-  color: #98a2b3;
+.pgx-tm {
+  fill: #7a9cc0;
+  transform-box: fill-box;
+  transform-origin: left;
+  animation: pgx-grow 0.6s ease-out var(--at) both !important;
 }
-.pi {
-  margin-top: 2px;
-  border-top: 1px dashed #e4e7ec;
-  padding-top: 2px;
+.pgx-tm.hot {
+  fill: #d9822b;
 }
-.pi .rm {
+.pgx-ms {
+  font: 11px var(--mono);
+  text-anchor: middle;
+  fill: #475467;
+}
+.pgx-ln {
+  fill: none;
+  stroke: #9db1c6;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: pgx-draw 0.5s ease-out var(--at) forwards;
+}
+.pgx-e.zero .pgx-ln {
+  stroke: #d0d5dd;
+  stroke-dasharray: 0.02 0.02;
+  stroke-dashoffset: 0;
+  animation: none;
+}
+.pgx-ah {
+  fill: #9db1c6;
+  opacity: 0;
+  animation: pgx-in 0.2s ease-out calc(var(--at) + 0.4s) forwards;
+}
+.pgx-rn {
+  font: 600 11px var(--mono);
+  text-anchor: middle;
+  fill: #475467;
+  paint-order: stroke;
+  stroke: #fbfcfd;
+  stroke-width: 4px;
+  opacity: 0;
+  animation: pgx-in 0.3s ease-out var(--at) forwards;
+}
+.pgx-res {
+  font-size: 11.5px;
+  font-weight: 600;
+  fill: #475467;
+  writing-mode: vertical-rl;
+  text-anchor: middle;
+}
+.pgx-dot {
+  fill: #326690;
+  opacity: 0.85;
+}
+@keyframes pgx-in {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pgx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pgx-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pgx-grow {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pgx *,
+  .pgx-pop {
+    animation-duration: 0.01s !important;
+    animation-delay: 0s !important;
+  }
+  .pgx-dot {
+    display: none;
+  }
+}
+.pgx-t {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 560px;
+}
+.pgx-t th {
+  background: var(--head);
+  text-align: left;
+  font-weight: 600;
+  color: #344054;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+}
+.pgx-t td {
+  padding: 3px 10px;
+  border: 1px solid #e4e7ec;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.pgx-t td:first-child {
+  font-family: var(--font);
+}
+.pgx-t td span {
+  color: var(--mu);
+}
+.pgx-t td.rm {
   color: var(--bad);
 }
-.ptot {
-  margin-top: 14px;
-  font: 12.5px var(--mono);
-  color: #344054;
+.pgx-t td.pgx-bar {
+  background: linear-gradient(90deg, #f6d2ae var(--w), transparent var(--w));
+}
+.pgx-k {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 6px;
+  background: #8a94a3;
+}
+.pgx-k.seq {
+  background: #d9822b;
+}
+.pgx-k.idx,
+.pgx-k.bmp {
+  background: #2e8b57;
+}
+.pgx-k.join,
+.pgx-k.hash {
+  background: #326690;
+}
+.pgx-k.sort,
+.pgx-k.agg,
+.pgx-k.lim {
+  background: #6b5fa8;
 }
 
 /* ═════════════════ задание ═════════════════ */
