@@ -10,7 +10,7 @@ const indexes = async c =>
 const onCol = (list, col) => list.find(i => new RegExp(`\\(${col}\\)$`).test(i.def));
 
 export function levels(D) {
-  const title = `Книга ${1000 + (D.seed % 7000)}`,
+  const title = `Book ${1000 + (D.seed % 7000)}`,
     au = (D.seed % 37) + 2,
     isbn = `978-5-${(D.seed * 37) % 20000}`;
   const Q1 = `SELECT * FROM book WHERE title = '${title}'`;
@@ -51,7 +51,7 @@ export function levels(D) {
       hard: true,
       title: 'Индекс под запрос',
       lab: 'сложный · № 3–4 · CREATE INDEX и план после',
-      text: 'Создайте индекс по столбцу из условия запроса — имя по правилу ix_таблица_столбец — и повторите EXPLAIN ANALYZE того же запроса. В зале появится новый шкаф каталога.',
+      text: 'Создайте индекс по столбцу из условия запроса — имя по правилу ix_таблица_столбец — и повторите EXPLAIN ANALYZE того же запроса. В дереве объектов он появится в Tables → book → Indexes.',
       q: 'Как сменится план после индекса?',
       goals: ['Индекс по столбцу из условия — имя по правилу', 'EXPLAIN ANALYZE того же запроса', 'Способ чтения и время — до и после'],
       ref: ['CREATE INDEX ix_book_title ON book (title)'],
@@ -72,7 +72,7 @@ export function levels(D) {
         return {ok: true, note: `${readOf(an.plan, 'book')} · ${an.plan.time} ms`};
       },
       hint: 'CREATE INDEX ix_book_title ON book (title);',
-      ok: 'Index Scan using ix_book_title: робот идёт к новому шкафу каталога и сразу к нужной полке.',
+      ok: 'Index Scan using ix_book_title: СУБД находит строку по новому индексу, не читая таблицу целиком.',
     },
     {
       key: 'order',
@@ -277,7 +277,7 @@ export function levels(D) {
         return (await indexes(c)).some(i => i.name === name) ? null : {ok: true, note: `CREATE INDEX ${name} · DROP INDEX`};
       },
       hint: 'Индекс создают под запрос, а не «на всякий случай»: каждый INSERT и UPDATE обновляет все индексы таблицы.',
-      ok: 'Лишний шкаф каталога убран: индекс без запросов только занимал место и замедлял изменения.',
+      ok: 'Лишний индекс удалён: индекс без запросов только занимал место и замедлял изменения.',
     },
     // ═══════════════════════════════ контрольный
     {

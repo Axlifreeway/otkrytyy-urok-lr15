@@ -314,7 +314,7 @@ function renderProj(ps) {
 // Эталоны — teacher/answers.js (собирает tools/build.mjs из самих лаб), грузится при первом щелчке:
 // у каждого варианта свои данные, поэтому эталон считается по номеру варианта студента
 let ansLoad = null;
-const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=7305c8cf91'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
+const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=85fdbe0200'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
 const sqlBlock = qs => qs.map(q => `<pre>${hl(String(q).replace(/;?\s*$/, ';'))}</pre>`).join('');
 async function showAnswer(client, lvN) {
   const p = data.people.find(x => x.client === client); if (!p) return;

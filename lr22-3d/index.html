@@ -5,31 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ЛР-22 · EXPLAIN</title>
 <link rel="icon" href="data:,">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="../common/lab3d.css?v=b9aa2d1622">
-<style>:root { --sql-h: 110px; --sql-resize: vertical }</style>
+<link rel="stylesheet" href="../common/pg.css?v=ad98251d96">
 </head>
-<body>
-<div id="stage"></div>
-<div id="side"><div id="levels" class="panel"></div><div id="mission" class="panel"></div></div>
-<div id="topR"><button class="btn sub" id="subBtn">Сдать</button><button class="btn" id="homeBtn">Обзор</button><button class="btn" id="gfxBtn">Графика</button><button class="btn" id="sndBtn">Звук</button><button class="btn" id="menuBtn">Выход</button></div>
-<div id="cnt" class="panel" hidden></div>
-<div id="cmd" class="panel" hidden></div>
-<div id="verdict"></div>
-<div id="deck" class="panel">
-  <div id="psql" class="psql" data-db="library" data-su="1">library=#</div>
-  <textarea id="sql" spellcheck="false" placeholder="EXPLAIN ANALYZE SELECT … FROM book WHERE …;     Ctrl+Enter — пуск · Ctrl+↑ — прошлая команда"></textarea>
-  <button id="runBtn">▶ ПУСК</button>
-  <div class="spd">скорость <button data-spd="1">×1</button><button data-spd="3" class="on">×3</button><button data-spd="99">⏭</button></div>
-  <button class="btn sm" id="rsDeck" title="Вернуть базу к началу уровня; команда останется">↺ Сброс уровня</button>
-  <div id="result"></div>
+<body class="pg">
+<header id="pgTop">
+  <span class="pg-app">ЛР-22 · План выполнения запроса: EXPLAIN<small>library · PostgreSQL в браузере</small></span>
+  <div id="topR"><button class="btn sub" id="subBtn">Сдать работу</button><button class="btn" id="menuBtn">Выход</button><button id="homeBtn" hidden></button><button id="gfxBtn" hidden></button><button id="sndBtn" hidden></button></div>
+</header>
+<div id="pgMain">
+  <aside id="stage" class="pg-pane"></aside>
+  <section id="deck" class="pg-pane">
+    <div class="pg-ph">Query Tool<span id="psql" class="psql" data-db="library" data-su="1">library=#</span></div>
+    <div class="pg-bar">
+      <button id="runBtn" title="Выполнить: F5 или Ctrl+Enter">▶ Выполнить</button>
+      <button class="btn sm" id="rsDeck" title="Вернуть базу к началу уровня; текст запроса останется">↺ Сброс уровня</button>
+      <span class="spd"><button data-spd="1">×1</button><button data-spd="3" class="on">×3</button><button data-spd="99">⏭</button></span>
+      <span class="pg-keys">F5 или Ctrl+Enter — выполнить · Ctrl+↑ — прошлая команда</span>
+    </div>
+    <div class="pg-ed"><pre id="pgGut" aria-hidden="true"></pre><textarea id="sql" wrap="off" spellcheck="false" placeholder="EXPLAIN ANALYZE SELECT … FROM book WHERE …;"></textarea></div>
+    <div id="pgOut" data-tab="data">
+      <div class="pg-tabs"><button data-tab="data">Data Output</button><button data-tab="msg">Messages</button><button data-tab="plan" disabled>Explain</button></div>
+      <div class="pg-res"><div id="result"></div><div id="pgPlan"></div><div class="pg-empty">Нет данных. Выполните запрос — результат появится здесь.</div></div>
+      <div id="pgStatus"></div>
+    </div>
+  </section>
+  <aside id="side" class="pg-pane"><div class="pg-ph">Задание</div><div id="levels"></div><div id="verdict"></div><div id="mission"></div></aside>
 </div>
+<div id="cnt" hidden></div>
+<div id="cmd" hidden></div>
 <div id="rewind" hidden></div>
 <div id="toast" hidden></div>
 <div id="modal" hidden></div>
 <div id="proto" hidden></div>
-<div id="loading">Открываю библиотеку…</div>
-<script src="game.js?v=634837aebc"></script>
+<div id="loading">Запуск PostgreSQL…</div>
+<script src="game.js?v=3195fdbcce"></script>
 </body>
 </html>

@@ -5,9 +5,9 @@ import {lit, authorName} from '../../common/libdata.js';
 
 const ALLOW = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'ALTER', 'BEGIN', 'COMMIT', 'ROLLBACK'];
 const NEW = [
-  [41, 'Распутин В. Г.', 'Россия'],
-  [42, 'Астафьев В. П.', 'Россия'],
-  [43, 'Шукшин В. М.', 'Россия'],
+  [41, 'Rasputin V. G.', 'Russia'],
+  [42, 'Astafyev V. P.', 'Russia'],
+  [43, 'Shukshin V. M.', 'Russia'],
 ];
 // индекс первой команды после from, подходящей под f
 const after = (T, from, f) => T.findIndex((x, i) => i > from && f(x));
@@ -20,7 +20,7 @@ export function levels(D) {
   const thin = B[7],
     reborn = 2026;
   const ins3 = `INSERT INTO author (id, full_name, country) VALUES ${NEW.map(([id, n, c]) => `(${id}, ${lit(n)}, ${lit(c)})`).join(', ')}`;
-  const guest = {id: D.RD.length + 1, full_name: 'Новикова А. Б.', card: 'Б-00001'};
+  const guest = {id: D.RD.length + 1, full_name: 'Novikova A. B.', card: 'L-00001'};
   const lend = B[3];
   // новые уровни: читатель, которому меняют билет, и чужой билет; книга нового автора; невозвращённая книга
   const [r1, r2] = D.RD;
@@ -37,7 +37,7 @@ export function levels(D) {
       key: 'ins3',
       title: 'Три новых автора',
       lab: 'ч. 1 · № 1 · три строки одной командой',
-      text: `В каталог поступили книги трёх новых авторов: ${NEW.map(([id, n]) => `${n} (id ${id})`).join(', ')}, страна — Россия. Добавьте их в справочник author одной командой INSERT, запишите ответ СУБД и покажите таблицу запросом.`,
+      text: `В каталог поступили книги трёх новых авторов: ${NEW.map(([id, n]) => `${n} (id ${id})`).join(', ')}, страна — Russia. Добавьте их в справочник author одной командой INSERT, запишите ответ СУБД и покажите таблицу запросом.`,
       q: 'Как добавить три строки одной командой?',
       goals: ['Одна команда INSERT — три строки', 'SELECT — показать таблицу'],
       ref: [ins3],
@@ -67,7 +67,7 @@ export function levels(D) {
       text: 'Добавьте книгу (id 900, название любое, 300 страниц) со ссылкой на автора, которого в справочнике нет, — например, author_id = 99. Прочитайте отказ СУБД.',
       q: 'Что ответит СУБД на ссылку в никуда?',
       goals: ['Книга со ссылкой на несуществующего автора', 'Прочитать отказ СУБД'],
-      sol: ["INSERT INTO book (id, title, author_id, pages) VALUES (900, 'Пробная', 99, 300)"],
+      sol: ["INSERT INTO book (id, title, author_id, pages) VALUES (900, 'Test Book', 99, 300)"],
       other: 'Это другой отказ. Нужна ошибка внешнего ключа: author_id ссылается на автора, которого нет.',
       hint: 'Внешний ключ fk_book_author не даёт сослаться на строку, которой нет в author.',
       ok: 'Внешний ключ проверил ссылку: автора 99 нет — строка не добавлена.',
@@ -152,11 +152,11 @@ export function levels(D) {
       key: 'newcard',
       title: 'Новый билет',
       lab: 'ч. 1 · UPDATE по ключу',
-      text: `Выдайте читателю ${r1.full_name} (id ${r1.id}) новый билет Б-00777 и покажите его строку SELECT.`,
+      text: `Выдайте читателю ${r1.full_name} (id ${r1.id}) новый билет L-00777 и покажите его строку SELECT.`,
       q: 'Как изменить одно значение одной строки?',
       goals: ['Новый билет — читателю по ключу', 'SELECT — строка с новым билетом'],
-      ref: [`UPDATE reader SET card = 'Б-00777' WHERE id = ${r1.id}`],
-      sol: [`UPDATE reader SET card = 'Б-00777' WHERE id = ${r1.id}`, `SELECT * FROM reader WHERE id = ${r1.id}`],
+      ref: [`UPDATE reader SET card = 'L-00777' WHERE id = ${r1.id}`],
+      sol: [`UPDATE reader SET card = 'L-00777' WHERE id = ${r1.id}`, `SELECT * FROM reader WHERE id = ${r1.id}`],
       tables: ['reader'],
       check: 'tx',
       allow: ALLOW,
@@ -168,7 +168,7 @@ export function levels(D) {
           ? {ok: true, note: 'UPDATE 1'}
           : {wait: 'Билет заменён — покажите строку запросом SELECT.'};
       },
-      hint: `UPDATE reader SET card = 'Б-00777' WHERE id = ${r1.id}; SELECT * FROM reader WHERE id = ${r1.id};`,
+      hint: `UPDATE reader SET card = 'L-00777' WHERE id = ${r1.id}; SELECT * FROM reader WHERE id = ${r1.id};`,
       ok: 'Этот номер свободен — UNIQUE пропустил.',
     },
     {
@@ -191,11 +191,11 @@ export function levels(D) {
       key: 'addcol',
       title: 'Статус читателя',
       lab: 'ч. 2 · № 6 · столбец со значением по умолчанию',
-      text: "Читателям нужен статус. Добавьте в reader столбец status varchar(10) NOT NULL DEFAULT 'активен' и покажите SELECT, что у всех существующих читателей он уже заполнен.",
+      text: "Читателям нужен статус. Добавьте в reader столбец status varchar(10) NOT NULL DEFAULT 'active' и покажите SELECT, что у всех существующих читателей он уже заполнен.",
       q: 'Чем заполнится новый столбец у старых строк?',
       goals: ['Столбец status — тип и умолчание как в задании', 'SELECT — status заполнен у всех'],
-      ref: ["ALTER TABLE reader ADD COLUMN status varchar(10) NOT NULL DEFAULT 'активен'"],
-      sol: ["ALTER TABLE reader ADD COLUMN status varchar(10) NOT NULL DEFAULT 'активен'", 'SELECT full_name, status FROM reader'],
+      ref: ["ALTER TABLE reader ADD COLUMN status varchar(10) NOT NULL DEFAULT 'active'"],
+      sol: ["ALTER TABLE reader ADD COLUMN status varchar(10) NOT NULL DEFAULT 'active'", 'SELECT full_name, status FROM reader'],
       tables: ['reader'],
       check: 'tx',
       allow: ALLOW,

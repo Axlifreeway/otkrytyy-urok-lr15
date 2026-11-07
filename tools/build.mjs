@@ -50,7 +50,9 @@ for (const lab of LABS) {
     .replace(
       /href="\.\.\/common\/lab3d\.css(\?v=\w+)?"/,
       `href="../common/lab3d.css?v=${ver(readFileSync(join(ROOT, 'common/lab3d.css')))}"`,
-    );
+    )
+    // ЛР-21–24 — вид как в pgAdmin, свои стили
+    .replace(/href="\.\.\/common\/pg\.css(\?v=\w+)?"/, `href="../common/pg.css?v=${ver(readFileSync(join(ROOT, 'common/pg.css')))}"`);
   if (check) {
     if (next !== html) {
       stale++;
