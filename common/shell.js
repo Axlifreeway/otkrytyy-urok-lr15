@@ -39,6 +39,9 @@ const isErr = j => /^ERROR|ошибка/.test(j.o);
    closedTitle            заголовок, пока лаба закрыта (по умолчанию «Рейс задержан»)
    gated                  лабу открывает преподаватель
    finalIcon              значок контрольного уровня (по умолчанию ✈)
+   lockIcon               значок закрытого уровня (по умолчанию 🔒)
+   flat                   без 3D-сцены (ЛР-21–24, вид как в pgAdmin — common/pgworld.js): сообщения лежат в своих
+                          панелях, а не над пультом
    added                  ключи уровней, добавленных в уже идущую лабу: кто прошёл её раньше (контрольный пройден),
                           получает их зачтёнными — его работа не становится «незаконченной»
    end: {tag, stat()}     экран итогов: заголовок и третья цифра [значение, подпись]
@@ -222,7 +225,7 @@ export function renderLevels() {
       const rec = G.P.lv[lv.key] || {};
       if (lv.practice)
         return `<button class="lvb px${i === G.lv ? ' on' : ''}" data-i="${i}" title="Тренировка: решено ${G.P.practice || 0}">∞</button>`;
-      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${esc(lv.title)}">${unlocked(i) ? (lv.final ? cfg.finalIcon || '✈' : i + 1) : '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
+      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${esc(lv.title)}">${unlocked(i) ? (lv.final ? cfg.finalIcon || '✈' : i + 1) : cfg.lockIcon || '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
     }).join('') +
     (G.demo
       ? '<span class="demo">ДЕМО</span>'
@@ -266,7 +269,7 @@ export function predict(lv) {
     m.hidden = false;
     m.innerHTML = `<div class="dlg panel"><span class="tag">Сначала прогноз</span><div class="dlg-q">${esc(p.q)}</div>
       <div class="dlg-ch">${p.choices.map(c => `<button data-k="${c.k}">${esc(c.t)}</button>`).join('')}</div>
-      <div class="mu">Ответ запишется в протокол, потом робот выполнит вашу команду.</div></div>`;
+      <div class="mu">Ответ запишется в протокол, потом ${cfg.flat ? 'СУБД' : 'робот'} выполнит вашу команду.</div></div>`;
     m.querySelectorAll('[data-k]').forEach(
       b =>
         (b.onclick = () => {
@@ -774,9 +777,11 @@ export async function boot() {
   hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
   T = watchTyping($('sql'));
   listenRobot(() => G && G.sess && G.sess.token); // объявления преподавателя
-  new ResizeObserver(placeMessages).observe($('deck'));
-  addEventListener('resize', placeMessages);
-  placeMessages();
+  if (!cfg.flat) {
+    new ResizeObserver(placeMessages).observe($('deck'));
+    addEventListener('resize', placeMessages);
+    placeMessages();
+  }
   paste = guardPaste(
     $('sql'),
     () => {

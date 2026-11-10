@@ -10,79 +10,79 @@ export const SCHEMA_NAME = 'library';
 export const YEAR = 2026;
 // авторы: 40 — чтобы отбор по одному автору среди 20 000 книг шёл по индексу (≈ 2,5 % строк)
 const AUTHORS = [
-  ['Пушкин А. С.', 'Россия'],
-  ['Лермонтов М. Ю.', 'Россия'],
-  ['Гоголь Н. В.', 'Россия'],
-  ['Толстой Л. Н.', 'Россия'],
-  ['Достоевский Ф. М.', 'Россия'],
-  ['Чехов А. П.', 'Россия'],
-  ['Тургенев И. С.', 'Россия'],
-  ['Гончаров И. А.', 'Россия'],
-  ['Островский А. Н.', 'Россия'],
-  ['Лесков Н. С.', 'Россия'],
-  ['Бунин И. А.', 'Россия'],
-  ['Куприн А. И.', 'Россия'],
-  ['Булгаков М. А.', 'Россия'],
-  ['Паустовский К. Г.', 'Россия'],
-  ['Шолохов М. А.', 'Россия'],
-  ['Платонов А. П.', 'Россия'],
-  ['Ершов П. П.', 'Россия'],
-  ['Бажов П. П.', 'Россия'],
-  ['Мамин-Сибиряк Д. Н.', 'Россия'],
-  ['Крылов И. А.', 'Россия'],
-  ['Жуковский В. А.', 'Россия'],
-  ['Некрасов Н. А.', 'Россия'],
-  ['Тютчев Ф. И.', 'Россия'],
-  ['Фет А. А.', 'Россия'],
-  ['Блок А. А.', 'Россия'],
-  ['Есенин С. А.', 'Россия'],
-  ['Маяковский В. В.', 'Россия'],
-  ['Ахматова А. А.', 'Россия'],
-  ['Цветаева М. И.', 'Россия'],
-  ['Пастернак Б. Л.', 'Россия'],
-  ['Жюль Верн', 'Франция'],
-  ['Гюго В.', 'Франция'],
-  ['Дюма А.', 'Франция'],
-  ['Диккенс Ч.', 'Англия'],
-  ['Конан Дойл А.', 'Англия'],
-  ['Стивенсон Р. Л.', 'Англия'],
-  ['Твен М.', 'США'],
-  ['Лондон Дж.', 'США'],
-  ['Андерсен Х. К.', 'Дания'],
-  ['Сервантес М.', 'Испания'],
+  ['Pushkin A. S.', 'Russia'],
+  ['Lermontov M. Yu.', 'Russia'],
+  ['Gogol N. V.', 'Russia'],
+  ['Tolstoy L. N.', 'Russia'],
+  ['Dostoevsky F. M.', 'Russia'],
+  ['Chekhov A. P.', 'Russia'],
+  ['Turgenev I. S.', 'Russia'],
+  ['Goncharov I. A.', 'Russia'],
+  ['Ostrovsky A. N.', 'Russia'],
+  ['Leskov N. S.', 'Russia'],
+  ['Bunin I. A.', 'Russia'],
+  ['Kuprin A. I.', 'Russia'],
+  ['Bulgakov M. A.', 'Russia'],
+  ['Paustovsky K. G.', 'Russia'],
+  ['Sholokhov M. A.', 'Russia'],
+  ['Platonov A. P.', 'Russia'],
+  ['Yershov P. P.', 'Russia'],
+  ['Bazhov P. P.', 'Russia'],
+  ['Mamin-Sibiryak D. N.', 'Russia'],
+  ['Krylov I. A.', 'Russia'],
+  ['Zhukovsky V. A.', 'Russia'],
+  ['Nekrasov N. A.', 'Russia'],
+  ['Tyutchev F. I.', 'Russia'],
+  ['Fet A. A.', 'Russia'],
+  ['Blok A. A.', 'Russia'],
+  ['Yesenin S. A.', 'Russia'],
+  ['Mayakovsky V. V.', 'Russia'],
+  ['Akhmatova A. A.', 'Russia'],
+  ['Tsvetaeva M. I.', 'Russia'],
+  ['Pasternak B. L.', 'Russia'],
+  ['Verne J.', 'France'],
+  ['Hugo V.', 'France'],
+  ['Dumas A.', 'France'],
+  ['Dickens C.', 'England'],
+  ['Conan Doyle A.', 'England'],
+  ['Stevenson R. L.', 'England'],
+  ['Twain M.', 'USA'],
+  ['London J.', 'USA'],
+  ['Andersen H. C.', 'Denmark'],
+  ['Cervantes M.', 'Spain'],
 ];
-const W1 = ['Тихий', 'Северный', 'Старый', 'Белый', 'Дальний', 'Последний', 'Зимний', 'Синий', 'Тайный', 'Весенний', 'Золотой', 'Ночной'];
-const W2 = ['берег', 'сад', 'город', 'остров', 'дом', 'лес', 'путь', 'маяк', 'перевал', 'двор', 'мост', 'край'];
+const W1 = ['Silent', 'Northern', 'Old', 'White', 'Distant', 'Last', 'Winter', 'Blue', 'Secret', 'Spring', 'Golden', 'Night'];
+const W2 = ['Shore', 'Garden', 'City', 'Island', 'House', 'Forest', 'Road', 'Lighthouse', 'Pass', 'Yard', 'Bridge', 'Land'];
 const SURN = [
-  'Иванов',
-  'Петров',
-  'Смирнов',
-  'Кузнецов',
-  'Попов',
-  'Соколов',
-  'Лебедев',
-  'Козлов',
-  'Новиков',
-  'Морозов',
-  'Волков',
-  'Егоров',
-  'Павлов',
-  'Орлов',
-  'Макаров',
-  'Титов',
-  'Зуев',
-  'Фомин',
-  'Котов',
-  'Быков',
+  'Ivanov',
+  'Petrov',
+  'Smirnov',
+  'Kuznetsov',
+  'Popov',
+  'Sokolov',
+  'Lebedev',
+  'Kozlov',
+  'Novikov',
+  'Morozov',
+  'Volkov',
+  'Egorov',
+  'Pavlov',
+  'Orlov',
+  'Makarov',
+  'Titov',
+  'Zuev',
+  'Fomin',
+  'Kotov',
+  'Bykov',
 ];
-const INI = 'АБВГДЕИКЛМНОПРСТ';
+const INI = 'ABDEGIKLMNOPRSTV';
 const pad = n => String(n).padStart(2, '0');
 export const iso = (m, d) => `${YEAR}-${pad(m)}-${pad(d)}`;
 
 export function makeData(seed) {
   const r = rng(seed * 7919 + 2121);
   const AU = AUTHORS.map(([full_name, country], i) => ({id: i + 1, full_name, country}));
-  // книги: 60 штук, названия «Прилагательное существительное» без повторов
+  // книги: 60 штук, названия «Adjective Noun» без повторов (значения — по-английски, как в рабочих базах)
   const titles = new Set();
   const BK = [];
   for (let i = 1; i <= 60; i++) {
@@ -104,13 +104,13 @@ export function makeData(seed) {
   const used = new Set();
   for (let i = 1; i <= 14; i++) {
     let n;
-    do n = `${r.pick(SURN)}${r() < 0.5 ? 'а' : ''} ${INI[r.int(0, 15)]}. ${INI[r.int(0, 15)]}.`;
+    do n = `${r.pick(SURN)}${r() < 0.5 ? 'a' : ''} ${INI[r.int(0, 15)]}. ${INI[r.int(0, 15)]}.`;
     while (used.has(n));
     used.add(n);
     RD.push({
       id: i,
       full_name: n,
-      card: `Б-${r.int(10000, 99999)}`,
+      card: `L-${r.int(10000, 99999)}`,
       phone: r() < 0.2 ? null : `+7 9${r.int(10, 99)} ${r.int(100, 999)}-${r.int(10, 99)}-${r.int(10, 99)}`,
     });
   }
@@ -201,7 +201,7 @@ export function restoreSql(D) {
 }
 // 20 000 книг — как в образце задания ЛР-22: INSERT … SELECT … FROM generate_series
 export const FILL = `INSERT INTO book (id, title, author_id, year, pages, isbn)
-SELECT 1000 + n, 'Книга ' || n, n % 40 + 1, 1950 + n % 75, 100 + n % 500, '978-5-' || n
+SELECT 1000 + n, 'Book ' || n, n % 40 + 1, 1950 + n % 75, 100 + n % 500, '978-5-' || n
 FROM generate_series(1, 20000) AS g(n)`;
 export const TABLES = {author: 'id', book: 'id', reader: 'id', loan: 'id'};
 export const COLS = {

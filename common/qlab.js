@@ -192,7 +192,8 @@ export function planNodes(lines) {
   };
 }
 
-export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
+// maxRows — сколько строк ответа показать (в 3D-лабах пульт невелик — 12; в виде pgAdmin ответ листается целиком)
+export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRows = 12}) {
   const robotErr = () => {
     W.play('jump', true);
     setTimeout(() => W.play('idle'), 700);
@@ -202,7 +203,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef}) {
     const r = await q(sql, true);
     return {fields: r.fields.map(f => f.name), rows: r.rows};
   }
-  const table = (res, max = 12) => {
+  const table = (res, max = maxRows) => {
     if (!res.fields.length) return '';
     const n = res.rows.length;
     return `<div class="rtab"><table><tr>${res.fields.map(f => `<th>${esc(f)}</th>`).join('')}</tr>${res.rows

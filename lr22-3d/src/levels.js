@@ -8,11 +8,11 @@ const ALLOW = ['SELECT', 'EXPLAIN', 'INSERT'];
 
 export function levels(D) {
   const key = 4000 + (D.seed % 900),
-    title = `Книга ${1000 + (D.seed % 7000)}`,
+    title = `Book ${1000 + (D.seed % 7000)}`,
     from = 590,
     au = D.AU[(D.seed % 30) + 3];
   const small = (D.seed % 50) + 5,
-    pre = `Книга ${(D.seed % 8) + 1}2`,
+    pre = `Book ${(D.seed % 8) + 1}2`,
     auId = (D.seed % 40) + 1;
   // план запроса, подходящего под cond: EXPLAIN ANALYZE (если нужен) и способ чтения book — в отметку уровня
   const one =
@@ -111,8 +111,8 @@ export function levels(D) {
       allow: ALLOW,
       star: true,
       verify: planPair(/\btitle\s*=/i, 'book', 'запрос 2'),
-      hint: "… WHERE title = 'Книга …' — текст в одинарных кавычках.",
-      ok: 'Seq Scan: индекса по title нет — робот обошёл все стеллажи, а подошла одна книга.',
+      hint: "… WHERE title = 'Book …' — текст в одинарных кавычках.",
+      ok: 'Seq Scan: индекса по title нет — СУБД прочитала всю таблицу, а подошла одна книга.',
     },
     {
       key: 'like',
