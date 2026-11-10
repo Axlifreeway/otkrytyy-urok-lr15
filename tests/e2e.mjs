@@ -51,9 +51,10 @@ for (let i = 0; i < 50; i++) {
   await sleep(100);
 }
 
-// E2E_CHANNEL=chrome — взять установленный Chrome, если браузеры Playwright не скачаны
+// E2E_CHANNEL=chrome — взять установленный Chrome, если браузеры Playwright не скачаны; E2E_CHROME — путь к своему Chromium
 const browser = await chromium.launch({
   channel: process.env.E2E_CHANNEL,
+  executablePath: process.env.E2E_CHROME || undefined,
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 const out = {};
@@ -111,33 +112,18 @@ function script(lab, lv, D) {
 // таблица lv.form (лабы библиотеки): значения — из настоящих планов, как переписал бы студент
 async function fillForm(page, i) {
   await page.evaluate(async i => {
-    const f = window.LAB.L[i].form,
-      db = await window.__pg;
+    const f = window.LAB.L[i].form;
     const cols = f.cols || [
       {k: 'read', kind: 'read'},
       {k: 'ms', kind: 'ms'},
       {k: 'rm', kind: 'rm'},
     ];
     for (let r = 0; r < f.rows.length; r++) {
-      const row = f.rows[r];
-      const lines = (await db.query('EXPLAIN ANALYZE ' + row.sql)).rows.map(x => Object.values(x)[0]);
-      const scan = lines
-        .filter(l => !/Bitmap Index Scan/.test(l))
-        .map(l => /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan)(?: using \w+)? on (\w+)/.exec(l))
-        .find(m => m && m[2] === (f.t || 'book'));
-      const rm = lines.reduce((a, l) => a + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
+      const row = f.rows[r],
+        fact = await window.__formFact(row.sql, f.t || 'book'); // тот же разбор плана, что и в проверке (common/qlab.js)
       for (const c of cols) {
         const el = document.querySelector(`#ptab [data-f="${r}.${c.k}"]`);
-        el.value =
-          c.kind === 'read'
-            ? scan[1]
-            : c.kind === 'rm'
-              ? String(rm)
-              : c.kind === 'rows'
-                ? String(+((/actual time=[^)]*rows=(\d+)/.exec(lines.find(l => l.includes(' on ' + (f.t || 'book'))) || '') || [])[1] || 0))
-                : c.kind === 'ms'
-                  ? '0.5'
-                  : row[c.k];
+        el.value = c.kind === 'ms' ? '0.5' : c.kind === 'pick' || c.kind === 'yn' ? row[c.k] : String(fact[c.kind]);
         el.dispatchEvent(new Event('input'));
       }
     }

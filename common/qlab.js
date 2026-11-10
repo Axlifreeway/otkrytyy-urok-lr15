@@ -47,6 +47,7 @@ import {
   predsOf,
   predsLeft,
   answerPred,
+  curState,
 } from './shell.js';
 import {report} from './net.js';
 
@@ -1128,7 +1129,14 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     // нужен отказ СУБД: перенести агрегат в WHERE и т. п.
     if (check === 'error') {
       if (!info.err) {
-        if (info.kind === 'SELECT') verdict(null, lv.wait || 'Запрос выполнился — а нужно увидеть отказ СУБД.');
+        if (info.kind === 'SELECT')
+          verdict(null, 'Запрос SELECT ничего не меняет — отказа не будет. Выполните команду из задания и прочитайте ответ СУБД.');
+        else if (info.kind !== 'META')
+          verdict(
+            null,
+            lv.wait ||
+              'Команда выполнилась без отказа — СУБД её пропустила, значит, правило она не нарушила. Сверьте значения с заданием; изменения можно убрать кнопкой «↺ Сброс уровня».',
+          );
         return;
       }
       if (info.err.code === lv.code && (!lv.errMsg || lv.errMsg.test(info.err.message))) {
@@ -1295,10 +1303,27 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
   // lv.form = {t, rows: [{label, what, sql, …}], cols: [{k, h, kind}]}; kind: 'read' — способ чтения таблицы t,
   // 'ms' — время (любое правдоподобное: у каждого своё), 'rm' — Rows Removed by Filter (сумма по плану),
   // 'rows' — сколько строк таблицы t нашлось (actual rows у её узла),
-  // 'pick' — способ чтения, заданный в строке: row[k] (например, «до индекса»), 'yn' — «да»/«нет», ответ — row[k].
+  // 'pick' — способ чтения, заданный в строке: row[k] (например, «до индекса»), 'yn' — «да»/«нет», ответ — row[k],
+  // 'est' — оценка rows у узла таблицы t (первые скобки, cost=…), 'out' — сколько строк выдал верхний узел плана,
+  // 'agg' — узел группировки, 'join' — верхний узел соединения, 'sortyn' — есть ли в плане Sort («да»/«нет»).
   // f.need — каждый запрос студент должен сам выполнить с EXPLAIN ANALYZE на этом уровне (row.re — его условие).
-  // Проверка — по настоящим планам.
+  // Проверка — по настоящим планам: числа у каждого варианта свои, списать у соседа нельзя.
   const READS = ['Seq Scan', 'Index Scan', 'Index Only Scan', 'Bitmap Heap Scan'];
+  const AGGS = ['HashAggregate', 'GroupAggregate', 'Aggregate'];
+  const JOINS = ['Hash Join', 'Nested Loop', 'Merge Join'];
+  const OPTS = {read: READS, pick: READS, yn: ['да', 'нет'], sortyn: ['да', 'нет'], agg: AGGS, join: JOINS};
+  // где это число в плане — подсказка при несовпадении
+  const WHERE = {
+    read: 'способ чтения — первые слова строки плана над таблицей (Seq Scan, Index Scan …)',
+    ms: 'время — число из строки Execution Time',
+    rm: 'отброшено — Rows Removed by Filter (такой строки нет — 0, их несколько — сложите)',
+    rows: 'найдено — rows= во вторых скобках (actual …) у строки чтения таблицы',
+    est: 'оценка — rows= в первых скобках (cost=…) у строки чтения таблицы: столько строк СУБД ждала заранее',
+    out: 'строк на выходе — rows= во вторых скобках (actual …) у самой верхней строки плана',
+    agg: 'узел группировки — строка с Aggregate в начале плана',
+    join: 'способ соединения — верхняя строка с Join или Nested Loop',
+    sortyn: 'Sort — есть ли в плане строка Sort',
+  };
   const FORM_COLS = [
     {k: 'read', h: 'Способ чтения', kind: 'read'},
     {k: 'ms', h: 'Время, ms', kind: 'ms'},
@@ -1312,7 +1337,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     const cell = (i, c) => {
       const k = `${i}.${c.k}`,
         v = d[k] == null ? '' : String(d[k]);
-      const opts = c.kind === 'yn' ? ['да', 'нет'] : c.kind === 'read' || c.kind === 'pick' ? READS : null;
+      const opts = OPTS[c.kind] || null;
       return opts
         ? `<select data-f="${k}"><option value="">—</option>${opts.map(r => `<option${r === v ? ' selected' : ''}>${r}</option>`).join('')}</select>`
         : `<input data-f="${k}" value="${esc(v)}" inputmode="${c.kind === 'ms' ? 'decimal' : 'numeric'}" placeholder="${c.kind === 'ms' ? '0.000' : '0'}" autocomplete="off">`;
@@ -1344,34 +1369,58 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
   }
   async function factOf(sql, t) {
     const lines = await asAdmin(async () => (await q('EXPLAIN ANALYZE ' + sql)).rows.map(r => Object.values(r)[0]));
-    const n = planNodes(lines).nodes.find(x => x.table === t);
+    const P = planNodes(lines),
+      n = P.nodes.find(x => x.table === t);
     const rm = lines.reduce((s, l) => s + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
-    return {read: n ? n.kind : '', rm, rows: n ? n.rows : 0};
+    const tl = lines.find(l => !/Bitmap Index Scan/.test(l) && new RegExp(`(Scan|Scan using \\w+) on ${t}\\b`).test(l)) || '';
+    const agg = lines.map(l => /\b(HashAggregate|GroupAggregate|Aggregate)\b/.exec(l)).find(Boolean);
+    const join = lines.map(l => /(Hash Join|Merge Join|Nested Loop)/.exec(l)).find(Boolean);
+    return {
+      read: n ? n.kind : '',
+      rm,
+      rows: n ? n.rows : 0,
+      est: +((/cost=[^)]*rows=(\d+)/.exec(tl) || [])[1] || 0),
+      out: +((/actual time=[^)]*rows=(\d+)/.exec(lines[0] || '') || [])[1] || 0),
+      agg: agg ? agg[1] : '',
+      join: join ? join[1] : '',
+      sortyn: P.sort ? 'да' : 'нет',
+    };
   }
+  if (typeof window !== 'undefined') window.__formFact = factOf; // автотесты (tests/e2e.mjs) заполняют таблицу так же
+  // что студент вписал — для пульта преподавателя: [[метка, значение, значение …]], первая строка — заголовки
+  const formRows = (lv, d) => [
+    ['', ...colsOf(lv.form).map(c => c.h)],
+    ...lv.form.rows.map((r, i) => [r.label + (r.what ? ' · ' + r.what : ''), ...colsOf(lv.form).map(c => String(d[`${i}.${c.k}`] || ''))]),
+  ];
   async function checkForm(lv) {
     if (G.tx === '!') return errBox('Транзакция прервана', 'Сначала ROLLBACK — потом проверка таблицы.');
     const f = lv.form,
       rec = recOf(lv),
       d = rec.draft || {};
     const bad = [],
-      cells = [];
+      cells = [],
+      kinds = new Set();
     for (let i = 0; i < f.rows.length; i++) {
       const r = f.rows[i],
         fact = await factOf(r.sql, f.t || 'book');
       const miss = [];
       if (f.need && r.re && !G.trail.some(x => x.kind === 'EXPLAIN' && !x.code && x.plan && x.plan.analyze && r.re.test(x.sql)))
-        miss.push('нет EXPLAIN ANALYZE этого запроса на уровне');
+        miss.push('сначала выполните EXPLAIN ANALYZE этого запроса здесь, на этом уровне');
       const empty = colsOf(f).every(c => !String(d[`${i}.${c.k}`] || '').trim());
       for (const c of colsOf(f)) {
-        const v = String(d[`${i}.${c.k}`] || '').replace(',', '.');
+        const v = String(d[`${i}.${c.k}`] || '')
+          .replace(',', '.')
+          .replace(/\s+/g, '');
         let ok = true;
-        if (c.kind === 'read') ok = v === fact.read;
-        else if (c.kind === 'pick' || c.kind === 'yn') ok = v === r[c.k];
-        else if (c.kind === 'rm') ok = /^\d+$/.test(v) && +v === fact.rm;
-        else if (c.kind === 'rows') ok = /^\d+$/.test(v) && +v === fact.rows;
+        if (c.kind === 'pick' || c.kind === 'yn') ok = v === r[c.k];
         else if (c.kind === 'ms') ok = /^\d+(\.\d+)?$/.test(v) && +v > 0 && +v < 60000;
+        else if (['rm', 'rows', 'est', 'out'].includes(c.kind)) ok = /^\d+$/.test(v) && +v === fact[c.kind];
+        else ok = String(d[`${i}.${c.k}`] || '') === fact[c.kind];
         if (!ok) {
-          if (!empty) miss.push(c.h.toLowerCase());
+          if (!empty) {
+            miss.push(c.h.toLowerCase());
+            kinds.add(c.kind);
+          }
           cells.push(`${i}.${c.k}`);
         }
       }
@@ -1388,11 +1437,15 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
       rec.fails++;
       save();
       renderLevels();
+      report('form', {lv: G.lv + 1, key: lv.key, ok: false, rows: formRows(lv, d), bad: bad.join('; ').slice(0, 300)});
+      const tip = [...kinds].map(k => WHERE[k]).filter(Boolean);
+      const own = f.need && [...kinds].some(k => ['rows', 'rm', 'out'].includes(k));
       return verdict(
         false,
-        `Не сходится с планами: ${bad.join('; ')}. Сверьтесь с планом EXPLAIN ANALYZE: способ чтения — первые слова строки над таблицей; время — Execution Time (число, у каждого своё); отброшено — Rows Removed by Filter (нет строки — 0, несколько — сложите).`,
+        `Не сходится с планом: ${bad.join('; ')}.${tip.length ? ' Где смотреть в плане EXPLAIN ANALYZE: ' + tip.join('; ') + '.' : ''}${own ? ' Если числа взяты из вашего плана, а всё равно не сходятся, — неверно условие WHERE: проверьте его по заданию.' : ''}`,
       );
     }
+    report('form', {lv: G.lv + 1, key: lv.key, ok: true, rows: formRows(lv, d)});
     rec.ptab = f.rows.map((r, i) => ({
       label: r.label,
       what: r.what,
@@ -1466,7 +1519,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     (lv.say || []).forEach(s => W.say(s.id, s.t));
     G.P.cur = i;
     save();
-    report('level', {lv: i + 1, key: lv.key});
+    report('level', {lv: i + 1, key: lv.key, ...curState()});
     setRunning(false);
     $('sql').focus();
   }

@@ -60,6 +60,7 @@ test('ЛР-21: решения уровней по цепочке; отказы �
         await assert.rejects(db.query(lv.sol[0]), e => e.code === lv.code && (!lv.errMsg || lv.errMsg.test(e.message)), `${s} ${lv.key}`);
         continue;
       }
+      for (const q of lv.pre || []) await db.query(q);
       await play(lv, want);
       try {
         await db.query('ROLLBACK');
@@ -80,7 +81,8 @@ test('ЛР-21: новые уровни — с данными, на которы�
     const D = makeData(s),
       L = L21(D),
       by = k => L.find(l => l.key === k);
-    assert.equal(L.length, 24, 'ЛР-21: 24 уровня');
+    assert.equal(L.length, 21, 'ЛР-21: 21 уровень');
+    assert.ok(L.filter(l => l.check === 'error').length <= 3, 'ЛР-21: уровней «вызвать отказ» — немного');
     assert.match(by('thick').ref[0], /author_id = \d+$/, `${s}: thick`);
     assert.match(by('delaim').ref[0], /reader_id = \d+ AND/, `${s}: delaim`);
     // у читателя есть закрытые формуляры — DELETE не пустой
@@ -154,7 +156,8 @@ test('ЛР-22: прогнозы сходятся с планами, контро
     }
     assert.ok(isIdx((await plan(by('twoids').sol[0])).nodes[0]), `${s}: две книги по номерам — по индексу`);
     const lim = await plan(by('limit').sol[0]);
-    assert.equal(lim.nodes[0].rows, 5, 'LIMIT 5 — Seq Scan прочитал пять строк');
+    const n = +/LIMIT (\d+)/.exec(by('limit').sol[0])[1];
+    assert.equal(lim.nodes[0].rows, n, `LIMIT ${n} — Seq Scan прочитал ${n} строк`);
     // контрольный: A — Seq Scan и почти всё зря (нужен индекс), B — по индексу, C — подряд, но зря мало
     const F = by('final').form.rows;
     const facts = [];
@@ -305,4 +308,33 @@ test('ЛР-21 и ЛР-22: тренировка — все виды задани�
       assert.notEqual(JSON.stringify(await state()), before, `${t.title}: команда что-то меняет`);
     }
   }
+});
+
+test('ЛР-22: больше половины уровней — таблица по плану, и числа в ней у вариантов разные', async () => {
+  const facts = {};
+  for (const s of [0, 7, 23]) {
+    const D = makeData(s),
+      L = L22(D);
+    const forms = L.filter(l => l.form);
+    assert.ok(forms.length > L.length / 2, `${s}: уровней-таблиц ${forms.length} из ${L.length}`);
+    await reset(baseSql(D) + FILL + ';\nANALYZE;');
+    for (const lv of forms) {
+      const got = [];
+      for (const r of lv.form.rows) {
+        const lines = (await db.query('EXPLAIN ANALYZE ' + r.sql)).rows.map(x => Object.values(x)[0]);
+        const n = planNodes(lines).nodes.find(x => x.table === 'book');
+        assert.ok(n, `${s} ${lv.key}: в плане есть чтение book`);
+        const rm = lines.reduce((a, l) => a + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
+        got.push(`${r.sql}|${n.rows}|${rm}`);
+        // запрос строки — тот, что студент пишет сам: эталон уровня подходит под условие строки
+        if (r.re && lv.form.need)
+          assert.ok(
+            lv.sol.some(q => r.re.test(q)),
+            `${s} ${lv.key}: эталон подходит под условие строки ${r.label}`,
+          );
+      }
+      (facts[lv.key] = facts[lv.key] || new Set()).add(got.join(';'));
+    }
+  }
+  for (const [k, v] of Object.entries(facts)) assert.ok(v.size > 1, `${k}: у вариантов 0, 7 и 23 одинаковая таблица`);
 });

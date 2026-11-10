@@ -1,6 +1,6 @@
 // ЛР-21 · «Закрепление: изменение данных и структуры» — INSERT, отказы внешнего ключа и NOT NULL, SELECT и UPDATE/DELETE
 // с тем же условием, UPDATE с выражением, ADD COLUMN … DEFAULT, CHECK после приведения данных и по двум столбцам,
-// транзакции — и транзакция, прерванная ошибкой.
+// транзакции — и транзакция, прерванная ошибкой. Отказов «нарочно» немного: внешний ключ (два), CHECK на живых данных и ошибка в транзакции.
 // База — библиотека (common/libdata.js). Проверка уровня — lv.check: 'tx' (ход команд и состояние базы) или 'error' (нужный отказ).
 import {lit, authorName} from '../../common/libdata.js';
 
@@ -34,6 +34,7 @@ export function levels(D) {
   const closed = id => D.LN.filter(l => l.reader_id === id && l.returned !== null).length;
   const arch = D.RD.map(r => r.id).sort((a, b) => closed(b) - closed(a) || a - b)[0];
   const [, , r3, r4] = D.RD;
+  const phone2 = `+7 912 ${100 + (D.seed % 900)}-40-40`;
   const COL = `SELECT column_name, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'library' AND table_name = 'book' AND column_name = 'genre'`;
   const finRef = [
     `INSERT INTO reader (id, full_name, card, phone) VALUES (${guest.id}, ${lit(guest.full_name)}, ${lit(guest.card)}, NULL)`,
@@ -54,10 +55,12 @@ export function levels(D) {
       check: 'tx',
       allow: ALLOW,
       verify: c => {
-        if (c.wrong.length) return {fail: 'Строки не такие, как в задании.'};
+        if (c.wrong.length)
+          return {fail: 'Строки author не совпали с заданием: сверьте id, ФИО (латиницей, как в задании) и страну Russia у трёх авторов.'};
         if (!c.atTarget) return null;
         const i = c.trail.findIndex(x => x.kind === 'INSERT' && !x.code && x.n === 3);
-        if (i < 0) return {fail: 'Все три строки — одной командой: VALUES (…), (…), (…).'};
+        if (i < 0)
+          return {fail: 'Авторы добавлены, но не одной командой. Здесь нужен один INSERT с тремя наборами значений: VALUES (…), (…), (…).'};
         return after(c.trail, i, x => x.kind === 'SELECT' && !x.code) > 0
           ? {ok: true, note: 'INSERT 0 3'}
           : {wait: 'INSERT 0 3 — теперь покажите таблицу запросом SELECT.'};
@@ -76,26 +79,40 @@ export function levels(D) {
       q: 'Что ответит СУБД на ссылку в никуда?',
       goals: ['Книга со ссылкой на несуществующего автора', 'Прочитать отказ СУБД'],
       sol: ["INSERT INTO book (id, title, author_id, pages) VALUES (900, 'Test Book', 99, 300)"],
-      other: 'Это другой отказ. Нужна ошибка внешнего ключа: author_id ссылается на автора, которого нет.',
+      wait: 'Книга добавилась без отказа — значит, такой автор в справочнике есть. Возьмите author_id, которого нет (например, 99), и нажмите «↺ Сброс уровня», чтобы убрать добавленную книгу.',
+      other:
+        'Это отказ другого ограничения, а нужен отказ внешнего ключа fk_book_author (author_id ссылается на автора, которого нет). Если книга 900 уже добавилась прошлой попыткой — «↺ Сброс уровня».',
       hint: 'Внешний ключ fk_book_author не даёт сослаться на строку, которой нет в author.',
       ok: 'Внешний ключ проверил ссылку: автора 99 нет — строка не добавлена.',
     },
     {
-      key: 'nonull',
-      title: 'Книга без названия',
-      lab: 'ч. 1 · обязательный столбец',
-      check: 'error',
-      code: '23502',
-      errMsg: /"title"/,
+      key: 'noyear',
+      title: 'Год неизвестен',
+      lab: 'ч. 1 · INSERT не всех столбцов',
+      text: `Поступила книга нового автора ${NEW[0][1]} (author_id = ${NEW[0][0]}): id 902, название «Farewell to Matyora», 240 страниц. Год издания в накладной не указан — перечислите в INSERT только известные столбцы, без year. Покажите книгу запросом SELECT: что оказалось в year?`,
+      q: 'Что получает столбец, которого нет в INSERT?',
+      goals: ['INSERT: id, title, author_id, pages — без year', 'SELECT — книга 902 и её year'],
+      ref: [`INSERT INTO book (id, title, author_id, pages) VALUES (902, 'Farewell to Matyora', ${NEW[0][0]}, 240)`],
+      sol: [
+        `INSERT INTO book (id, title, author_id, pages) VALUES (902, 'Farewell to Matyora', ${NEW[0][0]}, 240)`,
+        'SELECT * FROM book WHERE id = 902',
+      ],
+      tables: ['book'],
+      check: 'tx',
       allow: ALLOW,
-      text: `Добавьте книгу id 901 автора ${authorName(D, au)} (author_id = ${au}) на 200 страниц, а название не указывайте — столбец title в INSERT не перечисляйте. Прочитайте отказ СУБД: какое ограничение сработало?`,
-      q: 'Что будет, если не указать значение обязательного столбца?',
-      goals: ['INSERT без столбца title', 'Прочитать отказ СУБД'],
-      sol: [`INSERT INTO book (id, author_id, pages) VALUES (901, ${au}, 200)`],
-      wait: 'Команда выполнилась — значит, название было. Перечислите в INSERT только id, author_id и pages.',
-      other: 'Это другой отказ. Нужен отказ из-за пустого title (NOT NULL): проверьте, что ссылка на автора верная.',
-      hint: '\\d book — у title стоит not null. Столбец, не перечисленный в INSERT, получает DEFAULT, а если его нет — NULL.',
-      ok: 'title объявлен NOT NULL: пропущенный столбец получил бы NULL — СУБД отказала (null value violates not-null constraint).',
+      verify: c => {
+        if (c.wrong.length)
+          return {
+            fail: `Строка книги 902 не такая, как в задании: id 902, название 'Farewell to Matyora', author_id = ${NEW[0][0]}, pages = 240, а year — пустой (не перечисляйте его в INSERT).`,
+          };
+        if (!c.atTarget) return null;
+        const i = c.trail.findLastIndex(x => x.kind === 'INSERT' && !x.code);
+        return after(c.trail, i, x => x.kind === 'SELECT' && !x.code) > 0
+          ? {ok: true, note: 'INSERT 0 1 · year = NULL'}
+          : {wait: 'Книга добавлена. Покажите её запросом SELECT — посмотрите, что в year.'};
+      },
+      hint: 'INSERT INTO book (id, title, author_id, pages) VALUES (…); — у year нет DEFAULT, и он не NOT NULL.',
+      ok: 'Столбец, которого нет в списке INSERT, получает значение по умолчанию, а если его нет — NULL. Для title так нельзя: он NOT NULL, и СУБД отказала бы.',
     },
     {
       key: 'aim',
@@ -115,10 +132,15 @@ export function levels(D) {
         const T = c.trail,
           u = T.findLastIndex(x => x.kind === 'UPDATE' && !x.code);
         const s = T.slice(0, u).findLast(x => x.kind === 'SELECT' && !x.code && x.where && x.where === T[u].where);
-        if (!s) return {fail: 'Перед UPDATE не было SELECT с тем же условием WHERE.'};
+        if (!s)
+          return {
+            fail: `Перед UPDATE нужен SELECT с тем же условием WHERE author_id = ${au} — чтобы заранее узнать, сколько строк изменится.`,
+          };
         return s.n === T[u].n
           ? {ok: true, note: `SELECT: ${s.n} строк · UPDATE ${T[u].n}`}
-          : {fail: `SELECT вернул ${s.n}, а UPDATE изменил ${T[u].n}.`};
+          : {
+              fail: `SELECT вернул ${s.n} строк, а UPDATE изменил ${T[u].n}: условия WHERE у них разные. Запишите в обоих одно и то же условие.`,
+            };
       },
       hint: 'Условие — дословно одно и то же: WHERE author_id = … и там, и там.',
       ok: 'Прицелились SELECT — и UPDATE изменил ровно столько же строк.',
@@ -156,7 +178,11 @@ export function levels(D) {
       check: 'tx',
       allow: ALLOW,
       verify: c =>
-        c.wrong.length ? {fail: 'Удалить нужно только автора ' + NEW[2][0] + '.'} : c.atTarget ? {ok: true, note: 'DELETE 1'} : null,
+        c.wrong.length
+          ? {fail: `Удалить нужно только автора ${NEW[2][0]} — по ключу: WHERE id = ${NEW[2][0]}.`}
+          : c.atTarget
+            ? {ok: true, note: 'DELETE 1'}
+            : null,
       hint: `DELETE FROM author WHERE id = ${NEW[2][0]};`,
       ok: 'На этого автора не ссылается ни одна книга — удаление прошло.',
     },
@@ -198,30 +224,15 @@ export function levels(D) {
         const T = c.trail,
           d = T.findLastIndex(x => x.kind === 'DELETE' && !x.code);
         const s = T.slice(0, d).findLast(x => x.kind === 'SELECT' && !x.code && x.where && x.where === T[d].where);
-        if (!s) return {fail: 'Перед DELETE не было SELECT с тем же условием WHERE.'};
+        if (!s) return {fail: 'Перед DELETE нужен SELECT с тем же условием WHERE — тем же текстом, что и в DELETE.'};
         return s.n === T[d].n
           ? {ok: true, note: `SELECT: ${s.n} строк · DELETE ${T[d].n}`}
-          : {fail: `SELECT вернул ${s.n}, а DELETE удалил ${T[d].n}.`};
+          : {
+              fail: `SELECT вернул ${s.n} строк, а DELETE удалил ${T[d].n}: условия WHERE у них разные. Запишите в обоих одно и то же условие.`,
+            };
       },
       hint: 'Два условия — через AND. «Возвращена» — returned IS NOT NULL (с NULL сравнивают только через IS).',
       ok: 'Прицелились SELECT с двумя условиями — и DELETE удалил ровно столько же. На формуляры ничто не ссылается — отказа нет.',
-    },
-    {
-      key: 'dupcard',
-      title: 'Чужой билет',
-      lab: 'ч. 1 · уникальность при UPDATE',
-      check: 'error',
-      code: '23505',
-      errMsg: /uq_reader_card/,
-      allow: ALLOW,
-      text: `Читатель ${r1.full_name} (id ${r1.id}) потерял билет. Библиотекарь по ошибке вписывает ему номер ${r2.card} — а это билет читателя ${r2.full_name}. Выполните такой UPDATE и прочитайте отказ СУБД.`,
-      q: 'Пропустит ли СУБД два одинаковых номера билета?',
-      goals: ['Вписать читателю чужой билет', 'Прочитать отказ СУБД'],
-      sol: [`UPDATE reader SET card = ${lit(r2.card)} WHERE id = ${r1.id}`],
-      wait: 'Команда выполнилась без отказа — проверьте номер билета: он должен совпасть с чужим.',
-      other: 'Это другой отказ — нужен повтор номера билета (ограничение uq_reader_card).',
-      hint: 'Ограничение UNIQUE проверяется и при UPDATE, а не только при INSERT.',
-      ok: 'UNIQUE не дал двум читателям один билет: UPDATE отклонён целиком.',
     },
     {
       key: 'newcard',
@@ -247,6 +258,32 @@ export function levels(D) {
       ok: 'Этот номер свободен — UNIQUE пропустил.',
     },
     {
+      key: 'twocol',
+      title: 'Два столбца сразу',
+      lab: 'ч. 1 · UPDATE нескольких столбцов',
+      text: `Читатель ${r2.full_name} (id ${r2.id}) пришёл с новым номером телефона ${phone2} и сменил билет на L-00888. Измените оба значения одной командой UPDATE и покажите его строку SELECT.`,
+      q: 'Как изменить два столбца одной командой?',
+      goals: ['Одна команда UPDATE — phone и card', 'SELECT — строка читателя'],
+      ref: [`UPDATE reader SET phone = '${phone2}', card = 'L-00888' WHERE id = ${r2.id}`],
+      sol: [`UPDATE reader SET phone = '${phone2}', card = 'L-00888' WHERE id = ${r2.id}`, `SELECT * FROM reader WHERE id = ${r2.id}`],
+      tables: ['reader'],
+      check: 'tx',
+      allow: ALLOW,
+      verify: c => {
+        if (c.wrong.length) return {fail: `Изменилось не то: менять нужно только читателя ${r2.id} — телефон ${phone2} и билет L-00888.`};
+        if (!c.atTarget) return null;
+        const ups = c.trail.filter(x => x.kind === 'UPDATE' && !x.code);
+        if (ups.length > 1)
+          return {fail: 'Значения верные, но команд UPDATE было несколько. Здесь — одна: SET phone = …, card = … через запятую.'};
+        const u = c.trail.findLastIndex(x => x.kind === 'UPDATE' && !x.code);
+        return after(c.trail, u, x => x.kind === 'SELECT' && !x.code) > 0
+          ? {ok: true, note: 'UPDATE 1 · два столбца'}
+          : {wait: 'Оба значения изменены. Покажите строку читателя запросом SELECT.'};
+      },
+      hint: "UPDATE reader SET phone = '…', card = '…' WHERE id = …; — пары «столбец = значение» через запятую.",
+      ok: 'В SET через запятую можно перечислить сколько угодно столбцов — они меняются вместе, в одной строке.',
+    },
+    {
       key: 'reauthor',
       title: 'Не тот автор',
       lab: 'ч. 1 · ссылка на новую строку',
@@ -257,7 +294,12 @@ export function levels(D) {
       tables: ['book'],
       check: 'tx',
       allow: ALLOW,
-      verify: c => (c.wrong.length ? {fail: `Измените только книгу ${moved.id}.`} : c.atTarget ? {ok: true, note: 'UPDATE 1'} : null),
+      verify: c =>
+        c.wrong.length
+          ? {fail: `Изменить нужно только книгу ${moved.id}: author_id = ${NEW[0][0]}. Условие — по ключу книги.`}
+          : c.atTarget
+            ? {ok: true, note: 'UPDATE 1'}
+            : null,
       hint: `UPDATE book SET author_id = ${NEW[0][0]} WHERE id = ${moved.id};`,
       ok: `Автор ${NEW[0][0]} есть в справочнике — внешний ключ пропустил ссылку. Теперь и его удалить не получится.`,
     },
@@ -315,25 +357,44 @@ export function levels(D) {
       ok: 'Без DEFAULT у старых строк в новом столбце NULL — значение неизвестно.',
     },
     {
-      key: 'notnull',
-      title: 'Жанр обязателен?',
-      lab: 'ч. 2 · SET NOT NULL на пустом столбце',
-      check: 'error',
-      code: '23502',
+      key: 'genre',
+      title: 'Заполнить и закрепить',
+      lab: 'ч. 2 · сначала данные, потом NOT NULL',
+      text: `Заполните жанр: книгам автора ${authorName(D, au)} (author_id = ${au}) — 'poetry', всем остальным — 'prose'. Когда пустых жанров не останется, сделайте столбец обязательным: ALTER TABLE book ALTER COLUMN genre SET NOT NULL.`,
+      q: 'Почему NOT NULL вводят после заполнения?',
+      goals: [`Книгам автора ${au} — 'poetry'`, "Остальным — 'prose'", 'genre — NOT NULL'],
+      ref: [
+        `UPDATE book SET genre = 'poetry' WHERE author_id = ${au}`,
+        `UPDATE book SET genre = 'prose' WHERE genre IS NULL`,
+        'ALTER TABLE book ALTER COLUMN genre SET NOT NULL',
+      ],
+      tables: ['book'],
+      check: 'tx',
       allow: ALLOW,
-      text: 'Сделайте жанр обязательным: ALTER TABLE book ALTER COLUMN genre SET NOT NULL. Жанры ещё никто не заполнил — прочитайте отказ СУБД.',
-      q: 'Встанет ли NOT NULL на столбец, где одни NULL?',
-      goals: ['genre — обязательный', 'Прочитать отказ СУБД'],
-      sol: ['ALTER TABLE book ALTER COLUMN genre SET NOT NULL'],
-      other: 'Это другой отказ — проверьте запись команды: ALTER COLUMN genre SET NOT NULL.',
-      hint: 'NOT NULL, как и CHECK, проверяется на всех строках, которые уже есть.',
-      ok: 'СУБД отказала: в столбце есть NULL. Сравните со «Статусом читателя» — там DEFAULT заполнил строки заранее.',
+      verify: async c => {
+        const [g] = await c.q(
+          `SELECT count(*) FILTER (WHERE genre IS NULL)::int AS e, count(*) FILTER (WHERE author_id = ${au} AND genre IS DISTINCT FROM 'poetry')::int AS p, count(*) FILTER (WHERE author_id <> ${au} AND genre IS DISTINCT FROM 'prose')::int AS r FROM library.book`,
+        );
+        const col = (await c.q(COL))[0];
+        if (!col) return {fail: 'Столбца genre нет — его добавляли на прошлом уровне. Нажмите «↺ Сброс уровня».'};
+        const nn = col.is_nullable === 'NO';
+        if (!c.trail.some(x => x.kind === 'UPDATE' && !x.code) && !nn) return null;
+        if (g.e) return {wait: `Пустых жанров ещё ${g.e}. Заполните их — иначе NOT NULL не встанет.`};
+        if (g.p || g.r)
+          return {
+            fail: `Жанры не те: ${g.p ? `у книг автора ${au} должно быть 'poetry' (неверно у ${g.p})` : ''}${g.p && g.r ? ', а ' : ''}${g.r ? `у остальных — 'prose' (неверно у ${g.r})` : ''}.`,
+          };
+        if (!nn) return {wait: 'Жанры заполнены у всех. Теперь — ALTER TABLE book ALTER COLUMN genre SET NOT NULL.'};
+        return {ok: true, note: 'UPDATE · UPDATE · SET NOT NULL'};
+      },
+      hint: 'Два UPDATE: сначала книги автора, потом все, где genre IS NULL. Затем ALTER COLUMN genre SET NOT NULL.',
+      ok: 'NOT NULL проверяется на всех строках, которые уже есть: пока хоть у одной книги пусто — СУБД откажет. Поэтому сначала данные, потом правило.',
     },
     {
       key: 'dropcol',
       title: 'Жанр — потом',
       lab: 'ч. 2 · удалить столбец',
-      text: 'Заполнять жанры некому — столбец пока убираем. Удалите genre из book и покажите \\d book или SELECT, что его нет.',
+      text: 'Жанры решено вести отдельным справочником — столбец genre в book больше не нужен. Удалите его и покажите \\d book или SELECT, что его нет.',
       q: 'Как удалить столбец?',
       goals: ['Столбец genre удалён', 'Проверка: столбца нет'],
       ref: ['ALTER TABLE book DROP COLUMN genre'],
@@ -353,66 +414,47 @@ export function levels(D) {
       ok: 'Столбец удалён вместе со всеми значениями — в отличие от DELETE, это меняет структуру, а не строки.',
     },
     {
-      key: 'break',
-      title: 'Ошибка в данных',
-      lab: 'ч. 2 · № 7 · нарушить правило',
-      text: `Правило: у книги больше нуля страниц. Нарушьте его: книге «${thin.title}» (id ${thin.id}) поставьте pages = 0. Ограничения пока нет — СУБД пропустит.`,
-      q: 'Пропустит ли СУБД ноль страниц без ограничения?',
-      goals: ['pages = 0 у одной книги — по ключу'],
-      ref: [`UPDATE book SET pages = 0 WHERE id = ${thin.id}`],
-      tables: ['book'],
-      check: 'tx',
-      allow: ALLOW,
-      verify: c => (c.wrong.length ? {fail: 'Измените только эту книгу.'} : c.atTarget ? {ok: true, note: 'UPDATE 1 · pages = 0'} : null),
-      hint: `UPDATE book SET pages = 0 WHERE id = ${thin.id};`,
-      ok: 'Без ограничения СУБД хранит что угодно — даже книгу без страниц.',
-    },
-    {
-      key: 'checkfail',
-      title: 'Правило — ограничением',
-      lab: 'ч. 2 · № 8 · CHECK на данных с нарушением',
-      check: 'error',
-      code: '23514',
-      allow: ALLOW,
-      text: 'Введите правило ограничением с именем: ALTER TABLE book ADD CONSTRAINT ck_book_pages CHECK (pages > 0). В таблице уже есть нарушающая строка — запишите отказ СУБД.',
-      q: 'Встанет ли ограничение на данные, которые его нарушают?',
-      goals: ['Ограничение ck_book_pages', 'Прочитать отказ СУБД'],
-      sol: ['ALTER TABLE book ADD CONSTRAINT ck_book_pages CHECK (pages > 0)'],
-      other: 'Отказ есть, но другой — проверьте запись ограничения.',
-      hint: 'Имя ограничения — ck_таблица_смысл. CHECK проверяется на всех строках сразу.',
-      ok: 'СУБД проверила все строки — одна нарушает правило, ограничение не встало.',
-    },
-    {
       key: 'fix',
       hard: true,
-      title: 'Привести данные',
-      lab: 'сложный · № 9 · найти, исправить, повторить',
-      text: `Найдите нарушающую строку запросом (pages <= 0), исправьте её — у книги на самом деле ${thin.pages} страниц — и повторите ввод ограничения ck_book_pages.`,
+      title: 'Правило на живых данных',
+      lab: 'сложный · № 7–9 · CHECK на данных с ошибкой',
+      pre: [`UPDATE book SET pages = 0 WHERE id = ${thin.id}`], // при переносе каталога у одной книги потерялись страницы
+      text: `Правило: у книги больше нуля страниц. Введите его ограничением с именем ck_book_pages: CHECK (pages > 0). Но при переносе каталога у одной книги число страниц потерялось (стало 0) — СУБД откажет. Прочитайте отказ, найдите эту книгу запросом (pages <= 0), исправьте — у неё на самом деле ${thin.pages} страниц — и введите ограничение ещё раз.`,
       q: 'В каком порядке вводят ограничение на живые данные?',
-      goals: ['Нарушающая строка найдена запросом', 'Исправлена', 'Ограничение ck_book_pages введено'],
+      goals: ['Ограничение — отказ СУБД', 'Нарушающая строка найдена запросом', 'Исправлена', 'Ограничение ck_book_pages введено'],
       ref: [
         `UPDATE book SET pages = ${thin.pages} WHERE id = ${thin.id}`,
         'ALTER TABLE book ADD CONSTRAINT ck_book_pages CHECK (pages > 0)',
       ],
       sol: [
+        'ALTER TABLE book ADD CONSTRAINT ck_book_pages CHECK (pages > 0)',
         'SELECT id, title, pages FROM book WHERE pages <= 0',
         `UPDATE book SET pages = ${thin.pages} WHERE id = ${thin.id}`,
         'ALTER TABLE book ADD CONSTRAINT ck_book_pages CHECK (pages > 0)',
       ],
+      solErr: ['23514'], // первая попытка ввести ограничение — отказ, так и задумано
       tables: ['book'],
       check: 'tx',
       allow: ALLOW,
       verify: async c => {
         const ck = (await c.q(`SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'ck_book_pages'`))[0];
-        if (!ck) return null;
+        if (!ck) {
+          if (c.trail.some(x => x.code === '23514'))
+            return {
+              wait: 'Это и есть отказ: «is violated by some row» — одна строка уже нарушает правило. Найдите её: SELECT … FROM book WHERE pages <= 0.',
+            };
+          return null;
+        }
         if (!c.trail.some(x => x.kind === 'SELECT' && !x.code && /pages/.test(x.where)))
-          return {fail: 'Сначала найдите нарушающую строку запросом SELECT … WHERE pages <= 0.'};
+          return {
+            fail: 'Ограничение встало, но нарушающую строку вы не искали запросом. Порядок такой: SELECT … WHERE pages <= 0 — найти, UPDATE — исправить, и только потом ADD CONSTRAINT.',
+          };
         return c.wrong.length
-          ? {fail: `Исправить нужно только книгу ${thin.id}: ${thin.pages} страниц.`}
-          : {ok: true, note: 'SELECT · UPDATE 1 · ALTER TABLE'};
+          ? {fail: `Исправить нужно только книгу ${thin.id}: pages = ${thin.pages}. Остальные строки book трогать не нужно.`}
+          : {ok: true, note: 'ERROR 23514 · SELECT · UPDATE 1 · ALTER TABLE'};
       },
-      hint: 'SELECT … WHERE pages <= 0; UPDATE …; ALTER TABLE … ADD CONSTRAINT …;',
-      ok: 'Данные приведены — ограничение встало. Теперь ноль страниц СУБД не пропустит.',
+      hint: 'ALTER TABLE … ADD CONSTRAINT … → отказ; SELECT … WHERE pages <= 0; UPDATE …; ALTER TABLE … ADD CONSTRAINT … ещё раз.',
+      ok: 'Данные приведены — ограничение встало. Теперь ноль страниц СУБД не пропустит ни в INSERT, ни в UPDATE.',
     },
     {
       key: 'ckloan',
@@ -437,23 +479,6 @@ export function levels(D) {
       },
       hint: 'ALTER TABLE loan ADD CONSTRAINT ck_loan_dates CHECK (…); — внутри сравнение двух столбцов одной строки.',
       ok: 'Встало сразу: нарушающих строк нет. NULL отдельно разрешать не нужно — сравнение с NULL даёт «неизвестно», а CHECK отказывает только на «ложь».',
-    },
-    {
-      key: 'ckloanfail',
-      title: 'Возврат раньше выдачи',
-      lab: 'ч. 2 · правило работает',
-      check: 'error',
-      code: '23514',
-      errMsg: /ck_loan_dates/,
-      allow: ALLOW,
-      text: `Библиотекарь отмечает возврат по формуляру № ${back.id} и ошибается месяцем: пишет дату 2026-08-31 — раньше, чем книгу выдали (${back.taken}). Выполните такой UPDATE и прочитайте отказ СУБД.`,
-      q: 'Что теперь ответит СУБД на неверную дату?',
-      goals: ['UPDATE с датой возврата раньше выдачи', 'Прочитать отказ СУБД'],
-      sol: [`UPDATE loan SET returned = '2026-08-31' WHERE id = ${back.id}`],
-      wait: 'Команда выполнилась без отказа — проверьте, что меняете returned у формуляра из задания.',
-      other: 'Это другой отказ — нужен отказ ограничения ck_loan_dates.',
-      hint: "UPDATE loan SET returned = '2026-08-31' WHERE id = …;",
-      ok: 'Ограничение ck_loan_dates отказало (violates check constraint): строка осталась прежней. Правило теперь проверяется на каждом INSERT и UPDATE.',
     },
     // ═══════════════════════════════ часть 3 · транзакция
     {
@@ -490,7 +515,9 @@ export function levels(D) {
         if (s2 < 0) return {wait: 'Откатили. Покажите тем же запросом, что строки вернулись.'};
         return c.atStart
           ? {ok: true, note: `DELETE ${T[d].n} · ROLLBACK · строки на месте`}
-          : {fail: 'После ROLLBACK база должна быть как в начале.'};
+          : {
+              fail: 'После ROLLBACK база не вернулась к началу: похоже, часть изменений сделана до BEGIN или после ROLLBACK. Нажмите «↺ Сброс уровня» и повторите всё внутри одной транзакции.',
+            };
       },
       hint: 'BEGIN; DELETE …; SELECT …; ROLLBACK; SELECT …;',
       ok: 'ROLLBACK вернул всё, что удалено после BEGIN.',
@@ -509,7 +536,8 @@ export function levels(D) {
       allow: ALLOW,
       verify: c => {
         const T = c.trail;
-        if (c.wrong.length && !c.tx) return {fail: 'Изменилось не то, что нужно.'};
+        if (c.wrong.length && !c.tx)
+          return {fail: `Изменилось не то: отметить нужно только возврат по формуляру № ${back.id} — returned = '2026-10-22'.`};
         const u = T.findIndex(x => x.kind === 'UPDATE' && !x.code);
         if (u < 0) return null;
         if (!T[u].tx) return {fail: 'UPDATE выполнен без транзакции. Начните с BEGIN.'};
@@ -557,7 +585,10 @@ export function levels(D) {
         if (r < 0) return {wait: 'Ошибка прервала транзакцию (приглашение library=!>). Закончите её: ROLLBACK.'};
         if (after(T, r, x => x.kind === 'SELECT' && !x.code && !x.tx) < 0)
           return {wait: 'Транзакция закончена. Покажите SELECT, сохранился ли телефон.'};
-        if (!c.atStart) return {fail: 'После ROLLBACK читатель должен быть таким, как в начале.'};
+        if (!c.atStart)
+          return {
+            fail: 'После ROLLBACK читатель изменён: какую-то команду вы выполнили вне транзакции. «↺ Сброс уровня» — и всё заново, начиная с BEGIN.',
+          };
         const tried = T.some((x, i) => i > e && x.code === '25P02');
         return {
           ok: true,
@@ -585,12 +616,17 @@ export function levels(D) {
         const T = c.trail;
         const ins = T.filter(x => x.kind === 'INSERT' && !x.code);
         if (ins.some(x => !x.tx)) return {fail: 'INSERT выполнен без транзакции. Начните с BEGIN.'};
-        if (c.wrong.length && !c.tx) return {fail: 'Строки не такие, как в задании.'};
+        if (c.wrong.length && !c.tx)
+          return {
+            fail: 'Строки reader или loan не совпали с заданием: сверьте id, ФИО, билет, книгу и даты; телефон и returned — пустые (NULL).',
+          };
         const cm = T.findIndex(x => x.kind === 'COMMIT' && x.tag === 'COMMIT');
         if (cm < 0) return ins.length >= 2 ? {wait: 'Обе строки в транзакции. Подтвердите: COMMIT.'} : null;
         return c.atTarget
           ? {ok: true, note: 'BEGIN · INSERT 0 1 · INSERT 0 1 · COMMIT'}
-          : {fail: 'После COMMIT строки не такие, как в задании.'};
+          : {
+              fail: 'COMMIT прошёл, но строки reader или loan не такие, как в задании: сверьте id, билет, книгу и дату выдачи; телефон и returned — NULL.',
+            };
       },
       ok: 'Читатель и его формуляр появились вместе — одним COMMIT.',
     },

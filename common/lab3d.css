@@ -1930,6 +1930,43 @@ table.res td {
   padding: 0 7px;
   cursor: pointer;
 }
+.rs-fb {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.rs-fb button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 22px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  border: 2.5px solid var(--ink);
+  background: #fff;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.rs-fb button small {
+  font: 600 12.5px var(--font);
+}
+.rs-fb button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.rs-fb button.on {
+  background: var(--sun);
+}
+.rs-fb button:disabled:not(.on) {
+  opacity: 0.4;
+}
+.rs-thx {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--teal, #2f6f73);
+}
 @keyframes blink {
   50% {
     opacity: 0;

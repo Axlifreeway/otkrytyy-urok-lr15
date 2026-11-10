@@ -29,12 +29,13 @@ PORT = int(os.environ.get('LABS_PORT', '8090'))
 DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labs.db'))
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
-TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice', 'trace'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 24, 'lr22': 24, 'lr23': 14, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
+TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice', 'trace', 'form', 'sayfb'}   # 'report' пишет сам сервер
+LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 21, 'lr22': 24, 'lr23': 14, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
 GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24')   # пиццерия и библиотека: открывает преподаватель
 MAX_BODY = 400000
 MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
+SAY_FB = ('👍', '👌', '🤔', '🙋')   # отклик студента на объявление робота: понятно, сделаю, непонятно, подойдите
 REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
 REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
@@ -106,7 +107,7 @@ ADDED = {
     'lr18': ['belowavg', 'minrow', 'firstday', 'bytransport', 'nophone', 'unsold', 'quiet', 'exists', 'corr'],
     'lr19': ['veg', 'fleet', 'pickup', 'cheap', 'district', 'percour', 'months'],
     'lr20': ['qtyfix', 'phone', 'cancel', 'guarded', 'forget', 'txcommit', 'swap'],
-    'lr21': ['dupcard', 'newcard', 'reauthor', 'addnull', 'notnull', 'dropcol', 'return', 'nonull', 'thick', 'delaim', 'ckloan', 'ckloanfail', 'txerr'],
+    'lr21': ['newcard', 'reauthor', 'addnull', 'dropcol', 'return', 'thick', 'delaim', 'ckloan', 'txerr', 'noyear', 'twocol', 'genre'],
     'lr22': ['small', 'like', 'byauthor', 'whole', 'sort', 'agg', 'most', 'report', 'guess3', 'limit', 'group', 'combo', 'decade', 'twoids', 'keyrange', 'join3', 'guess3b'],
     'lr23': ['order', 'func', 'uniq', 'uniqfail', 'pages', 'wide', 'size', 'after'],
     'lr24': ['dp', 'who', 'colgrant', 'colcheck', 'again'],
@@ -166,7 +167,8 @@ def _person(ts, client, lab, fio, grp, seed):
     return {'client': client, 'lab': lab, 'fio': fio, 'grp': grp, 'seed': seed, 'first': ts, 'last': ts,
             'lv': 1, 'lvSince': ts, 'done': [], 'pts': 0, 'runs': 0, 'errors': 0, 'lints': 0, 'lvErrors': 0,
             'lastErr': '', 'lastErrTs': 0, 'lastSql': '', 'away': 0, 'awayMs': 0, 'pastes': 0, 'inserts': 0, 'shots': 0, 'submit': None, 'report': None, 'practice': 0,
-            'hidden': False, 'stars': {}, 'starsAt': 0, 'doneN': 0, 'trust': None, 'trustWhy': '', 'trustLv': {}}
+            'hidden': False, 'stars': {}, 'starsAt': 0, 'doneN': 0, 'trust': None, 'trustWhy': '', 'trustLv': {},
+            'lvTime': {}, 'lvErr': {}, 'curOk': False, 'allDone': False, 'inPractice': False, 'forms': {}}
 
 
 def _error(p, d, ts, lv, text):
@@ -194,7 +196,14 @@ def summarize(rows, now, live=True):
             p['seed'] = seed
         lv = d.get('lv')
         if typ in ('level', 'hello', 'hb') and lv and lv != p['lv']:
-            p['lv'], p['lvSince'], p['lvErrors'] = lv, ts, 0
+            # время копится по каждому уровню: вернулся на пройденный и обратно — таймер продолжается, а не с нуля
+            k = str(p['lv'])
+            p['lvTime'][k] = p['lvTime'].get(k, 0) + max(0, ts - p['lvSince'])
+            p['lvErr'][k] = p['lvErrors']
+            p['lv'], p['lvSince'], p['lvErrors'] = lv, ts, p['lvErr'].get(str(lv), 0)
+            p['curOk'] = False
+        if typ in ('level', 'hb', 'away') and 'ok' in d:      # текущий уровень уже пройден, вся лаба пройдена, тренировка
+            p['curOk'], p['allDone'], p['inPractice'] = bool(d.get('ok')), bool(d.get('all')), bool(d.get('px'))
         if isinstance(d.get('tAll'), (int, float)) and not isinstance(d.get('tAll'), bool):   # коэффициент доверия к набору (common/trust.js)
             p['trust'], p['trustWhy'] = d['tAll'], clip(d.get('tWhy'), 120)
         if typ == 'run':
@@ -210,6 +219,8 @@ def summarize(rows, now, live=True):
         elif typ == 'rollback':                 # команда выполнилась, но результат не совпал с заданием
             _error(p, d, ts, lv, d.get('msg'))
         elif typ == 'done':
+            if lv == p['lv']:
+                p['curOk'] = True
             k = d.get('key')
             if k and k not in p['done']:
                 p['done'].append(k)
@@ -219,6 +230,9 @@ def summarize(rows, now, live=True):
                 if isinstance(d.get('trust'), (int, float)):
                     p['trustLv'][str(lv)] = d['trust']
             p['pts'] = max(p['pts'], d.get('pts') or 0)
+        elif typ == 'form':                     # таблица по плану (лабы библиотеки): что вписал студент — последняя попытка
+            if d.get('key') and isinstance(d.get('rows'), list):
+                p['forms'][d['key']] = {'ts': ts, 'lv': lv, 'ok': bool(d.get('ok')), 'rows': d['rows'][:12], 'bad': clip(d.get('bad'), 300)}
         elif typ == 'paste':                   # via='input' — текст появился без вставки и без клавиш
             p['inserts' if d.get('via') == 'input' else 'pastes'] += 1
         elif typ == 'shot':                    # нажат Print Screen
@@ -240,10 +254,13 @@ def summarize(rows, now, live=True):
         p['doneN'] = max(p['doneN'], len(p['done']))
         p['starsN'] = sum(int(x or 0) for x in p['stars'].values())
         p['idle'] = now - p['last']
-        p['onLevel'] = now - p['lvSince']
+        p['onLevel'] = p['lvTime'].get(str(p['lv']), 0) + max(0, now - p['lvSince'])
         p['total'] = LEVELS.get(p['lab'], 12)
+        p['allDone'] = p['allDone'] or p['doneN'] >= p['total']
+        del p['lvTime'], p['lvErr']
         reasons = []
-        if live and not p['submit']:
+        # застрял — только на непройденном уровне: кто прошёл всё или вернулся к пройденному, тот не застрял
+        if live and not p['submit'] and not p['allDone'] and not p['curOk'] and not p['inPractice']:
             if p['onLevel'] > 7 * 60000:
                 reasons.append(f"на уровне {p['onLevel'] // 60000} мин")
             if p['lvErrors'] >= 3:
@@ -397,11 +414,11 @@ class Store:
             sql += ' AND lab = ?'
             args.append(lab)
         with self.lock:
-            return self.con.execute(sql + ' ORDER BY ts', args).fetchall()
+            return self.con.execute(sql + ' ORDER BY ts, rowid', args).fetchall()
 
     def log(self, client, since, until=None):
         with self.lock:
-            rows = self.con.execute('SELECT ts, type, data FROM ev WHERE client = ? AND ts >= ? AND ts < ? ORDER BY ts',
+            rows = self.con.execute('SELECT ts, type, data FROM ev WHERE client = ? AND ts >= ? AND ts < ? ORDER BY ts, rowid',
                                     (client, since, until or 1 << 62)).fetchall()
         return [{'ts': r[0], 'type': r[1], 'data': json.loads(r[2] or '{}')} for r in rows if r[1] != 'hb']
 
@@ -485,8 +502,22 @@ class Store:
 
     def recent_says(self):
         with self.lock:
-            return [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4], 'to': r[5]}
-                    for r in self.con.execute('SELECT s.id, s.ts, s.grp, s.text, s.mode, st.name FROM say s LEFT JOIN student st ON st.id = s.sid ORDER BY s.id DESC LIMIT 10')]
+            out = [{'id': r[0], 'ts': r[1], 'grp': r[2], 'text': r[3], 'mode': r[4], 'to': r[5], 'fb': {}}
+                   for r in self.con.execute('SELECT s.id, s.ts, s.grp, s.text, s.mode, st.name FROM say s LEFT JOIN student st ON st.id = s.sid ORDER BY s.id DESC LIMIT 10')]
+            if out:
+                # отклик студентов на объявление (эмодзи в окне робота): последний от каждого студента
+                by = {x['id']: x for x in out}
+                last = {}
+                for client, data in self.con.execute("SELECT client, data FROM ev WHERE type = 'sayfb' AND ts >= ? ORDER BY ts, rowid", (min(x['ts'] for x in out),)):
+                    try:
+                        d = json.loads(data or '{}')
+                    except ValueError:
+                        continue
+                    if isinstance(d, dict) and d.get('id') in by and d.get('e') in SAY_FB:
+                        last[(d['id'], client)] = d['e']
+                for (i, _), e in last.items():
+                    by[i]['fb'][e] = by[i]['fb'].get(e, 0) + 1
+            return out
 
     # ── какие лабы открыты студентам ──
     def labs_open(self):
@@ -566,6 +597,31 @@ class Store:
             self.con.execute('INSERT OR REPLACE INTO progress (sid, lab, data, ts) VALUES (?,?,?,?)', (sid, lab, json.dumps(data, ensure_ascii=False), now_ms()))
             self.con.commit()
         return data
+
+    # ── карточка студента (панель преподавателя → список группы) ──
+    def student_card(self, sid):
+        with self.lock:
+            r = self.con.execute('SELECT s.id, s.name, s.grp, s.idx, g.ord * 100 + s.idx, s.pin IS NOT NULL FROM student s '
+                                 'JOIN grp g ON g.name = s.grp WHERE s.id = ?', (sid,)).fetchone()
+            if not r:
+                return None
+            seen = {lab: (first, last, n) for lab, first, last, n in self.con.execute(
+                "SELECT lab, min(ts), max(ts), count(*) FROM ev WHERE client = ? AND type <> 'hb' GROUP BY lab", (f's{sid}',))}
+            labs_db = [x for (x,) in self.con.execute('SELECT lab FROM progress WHERE sid = ?', (sid,))]
+        labs = {}
+        for lab in LEVELS:
+            if lab not in labs_db and lab not in seen:
+                continue
+            data, _ = self.progress(sid, lab)
+            data = data or {}
+            lv = {k: {f: v.get(f) for f in ('done', 'fails', 'at', 'tr', 'tw', 'auto', 'ptab', 'note', 'sql') if v.get(f) is not None}
+                  for k, v in (data.get('lv') or {}).items() if isinstance(v, dict) and k != 'practice'}
+            first, last, n = seen.get(lab, (0, 0, 0))
+            labs[lab] = {'lv': lv, 'answers': data.get('answers') or {}, 'practice': data.get('practice') or 0, 'sentAt': data.get('sentAt') or 0,
+                         'away': data.get('away') or 0, 'awayMs': data.get('awayMs') or 0, 'pastes': data.get('pastes') or 0,
+                         'first': first, 'last': last, 'events': n}
+        return {'id': r[0], 'name': r[1], 'grp': r[2], 'idx': r[3], 'seed': r[4], 'pin': bool(r[5]), 'labs': labs,
+                'reports': self.reports(client=f's{sid}')}
 
     # ── группы (панель преподавателя) ──
     def admin_groups(self):
@@ -801,6 +857,13 @@ class Handler(BaseHTTPRequestHandler):
             r = None
         self.send(200, r) if r else self.send(404, {'err': 'not found'})
 
+    def admin_student(self, q):
+        try:
+            c = self.store.student_card(int(q.get('id') or 0))
+        except ValueError:
+            c = None
+        self.send(200, c) if c else self.send(404, {'err': 'not found'})
+
     def admin_labels(self, q):
         self.send(200, {'labels': self.store.labels(q.get('client', ''), q.get('lab', ''))})
 
@@ -987,6 +1050,7 @@ GET_ROUTES = {
     '/api/admin/report': (Handler.admin_report, True),
     '/api/admin/labels': (Handler.admin_labels, True),
     '/api/admin/traces': (Handler.admin_traces, True),
+    '/api/admin/student': (Handler.admin_student, True),
 }
 POST_ROUTES = {
     '/api/ev': (Handler.ev, False),
