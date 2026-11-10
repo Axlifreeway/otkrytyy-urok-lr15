@@ -218,9 +218,11 @@ function send(final) {
       () => {
         busy = false;
         if (s !== sess) return;
-        setStatus('off');
-        tries++; // 3 с, 6 с, 12 с … не реже раза в минуту
-        retry = setTimeout(() => send(false), Math.min(60000, 3000 * 2 ** Math.min(tries - 1, 5)));
+        tries++;
+        // одна неудача — обычно случайность (сеть мигнула, два запроса разом): тихо повторить через 1,5 с;
+        // «нет связи» — только если не прошёл и повтор. Дальше 3 с, 6 с, 12 с … не реже раза в минуту
+        setStatus(tries > 1 ? 'off' : 'wait');
+        retry = setTimeout(() => send(false), tries === 1 ? 1500 : Math.min(60000, 3000 * 2 ** Math.min(tries - 2, 5)));
       },
     );
 }

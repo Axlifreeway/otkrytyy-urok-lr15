@@ -30,7 +30,7 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice', 'trace'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 18, 'lr22': 14, 'lr23': 13, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
+LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 24, 'lr22': 24, 'lr23': 14, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
 GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24')   # пиццерия и библиотека: открывает преподаватель
 MAX_BODY = 400000
 MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
@@ -106,9 +106,9 @@ ADDED = {
     'lr18': ['belowavg', 'minrow', 'firstday', 'bytransport', 'nophone', 'unsold', 'quiet', 'exists', 'corr'],
     'lr19': ['veg', 'fleet', 'pickup', 'cheap', 'district', 'percour', 'months'],
     'lr20': ['qtyfix', 'phone', 'cancel', 'guarded', 'forget', 'txcommit', 'swap'],
-    'lr21': ['dupcard', 'newcard', 'reauthor', 'addnull', 'notnull', 'dropcol', 'return'],
-    'lr22': ['small', 'like', 'byauthor', 'whole', 'sort', 'agg', 'most'],
-    'lr23': ['order', 'func', 'uniq', 'uniqfail', 'pages', 'wide', 'size'],
+    'lr21': ['dupcard', 'newcard', 'reauthor', 'addnull', 'notnull', 'dropcol', 'return', 'nonull', 'thick', 'delaim', 'ckloan', 'ckloanfail', 'txerr'],
+    'lr22': ['small', 'like', 'byauthor', 'whole', 'sort', 'agg', 'most', 'report', 'guess3', 'limit', 'group', 'combo', 'decade', 'twoids', 'keyrange', 'join3', 'guess3b'],
+    'lr23': ['order', 'func', 'uniq', 'uniqfail', 'pages', 'wide', 'size', 'after'],
     'lr24': ['dp', 'who', 'colgrant', 'colcheck', 'again'],
 }
 

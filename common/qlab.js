@@ -44,6 +44,9 @@ import {
   bindMissionButtons,
   hold,
   asAdmin,
+  predsOf,
+  predsLeft,
+  answerPred,
 } from './shell.js';
 import {report} from './net.js';
 
@@ -193,7 +196,8 @@ export function planNodes(lines) {
 }
 
 // maxRows — сколько строк ответа показать (в 3D-лабах пульт невелик — 12; в виде pgAdmin ответ листается целиком)
-export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRows = 12}) {
+// inlinePred — прогноз не всплывающим окном при запуске, а блоком в задании: отвечают заранее, результат запроса ничто не заслоняет
+export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRows = 12, inlinePred = false}) {
   const robotErr = () => {
     W.play('jump', true);
     setTimeout(() => W.play('idle'), 700);
@@ -220,7 +224,8 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     if (!st.length) return;
     pushHist(all);
     const lv = L[G.lv];
-    $('verdict').innerHTML = '';
+    // уровень уже засчитан: плашка «Уровень пройден» с кнопкой дальше остаётся — лишний запрос её не стирает
+    if (!(G.P.lv[lv.key] || {}).done) $('verdict').innerHTML = '';
     const allow = lv.allow || ['SELECT'];
     for (let i = 0; i < st.length; i++) {
       const k = cmdKind(st[i]);
@@ -248,7 +253,13 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
         return;
       }
     }
-    if (lv.pred && !G.P.pred[lv.key]) await predict(lv);
+    if (inlinePred) {
+      if (predsLeft(lv).length) {
+        errBox('Сначала прогноз', 'Отметьте ответ в блоке «Прогноз до запуска» в задании — потом СУБД выполнит запрос.');
+        if ($('predw')) $('predw').scrollIntoView({block: 'nearest', behavior: 'smooth'});
+        return;
+      }
+    } else if (lv.pred && !G.P.pred[lv.key]) await predict(lv);
     setRunning(true);
     $('runBtn').disabled = true;
     W.clearChips();
@@ -269,6 +280,12 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
         if ((G.P.lv[lv.key] || {}).done && left && !lv.final) break;
       }
     } finally {
+      // в момент ошибки справочник никто не читает: что делать — прямо в окне задания
+      if (G.tx === '!')
+        errBox(
+          'Транзакция прервана',
+          'После ошибки внутри BEGIN СУБД не выполняет ничего, пока транзакцию не закончить. Выполните ROLLBACK и начните заново с BEGIN.',
+        );
       clue();
       G.stmtTag = '';
       cmdBar(null);
@@ -299,6 +316,11 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
                 : await runChange(sql, kind);
     // ошибка внутри транзакции прерывает её: дальше — только ROLLBACK
     if (info.err && G.tx === '*') G.tx = '!';
+    if (info.err && G.tx === '!')
+      $('result').insertAdjacentHTML(
+        'beforeend',
+        `<div class="txstop"><b>Транзакция прервана${info.err.code === '25P02' ? '' : ' этой ошибкой'}.</b> Пока её не закончить, СУБД отвечает «current transaction is aborted» на любую команду. Выполните <code>ROLLBACK</code> — и начните заново с <code>BEGIN</code>.</div>`,
+      );
     G.trail.push({
       kind: TXK[kind] || kind,
       sql,
@@ -1102,6 +1124,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
       rec = G.P.lv[lv.key];
     if (rec.done && !lv.final) return;
     const check = lv.check || (lv.ask ? 'select' : 'schema');
+    if (check === 'form') return; // таблица проверяется своей кнопкой, запросы на уровне — чтобы снять планы
     // нужен отказ СУБД: перенести агрегат в WHERE и т. п.
     if (check === 'error') {
       if (!info.err) {
@@ -1238,6 +1261,152 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     const lv = G && G.lv != null ? L[G.lv] : null;
     if (lv && lv.clue) W.mark(lv.clue.t, String(lv.clue.k), '★');
   }
+  // ═══════════════════════════════ прогноз в задании (inlinePred) ══
+  function predHtml(lv) {
+    const list = inlinePred ? predsOf(lv) : [];
+    if (!list.length) return '';
+    const left = predsLeft(lv).length;
+    return `<div class="predw${left ? '' : ' done'}" id="predw"><div class="predh">Прогноз до запуска${left ? ' — отметьте, потом выполняйте запросы' : ' — записан в протокол'}</div>${list
+      .map(([k, p]) => {
+        const a = G.P.pred[k];
+        return `<div class="predq"><div>${esc(p.q)}</div><div class="predc">${p.choices
+          .map(
+            c =>
+              `<button data-pk="${esc(k)}" data-c="${esc(c.k)}" class="${a && a.label === c.t ? 'on' : ''}" ${a ? 'disabled' : ''}>${esc(c.t)}</button>`,
+          )
+          .join('')}</div></div>`;
+      })
+      .join('')}</div>`;
+  }
+  function bindPred(lv) {
+    const list = predsOf(lv);
+    document.querySelectorAll('#predw [data-pk]').forEach(
+      b =>
+        (b.onclick = () => {
+          const it = list.find(([k]) => k === b.dataset.pk);
+          if (!it || G.P.pred[it[0]]) return;
+          answerPred(it[0], it[1], b.dataset.c);
+          renderMission();
+        }),
+    );
+  }
+
+  // ═══════════════════ таблица для отчёта (lv.form): студент вписывает, что увидел в планах ══
+  // lv.form = {t, rows: [{label, what, sql, …}], cols: [{k, h, kind}]}; kind: 'read' — способ чтения таблицы t,
+  // 'ms' — время (любое правдоподобное: у каждого своё), 'rm' — Rows Removed by Filter (сумма по плану),
+  // 'pick' — способ чтения, заданный в строке: row[k] (например, «до индекса»), 'yn' — «да»/«нет», ответ — row[k].
+  // f.need — каждый запрос студент должен сам выполнить с EXPLAIN ANALYZE на этом уровне (row.re — его условие).
+  // Проверка — по настоящим планам.
+  const READS = ['Seq Scan', 'Index Scan', 'Index Only Scan', 'Bitmap Heap Scan'];
+  const FORM_COLS = [
+    {k: 'read', h: 'Способ чтения', kind: 'read'},
+    {k: 'ms', h: 'Время, ms', kind: 'ms'},
+    {k: 'rm', h: 'Отброшено фильтром', kind: 'rm'},
+  ];
+  const colsOf = f => f.cols || FORM_COLS;
+  function formHtml(lv, rec) {
+    const f = lv.form;
+    if (!f) return '';
+    const d = rec.ptab ? Object.fromEntries(rec.ptab.flatMap((r, i) => colsOf(f).map(c => [`${i}.${c.k}`, r[c.k]]))) : rec.draft || {};
+    const cell = (i, c) => {
+      const k = `${i}.${c.k}`,
+        v = d[k] == null ? '' : String(d[k]);
+      const opts = c.kind === 'yn' ? ['да', 'нет'] : c.kind === 'read' || c.kind === 'pick' ? READS : null;
+      return opts
+        ? `<select data-f="${k}"><option value="">—</option>${opts.map(r => `<option${r === v ? ' selected' : ''}>${r}</option>`).join('')}</select>`
+        : `<input data-f="${k}" value="${esc(v)}" inputmode="${c.kind === 'ms' ? 'decimal' : 'numeric'}" placeholder="${c.kind === 'ms' ? '0.000' : '0'}" autocomplete="off">`;
+    };
+    return `<div class="ptab" id="ptab"><table><tr><th>Запрос</th>${colsOf(f)
+      .map(c => `<th>${esc(c.h)}</th>`)
+      .join('')}</tr>${f.rows
+      .map(
+        (r, i) =>
+          `<tr><td><b>${esc(r.label)}</b><div class="mu">${esc(r.what)}</div></td>${colsOf(f)
+            .map(c => `<td>${cell(i, c)}</td>`)
+            .join('')}</tr>`,
+      )
+      .join('')}</table><button class="btn" id="ptabBtn">Проверить таблицу</button></div>`;
+  }
+  function bindForm(lv) {
+    if (!lv.form || !$('ptab')) return;
+    const rec = recOf(lv);
+    $('ptab')
+      .querySelectorAll('[data-f]')
+      .forEach(el => {
+        el.oninput = el.onchange = () => {
+          rec.draft = {...(rec.draft || {}), [el.dataset.f]: el.value.trim()};
+          el.classList.remove('bad');
+          save();
+        };
+      });
+    $('ptabBtn').onclick = () => !running && checkForm(lv).catch(e => errBox('Не проверилось', e.message));
+  }
+  async function factOf(sql, t) {
+    const lines = await asAdmin(async () => (await q('EXPLAIN ANALYZE ' + sql)).rows.map(r => Object.values(r)[0]));
+    const n = planNodes(lines).nodes.find(x => x.table === t);
+    const rm = lines.reduce((s, l) => s + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
+    return {read: n ? n.kind : '', rm};
+  }
+  async function checkForm(lv) {
+    if (G.tx === '!') return errBox('Транзакция прервана', 'Сначала ROLLBACK — потом проверка таблицы.');
+    const f = lv.form,
+      rec = recOf(lv),
+      d = rec.draft || {};
+    const bad = [],
+      cells = [];
+    for (let i = 0; i < f.rows.length; i++) {
+      const r = f.rows[i],
+        fact = await factOf(r.sql, f.t || 'book');
+      const miss = [];
+      if (f.need && r.re && !G.trail.some(x => x.kind === 'EXPLAIN' && !x.code && x.plan && x.plan.analyze && r.re.test(x.sql)))
+        miss.push('нет EXPLAIN ANALYZE этого запроса на уровне');
+      const empty = colsOf(f).every(c => !String(d[`${i}.${c.k}`] || '').trim());
+      for (const c of colsOf(f)) {
+        const v = String(d[`${i}.${c.k}`] || '').replace(',', '.');
+        let ok = true;
+        if (c.kind === 'read') ok = v === fact.read;
+        else if (c.kind === 'pick' || c.kind === 'yn') ok = v === r[c.k];
+        else if (c.kind === 'rm') ok = /^\d+$/.test(v) && +v === fact.rm;
+        else if (c.kind === 'ms') ok = /^\d+(\.\d+)?$/.test(v) && +v > 0 && +v < 60000;
+        if (!ok) {
+          if (!empty) miss.push(c.h.toLowerCase());
+          cells.push(`${i}.${c.k}`);
+        }
+      }
+      if (empty) miss.push('не заполнена');
+      if (miss.length) bad.push(`${r.label} — ${miss.join(', ')}`);
+    }
+    $('ptab')
+      .querySelectorAll('[data-f]')
+      .forEach(el => el.classList.toggle('bad', cells.includes(el.dataset.f)));
+    if (bad.length) {
+      // пустую таблицу промахом не считаем — её просто ещё не заполнили
+      const blank = f.rows.every((r, i) => colsOf(f).every(c => !String(d[`${i}.${c.k}`] || '').trim()));
+      if (blank) return verdict(null, 'Таблица пуста: заполните все строки по планам запросов, потом проверьте.');
+      rec.fails++;
+      save();
+      renderLevels();
+      return verdict(
+        false,
+        `Не сходится с планами: ${bad.join('; ')}. Сверьтесь с планом EXPLAIN ANALYZE: способ чтения — первые слова строки над таблицей; время — Execution Time (число, у каждого своё); отброшено — Rows Removed by Filter (нет строки — 0, несколько — сложите).`,
+      );
+    }
+    rec.ptab = f.rows.map((r, i) => ({
+      label: r.label,
+      what: r.what,
+      ...Object.fromEntries(colsOf(f).map(c => [c.k, String(d[`${i}.${c.k}`]).replace(',', '.')])),
+    }));
+    rec.note = rec.ptab
+      .map(
+        r =>
+          `${r.label}: ${colsOf(f)
+            .map(c => r[c.k])
+            .join(' · ')}`,
+      )
+      .join('\n');
+    return success(lv, rec);
+  }
+
   function renderMission() {
     const lv = L[G.lv],
       rec = G.P.lv[lv.key] || {};
@@ -1250,14 +1419,18 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
       <h1>${esc(lv.title)}</h1><div class="lab">${esc(lv.lab)}</div>
       <p>${esc(lv.text)}</p>
       ${lv.q ? `<div class="askq"><span>Вопрос</span>${esc(lv.q)}</div>` : ''}
+      ${predHtml(lv)}
       ${lv.clue ? `<div class="cluex"><b>★</b>Часть условия — в зале: ${esc(lv.clue.where)}. Объект подсвечен жёлтым: щёлкните по нему или по самой звезде — откроется его строка.</div>` : ''}
       <ul>${lv.goals.map(g => `<li class="${rec.done ? 'done' : ''}">${esc(g)}</li>`).join('')}</ul>
       ${lv.doc ? `<div class="docw">${lv.doc}</div>` : ''}
+      ${formHtml(lv, rec)}
       <div class="ncmd">${esc(ncmd)}</div>
       ${missionButtons(lv, rec, 2)}
       <details class="dbd" id="dbd"><summary>🔎 Структура базы (\\d) — по самой базе</summary><div id="dbdIn">…</div></details>
       <div class="hint">${tablesHint}</div>`;
     bindMissionButtons(lv, rec);
+    bindPred(lv);
+    bindForm(lv);
     $('dbd').ontoggle = async () => {
       if ($('dbd').open)
         $('dbdIn').innerHTML =

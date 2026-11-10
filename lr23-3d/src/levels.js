@@ -14,6 +14,9 @@ export function levels(D) {
     au = (D.seed % 37) + 2,
     isbn = `978-5-${(D.seed * 37) % 20000}`;
   const Q1 = `SELECT * FROM book WHERE title = '${title}'`;
+  // те же запросы 1–4, что в таблице ЛР-22 (ключ, автор — по тем же правилам варианта)
+  const key = 4000 + (D.seed % 900),
+    au4 = D.AU[(D.seed % 30) + 3];
   const low = title.toLowerCase();
   // EXPLAIN ANALYZE запроса cond: способ чтения book в отметку; want — каким он должен быть (иначе — подсказка)
   const plan1 = (cond, want, miss) => c => {
@@ -237,6 +240,40 @@ export function levels(D) {
       verify: plan1(/\bpages\s*>\s*200\b/i),
       hint: 'EXPLAIN ANALYZE SELECT * FROM book WHERE pages > 200;',
       ok: 'Seq Scan: нужны четыре строки из пяти — по индексу пришлось бы прыгать почти по каждой странице. Подряд дешевле.',
+    },
+    {
+      key: 'after',
+      title: 'Таблица «после»',
+      lab: 'отчёт · запросы 1–4 с индексами',
+      text: 'В ЛР-22 вы свели в таблицу планы запросов 1–4 без индексов. Теперь индексы ix_book_title, ix_book_author_id и ix_book_pages есть — заполните ту же таблицу заново: как читалась book до (из протокола ЛР-22), как читается теперь, время и сколько строк отброшено фильтром. Сравните — это и есть ответ, зачем нужны индексы.',
+      q: 'Какие запросы ускорились от индексов, а какие нет?',
+      goals: ['«До» — из таблицы ЛР-22', '«После» — по нынешним планам', 'Проверить таблицу'],
+      form: {
+        t: 'book',
+        cols: [
+          {k: 'before', h: 'До индексов (ЛР-22)', kind: 'pick'},
+          {k: 'read', h: 'После', kind: 'read'},
+          {k: 'ms', h: 'Время, ms', kind: 'ms'},
+          {k: 'rm', h: 'Отброшено фильтром', kind: 'rm'},
+        ],
+        rows: [
+          {label: 'Запрос 1', what: `по ключу: id = ${key}`, sql: `SELECT * FROM book WHERE id = ${key}`, before: 'Index Scan'},
+          {label: 'Запрос 2', what: `по названию: «${title}»`, sql: Q1, before: 'Seq Scan'},
+          {label: 'Запрос 3', what: 'диапазон: pages > 590', sql: 'SELECT * FROM book WHERE pages > 590', before: 'Seq Scan'},
+          {
+            label: 'Запрос 4',
+            what: `соединение с author: ${au4.full_name}`,
+            sql: `SELECT b.title, a.full_name FROM book b JOIN author a ON a.id = b.author_id WHERE a.full_name = '${au4.full_name}'`,
+            before: 'Seq Scan',
+          },
+        ],
+      },
+      check: 'form',
+      cmds: 'Таблица проверяется кнопкой «Проверить таблицу». Запросы выполнять можно — чтобы снять планы и время',
+      allow: ALLOW,
+      star: true,
+      hint: '«До» без индексов: по ключу — Index Scan (индекс первичного ключа был всегда), остальные — Seq Scan. «После» — выполните EXPLAIN ANALYZE каждого запроса.',
+      ok: 'До и после — в протоколе: по названию, диапазону и автору СУБД теперь идёт через индексы и почти ничего не читает зря; по ключу ничего не изменилось — индекс там был всегда.',
     },
     {
       key: 'size',

@@ -55,7 +55,7 @@ test('ЛР-21: решения уровней по цепочке; отказы �
     const D = makeData(s);
     await reset(baseSql(D));
     for (const lv of L21(D)) {
-      const want = lv.check === 'error' ? [lv.code] : [];
+      const want = lv.check === 'error' ? [lv.code] : lv.solErr || [];
       if (lv.check === 'error') {
         await assert.rejects(db.query(lv.sol[0]), e => e.code === lv.code && (!lv.errMsg || lv.errMsg.test(e.message)), `${s} ${lv.key}`);
         continue;
@@ -67,8 +67,33 @@ test('ЛР-21: решения уровней по цепочке; отказы �
         /* нет транзакции */
       }
     }
-    const ck = await db.query(`SELECT 1 FROM pg_constraint WHERE conname = 'ck_book_pages'`);
-    assert.equal(ck.rows.length, 1, `${s}: ограничение ck_book_pages`);
+    const ck = await db.query(`SELECT 1 FROM pg_constraint WHERE conname IN ('ck_book_pages', 'ck_loan_dates')`);
+    assert.equal(ck.rows.length, 2, `${s}: ограничения ck_book_pages и ck_loan_dates`);
+    // транзакция с ошибкой откатилась целиком: телефона из уровня «Ошибка посреди транзакции» нет
+    const tx = (await db.query(`SELECT count(*)::int AS n FROM reader WHERE phone = '+7 900 000-00-00'`)).rows[0].n;
+    assert.equal(tx, 0, `${s}: ROLLBACK отменил и верный UPDATE`);
+  }
+});
+
+test('ЛР-21: новые уровни — с данными, на которых они имеют смысл', () => {
+  for (const s of [...SEEDS, 2, 3, 4, 5, 6, 8, 9, 10, 33, 59]) {
+    const D = makeData(s),
+      L = L21(D),
+      by = k => L.find(l => l.key === k);
+    assert.equal(L.length, 24, 'ЛР-21: 24 уровня');
+    assert.match(by('thick').ref[0], /author_id = \d+$/, `${s}: thick`);
+    assert.match(by('delaim').ref[0], /reader_id = \d+ AND/, `${s}: delaim`);
+    // у читателя есть закрытые формуляры — DELETE не пустой
+    const arch = +/reader_id = (\d+)/.exec(by('delaim').ref[0])[1];
+    assert.ok(
+      D.LN.some(l => l.reader_id === arch && l.returned !== null),
+      `${s}: у читателя ${arch} есть закрытые формуляры`,
+    );
+    // правило для дат встаёт на исходных данных
+    assert.ok(
+      D.LN.every(l => l.returned === null || l.returned >= l.taken),
+      `${s}: даты возврата не раньше выдачи`,
+    );
   }
 });
 
@@ -93,9 +118,63 @@ test('ЛР-22: на 20 000 книг ключ — по индексу, назва
   assert.ok((await plan(by('sort').sol[1])).sort, 'ORDER BY pages — сортировка');
   assert.ok(!(await plan(by('sort').sol[0])).sort, 'ORDER BY id — без сортировки');
   assert.ok((await plan(by('agg').sol[0])).agg);
-  const fin = await plan(by('final').sol[0]);
-  assert.equal(fin.nodes[0].kind, 'Index Scan');
-  assert.ok(fin.time > 0, 'EXPLAIN ANALYZE даёт время');
+  assert.equal((await read('keyrange')).kind, 'Index Scan', 'узкий диапазон по ключу — по индексу');
+  assert.ok((await plan(by('keyrange').sol[0])).time > 0, 'EXPLAIN ANALYZE даёт время');
+});
+
+test('ЛР-22: прогнозы сходятся с планами, контрольный и таблица — с настоящими цифрами', async () => {
+  for (const s of [0, 7, 23, 115]) {
+    const D = makeData(s);
+    const L = L22(D),
+      by = k => L.find(l => l.key === k);
+    assert.equal(L.length, 24, 'ЛР-22: 24 уровня');
+    await reset(baseSql(D) + FILL + ';\nANALYZE;');
+    const isIdx = n => !!n.index;
+    // прогнозы «по индексу / подряд»: в уровнях-прогнозах запрос — в эталоне по порядку
+    for (const k of ['guess3', 'guess3b']) {
+      const lv = by(k);
+      for (let i = 0; i < lv.preds.length; i++) {
+        const n = (await plan(lv.sol[i])).nodes.find(x => x.table === 'book');
+        assert.equal(isIdx(n) ? 'idx' : 'seq', lv.preds[i].answer, `${s} ${k} ${i + 1}: ${n.kind}`);
+      }
+    }
+    assert.equal((await plan(by('most').sol[0])).nodes[0].kind, 'Seq Scan');
+    // соединение трёх таблиц: book — по индексу (прогноз «idx»), узлов соединения два
+    const j3 = await plan(by('join3').sol[0]);
+    assert.equal(j3.nodes.filter(n => !n.table).length, 2, `${s}: два узла соединения`);
+    assert.ok(isIdx(j3.nodes.find(n => n.table === 'book')), `${s}: book в соединении трёх таблиц — по индексу`);
+    assert.equal(by('join3').pred.answer, 'idx');
+    // группировка, составное условие, диапазон годов: ответ не пустой, всё — подряд
+    assert.match((await db.query(by('group').sol[0])).rows.map(r => Object.values(r)[0]).join('\n'), /HashAggregate|GroupAggregate/);
+    for (const k of ['combo', 'decade']) {
+      const p = await plan(by(k).sol[0]),
+        n = p.nodes.find(x => x.table === 'book');
+      assert.equal(n.kind, 'Seq Scan', `${s} ${k}`);
+      assert.ok(n.rows > 0 && p.removed > 0, `${s} ${k}: найдено ${n.rows}, отброшено ${p.removed}`);
+    }
+    assert.ok(isIdx((await plan(by('twoids').sol[0])).nodes[0]), `${s}: две книги по номерам — по индексу`);
+    const lim = await plan(by('limit').sol[0]);
+    assert.equal(lim.nodes[0].rows, 5, 'LIMIT 5 — Seq Scan прочитал пять строк');
+    // контрольный: A — Seq Scan и почти всё зря (нужен индекс), B — по индексу, C — подряд, но зря мало
+    const F = by('final').form.rows;
+    const facts = [];
+    for (const r of F) facts.push(await plan('EXPLAIN ANALYZE ' + r.sql));
+    assert.equal(facts[0].nodes[0].kind, 'Seq Scan');
+    assert.ok(facts[0].removed > 20000, `${s}: ISBN — зря ${facts[0].removed}`);
+    assert.equal(facts[1].nodes[0].kind, 'Index Scan');
+    assert.equal(facts[2].nodes[0].kind, 'Seq Scan');
+    assert.ok(facts[2].removed < 5000, `${s}: толще 150 — зря ${facts[2].removed}`);
+    assert.deepEqual(
+      F.map(r => r.need),
+      ['да', 'нет', 'нет'],
+    );
+    F.forEach((r, i) => assert.ok(r.re.test(by('final').sol[i]), `${s}: эталон контрольного ${r.label} подходит под проверку`));
+    // таблица для отчёта: те же четыре запроса, что на уровнях 4, 5, 7, 10
+    const R = by('report').form.rows;
+    assert.equal(R.length, 4);
+    assert.equal((await plan('EXPLAIN ' + R[0].sql)).nodes[0].kind, 'Index Scan');
+    assert.equal((await plan('EXPLAIN ' + R[1].sql)).nodes[0].kind, 'Seq Scan');
+  }
 });
 
 test('ЛР-23: после CREATE INDEX — по индексу; внешний ключ — Bitmap по ix_book_author_id', async () => {
@@ -119,6 +198,20 @@ test('ЛР-23: после CREATE INDEX — по индексу; внешний �
     await db.query(by('pages').sol[0]);
     assert.equal((await plan(by('pages').sol[1])).nodes[0].index, 'ix_book_pages');
     assert.equal((await plan(by('wide').sol[0])).nodes[0].kind, 'Seq Scan', 'широкий диапазон — подряд');
+    // таблица «после»: «до» в строках — как без индексов; после — запросы 2 и 3 по индексу
+    const A = by('after').form.rows;
+    assert.deepEqual(
+      A.map(r => r.before),
+      ['Index Scan', 'Seq Scan', 'Seq Scan', 'Seq Scan'],
+    );
+    const L22v = L22(D).find(l => l.key === 'report').form.rows;
+    assert.deepEqual(
+      A.map(r => r.sql),
+      L22v.map(r => r.sql),
+      `${s}: в ЛР-23 те же запросы 1–4, что в таблице ЛР-22`,
+    );
+    assert.ok((await plan('EXPLAIN ' + A[1].sql)).nodes[0].index, 'запрос 2 после индекса');
+    assert.ok((await plan('EXPLAIN ' + A[2].sql)).nodes[0].index, 'запрос 3 после индекса');
     assert.equal((await db.query(by('size').ask)).rows.length, 2);
     await play(by('extra'));
     const fin = by('final');
