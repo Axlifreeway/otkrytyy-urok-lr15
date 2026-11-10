@@ -1408,14 +1408,13 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
         miss.push('сначала выполните EXPLAIN ANALYZE этого запроса здесь, на этом уровне');
       const empty = colsOf(f).every(c => !String(d[`${i}.${c.k}`] || '').trim());
       for (const c of colsOf(f)) {
-        const v = String(d[`${i}.${c.k}`] || '')
-          .replace(',', '.')
-          .replace(/\s+/g, '');
+        const raw = String(d[`${i}.${c.k}`] || ''),
+          v = raw.replace(',', '.').replace(/\s+/g, ''); // число: «20 059» и «0,5» тоже годятся
         let ok = true;
-        if (c.kind === 'pick' || c.kind === 'yn') ok = v === r[c.k];
+        if (c.kind === 'pick' || c.kind === 'yn') ok = raw === r[c.k];
         else if (c.kind === 'ms') ok = /^\d+(\.\d+)?$/.test(v) && +v > 0 && +v < 60000;
         else if (['rm', 'rows', 'est', 'out'].includes(c.kind)) ok = /^\d+$/.test(v) && +v === fact[c.kind];
-        else ok = String(d[`${i}.${c.k}`] || '') === fact[c.kind];
+        else ok = raw === fact[c.kind];
         if (!ok) {
           if (!empty) {
             miss.push(c.h.toLowerCase());
