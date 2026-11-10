@@ -259,3 +259,50 @@ test('ЛР-24: права действуют под ролью; эталон в�
     await reset(baseSql(D));
   }
 });
+
+// тренировка после уровней: эталон каждого вида задания выполним на базе после всех уровней
+test('ЛР-21 и ЛР-22: тренировка — все виды заданий выполнимы', async () => {
+  const {practice: P21} = await import('../lr21-3d/src/practice.js');
+  const {practice: P22} = await import('../lr22-3d/src/practice.js');
+  const D = makeData(7);
+  const all = async lv => {
+    let sql = baseSql(D);
+    for (const l of lv) if (l.ref) sql += '\n' + l.ref.map(q => q + ';').join('\n');
+    return sql;
+  };
+  const state = async () => ({
+    author: (await db.query('SELECT * FROM author')).rows,
+    book: (await db.query('SELECT * FROM book ORDER BY id LIMIT 240')).rows,
+    reader: (await db.query('SELECT * FROM reader')).rows,
+    loan: (await db.query('SELECT id, book_id, reader_id, taken::text AS taken, returned::text AS returned FROM loan')).rows,
+  });
+  for (const [P, L] of [
+    [P21, L21],
+    [P22, L22],
+  ]) {
+    const base = await all(L(D));
+    await reset(base);
+    const st = await state();
+    const seen = new Map();
+    let k = 1;
+    const rnd = () => ((k = (k * 16807) % 2147483647) - 1) / 2147483646;
+    for (let i = 0; i < 400; i++) {
+      const t = P(D, st, rnd);
+      if (!seen.has(t.title)) seen.set(t.title, t);
+    }
+    assert.ok(seen.size >= 7, `видов заданий: ${seen.size}`);
+    for (const t of seen.values()) {
+      await reset(base);
+      if (t.form) {
+        for (const q of t.sol) {
+          await db.query(q);
+          assert.ok(t.form.rows[0].re.test(q), `${t.title}: эталон подходит под проверку`);
+        }
+        continue;
+      }
+      const before = JSON.stringify(await state());
+      for (const q of t.ref) await db.query(q);
+      assert.notEqual(JSON.stringify(await state()), before, `${t.title}: команда что-то меняет`);
+    }
+  }
+});

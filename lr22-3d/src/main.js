@@ -1,6 +1,7 @@
 // ЛР-22 · «План выполнения запроса: EXPLAIN» — библиотека. Общий запуск — common/libmain.js.
 import {libLab} from '../../common/libmain.js';
 import {levels} from './levels.js';
+import {practice} from './practice.js';
 import {PLAN_REF, SELECT_REF, ORDER_REF, GROUP_REF, JOIN_REF} from '../../common/sqlref.js';
 
 libLab({
@@ -59,6 +60,7 @@ libLab({
   ],
   REF: [PLAN_REF, SELECT_REF, ORDER_REF, GROUP_REF, JOIN_REF],
   REF_NEED: ['fill', 'pk', 'nonkey', 'join', 'report', 'group', 'combo', 'join3', 'final'],
+  practice,
   questions: [
     'Таблица «Запросы 1–4» — уже в протоколе. Почему запрос 1 идёт по индексу, а запрос 2 — нет? (одной строкой)',
     'Уровень «По внешнему ключу»: создаёт ли внешний ключ индекс? Чем это грозит на больших таблицах?',

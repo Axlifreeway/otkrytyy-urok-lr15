@@ -1294,6 +1294,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
   // ═══════════════════ таблица для отчёта (lv.form): студент вписывает, что увидел в планах ══
   // lv.form = {t, rows: [{label, what, sql, …}], cols: [{k, h, kind}]}; kind: 'read' — способ чтения таблицы t,
   // 'ms' — время (любое правдоподобное: у каждого своё), 'rm' — Rows Removed by Filter (сумма по плану),
+  // 'rows' — сколько строк таблицы t нашлось (actual rows у её узла),
   // 'pick' — способ чтения, заданный в строке: row[k] (например, «до индекса»), 'yn' — «да»/«нет», ответ — row[k].
   // f.need — каждый запрос студент должен сам выполнить с EXPLAIN ANALYZE на этом уровне (row.re — его условие).
   // Проверка — по настоящим планам.
@@ -1345,7 +1346,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     const lines = await asAdmin(async () => (await q('EXPLAIN ANALYZE ' + sql)).rows.map(r => Object.values(r)[0]));
     const n = planNodes(lines).nodes.find(x => x.table === t);
     const rm = lines.reduce((s, l) => s + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
-    return {read: n ? n.kind : '', rm};
+    return {read: n ? n.kind : '', rm, rows: n ? n.rows : 0};
   }
   async function checkForm(lv) {
     if (G.tx === '!') return errBox('Транзакция прервана', 'Сначала ROLLBACK — потом проверка таблицы.');
@@ -1367,6 +1368,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
         if (c.kind === 'read') ok = v === fact.read;
         else if (c.kind === 'pick' || c.kind === 'yn') ok = v === r[c.k];
         else if (c.kind === 'rm') ok = /^\d+$/.test(v) && +v === fact.rm;
+        else if (c.kind === 'rows') ok = /^\d+$/.test(v) && +v === fact.rows;
         else if (c.kind === 'ms') ok = /^\d+(\.\d+)?$/.test(v) && +v > 0 && +v < 60000;
         if (!ok) {
           if (!empty) miss.push(c.h.toLowerCase());

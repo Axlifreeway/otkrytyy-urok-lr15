@@ -407,7 +407,8 @@ function credit(P) {
 // ═══════════════════════════════ тренировка: бесконечные задания без баллов ══
 // После уровней (или после отправки отчёта) студент может решать новые задания, собранные из его же базы
 // (состояние после всех уровней). cfg.practice(D, state, rnd) возвращает уровень {title, text, goals, tables, ref, ok}
-// или, в лабах на запросы, {title, text, q, goals, ask, ok} — ответ сверяется с результатом эталонного запроса.
+// или, в лабах на запросы, {title, text, q, goals, ask, ok} — ответ сверяется с результатом эталонного запроса,
+// или задание на план {title, text, goals, form, sol} — студент вписывает, что увидел в плане (ЛР-22).
 // Задание — 13-й элемент L с key 'practice'; его запись в G.P.lv неперечисляемая — не сохраняется и не уходит на сервер.
 export async function startPractice() {
   if (running || !cfg.practice) return;
@@ -425,6 +426,9 @@ export async function startPractice() {
     try {
       if (cand.ask) {
         if ((await db.query(cand.ask)).rows.length) lv = cand; // запрос выполняется и ответ не пуст
+      } else if (cand.form) {
+        for (const r of cand.form.rows) await db.query('EXPLAIN ' + r.sql); // задание на план: запрос выполним
+        lv = cand;
       } else {
         for (const q of cand.ref) await db.query(q);
         if (JSON.stringify(await state()) !== JSON.stringify(before)) lv = cand; // команда что-то меняет и база её принимает
