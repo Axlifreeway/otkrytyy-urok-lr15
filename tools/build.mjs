@@ -103,10 +103,19 @@ async function levelNames(lab) {
     console.log('teacher/index.html: версия answers.js УСТАРЕЛА — выполните npm run build');
   } else if (next !== html) writeFileSync(page, next);
 }
-const names = {};
+const names = {},
+  keys = {};
 for (const lab of LABS) names[lab.slice(0, 4)] = await levelNames(lab);
+// ключи уровней по порядку — карточка студента в пульте сопоставляет по ним сохранённый прогресс
+for (const lab of LABS) {
+  const n = +lab.slice(2, 4),
+    air = n <= 16;
+  const {levels} = await import(join(ROOT, lab, air ? 'src/data.js' : 'src/levels.js'));
+  const {makeData} = await import(join(ROOT, air ? `${lab}/src/data.js` : n < 21 ? 'common/pizzadata.js' : 'common/libdata.js'));
+  keys[lab.slice(0, 4)] = levels(makeData(1)).map(l => l.key);
+}
 const namesOut = join(ROOT, 'teacher/levels.js');
-const namesJs = `// Собрано tools/build.mjs из levels() лаб — не править вручную.\nwindow.LEVEL_NAMES = ${JSON.stringify(names, null, 1)};\n`;
+const namesJs = `// Собрано tools/build.mjs из levels() лаб — не править вручную.\nwindow.LEVEL_NAMES = ${JSON.stringify(names, null, 1)};\nwindow.LEVEL_KEYS = ${JSON.stringify(keys)};\n`;
 if (check) {
   const same = existsSync(namesOut) && readFileSync(namesOut, 'utf8') === namesJs;
   if (!same) stale++;

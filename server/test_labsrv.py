@@ -341,6 +341,47 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((p['starsN'], p['trust'], p['trustWhy'], p['trustLv']), (5, 62, 'line,glance', {'1': 90, '2': 40}))
         self.assertEqual(p['starsAt'], t0 + 5)
 
+    def test_time_on_level_survives_going_back(self):
+        store = self.srv.RequestHandlerClass.store
+        m = 60000
+        t0 = labsrv.now_ms() - 20 * m
+        ev = lambda t, typ, d: store.add_event(t, 'c4', 'lr21', 'Таймеров Т.', 'ИИ-25', 5, typ, d, '')
+        ev(t0, 'level', {'lv': 2, 'ok': False, 'all': False})
+        ev(t0 + 5 * m, 'level', {'lv': 1, 'ok': True, 'all': False})            # вернулся посмотреть пройденный
+        ev(t0 + 7 * m, 'level', {'lv': 2, 'ok': False, 'all': False})
+        p = self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'][0]
+        self.assertGreaterEqual(p['onLevel'], 18 * m)                          # 5 мин до ухода + 13 после возврата
+        self.assertTrue(any('на уровне' in r for r in p['stuck']))
+        ev(t0 + 8 * m, 'level', {'lv': 1, 'ok': True, 'all': False})
+        p = self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'][0]
+        self.assertEqual(p['stuck'], [])                                       # на пройденном уровне — не «застрял»
+
+    def test_all_done_is_not_stuck(self):
+        store = self.srv.RequestHandlerClass.store
+        t0 = labsrv.now_ms() - 30 * 60000
+        store.add_event(t0, 'c5', 'lr21', 'Готов Г.', 'ИИ-25', 5, 'hb', {'lv': 21, 'ok': True, 'all': True, 'done': 21}, '')
+        p = self.call('/api/state', headers={'X-Labs-Key': KEY})[1]['people'][0]
+        self.assertTrue(p['allDone'])
+        self.assertEqual(p['stuck'], [])
+
+    def test_form_and_say_feedback(self):
+        ids = self.group()
+        tok = self.login('Иванов И.')[1]['token']
+        A, h = {'X-Labs-Key': KEY}, {'X-Labs-Token': tok}
+        rows = [['', 'Способ чтения'], ['Запрос 1', 'Seq Scan']]
+        self.assertEqual(self.call('/api/ev', {'type': 'form', 'client': 'x', 'lab': 'lr13', 'data': {'lv': 2, 'key': 'pk', 'ok': False, 'rows': rows}}, h)[0], 200)
+        p = self.call('/api/state', headers=A)[1]['people'][0]
+        self.assertEqual(p['forms']['pk']['rows'], rows)
+        i = self.call('/api/admin/say', {'key': KEY, 'text': 'Проверьте WHERE'})[1]['id']
+        for e in ('🤔', '👍', '💣'):                                             # последний отклик студента; чужие эмодзи — мимо
+            self.call('/api/ev', {'type': 'sayfb', 'client': 'x', 'lab': 'lr13', 'data': {'id': i, 'e': e}}, h)
+        self.assertEqual(self.call('/api/admin/says', headers=A)[1]['items'][0]['fb'], {'👍': 1})
+        card = self.call(f'/api/admin/student?id={ids["Иванов И."]}', headers=A)[1]
+        self.assertEqual((card['name'], card['grp']), ('Иванов Иван', 'ИИ-25'))
+        self.assertIn('lr13', card['labs'])
+        self.assertEqual(self.call('/api/admin/student?id=999', headers=A)[0], 404)
+        self.assertEqual(self.call('/api/admin/student?id=1')[0], 403)
+
     def test_gated_labs_closed_until_teacher_opens(self):
         ids = self.group()
         tok = self.login('Иванов')[1]['token']

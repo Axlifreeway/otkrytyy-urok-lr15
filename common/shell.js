@@ -5,7 +5,7 @@ import {$, esc, sleep, comma, ls, lsJSON} from './util.js';
 import {SFX, sound} from './sfx.js';
 import {openDb, loadSql as load} from './db.js';
 import {report, setCtx, clientId, watchAway, guardPaste} from './net.js';
-import {loginScreen, session, mergeP, syncInit, syncStatus, pull, push} from './login.js';
+import {loginScreen, mergeP, syncInit, syncStatus, pull, push} from './login.js';
 import {isTeacherCode} from './teacher.js';
 import {attachHighlight, highlight} from './sqlhl.js';
 import {snapshotHtml, sendReport} from './report.js';
@@ -116,10 +116,16 @@ export async function state() {
     return o;
   });
 }
-// база в начале уровня i: исходные данные + эталонные решения всех предыдущих уровней
+// база в начале уровня i: исходные данные + эталонные решения всех предыдущих уровней;
+// lv.pre — что случилось с данными перед уровнем (например, ошибка при переносе каталога): входит в его начало и дальше
 export function canon(i) {
   let sql = cfg.baseSql(D);
-  for (let k = 0; k < i; k++) if (L[k].ref) sql += '\n' + L[k].ref.map(q => q + ';').join('\n');
+  const add = qs => (sql += '\n' + qs.map(q => q + ';').join('\n'));
+  for (let k = 0; k < i; k++) {
+    if (L[k].pre) add(L[k].pre);
+    if (L[k].ref) add(L[k].ref);
+  }
+  if (L[i] && L[i].pre) add(L[i].pre);
   return sql;
 }
 // цель уровня (база после эталона) и стартовое состояние
@@ -170,9 +176,10 @@ export function errBox(title, text) {
 export function verdict(ok, text, extra = '', next = false, quiet = false) {
   const cls = ok === null ? 'v-mid' : ok ? 'v-ok' : 'v-bad';
   const head = ok === null ? '' : `<b>${ok ? (quiet ? 'Готово' : 'Уровень пройден') : 'Не совпало'}</b>`;
-  $('verdict').innerHTML = `<div class="${cls}">${head}${esc(text)}${extra}
+  $('verdict').innerHTML = `<div class="${cls}"><button class="vx" title="Скрыть">✕</button>${head}${esc(text)}${extra}
     ${next && G.lv + 1 < L.length ? '<button class="nextBtn" id="nextBtn">Следующий уровень →</button>' : ''}
 </div>`;
+  $('verdict').querySelector('.vx').onclick = e => e.target.parentElement.remove();
   if ($('nextBtn'))
     $('nextBtn').onclick = () => {
       if (running) return;
@@ -195,6 +202,12 @@ export const save = () => {
 const trustAll = () => {
   const t = scoreLab(L.filter(l => !l.practice).map(l => G.P.lv[l.key]));
   return t ? {tAll: t.s, tWhy: t.why.join(',')} : {};
+};
+// для пульта: текущий уровень уже пройден (студент вернулся посмотреть) и пройдена ли вся лаба — тогда он не «застрял»
+export const curState = () => {
+  const lv = G && G.lv != null ? L[G.lv] : null,
+    n = L.filter(l => !l.practice).length;
+  return {ok: !!(lv && (lv.practice || (G.P.lv[lv.key] || {}).done)), all: doneN() >= n, px: !!(lv && lv.practice)};
 };
 export const recOf = lv => (G.P.lv[lv.key] = G.P.lv[lv.key] || {runs: 0, fails: 0});
 const doneN = () => L.filter(l => !l.practice && (G.P.lv[l.key] || {}).done).length;
@@ -813,6 +826,8 @@ export async function boot() {
   hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
   T = watchTyping($('sql'));
   listenRobot(() => G && G.sess && G.sess.token); // объявления преподавателя
+  // вид pgAdmin: вердикт с кнопкой «Следующий уровень» и сообщения об ошибке — по центру, над окном запросов
+  if (cfg.flat) $('deck').append($('verdict'));
   if (!cfg.flat) {
     new ResizeObserver(placeMessages).observe($('deck'));
     addEventListener('resize', placeMessages);
@@ -853,6 +868,7 @@ export async function boot() {
             done: doneN(),
             pts: score().sum,
             fails: (G.P.lv[(L[G.lv] || {}).key] || {}).fails || 0,
+            ...curState(),
             ...trustAll(),
           }
         : {},
@@ -882,11 +898,13 @@ export async function boot() {
     $('sndBtn').classList.toggle('off', sound.muted);
   };
   $('homeBtn').onclick = () => W.home();
+  // «Главное меню» — на главную своего мира (аэропорт, пиццерия, библиотека): вход сохраняется, прогресс уже отправлен
   $('menuBtn').onclick = () => {
     if (running) return;
-    if (G && G.sess) push(G.P, true);
-    session.set(null);
-    startScreen();
+    if (G && !G.demo) push(G.P, true);
+    const n = +cfg.lab.slice(2),
+      world = n >= 21 ? 'library' : n >= 17 ? 'pizza' : 'airport';
+    location.href = `../${world}/${/^https?:$/.test(location.protocol) ? '' : 'index.html'}`;
   };
   window.addEventListener('beforeunload', () => {
     if (G && !G.demo) push(G.P, true);

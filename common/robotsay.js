@@ -1,8 +1,8 @@
 // Робот говорит: объявление преподавателя из панели появляется у студентов поверх лабы —
-// большой робот выезжает снизу на полэкрана, печатает реплику и уезжает.
+// большой робот выезжает снизу на полэкрана, печатает реплику и ждёт, пока студент её закроет или ответит эмодзи.
 import {esc} from './util.js';
 import {SFX} from './sfx.js';
-import {fetchT} from './net.js';
+import {fetchT, report} from './net.js';
 
 const ROBOT = `<svg viewBox="0 0 220 260" aria-hidden="true"><g stroke="#22252b" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
   <line x1="110" y1="34" x2="110" y2="12"/><circle cx="110" cy="10" r="9" fill="#8b5cf6"/>
@@ -15,19 +15,32 @@ const ROBOT = `<svg viewBox="0 0 220 260" aria-hidden="true"><g stroke="#22252b"
   <path d="M58 182 Q26 190 22 224" fill="none"/><path d="M162 182 Q194 190 198 224" fill="none"/>
   <circle cx="22" cy="228" r="11" fill="#8b5cf6"/><circle cx="198" cy="228" r="11" fill="#8b5cf6"/></g></svg>`;
 
+// реплика висит, пока студент её не закроет: так её не пропустят, отвернувшись от экрана.
+// Под ней — короткий отклик эмодзи; он уходит преподавателю (пульт → «Робот скажет» → последние объявления)
+const FB = [
+  ['👍', 'понятно'],
+  ['👌', 'сделаю'],
+  ['🤔', 'не понял'],
+  ['🙋', 'подойдите'],
+];
 let box = null,
   queue = [],
   busy = false;
-function show({text}) {
+function show({id, text}) {
   if (!box) {
     box = document.createElement('div');
     box.id = 'robotsay';
-    box.innerHTML = `<div class="rs-bot">${ROBOT}</div><div class="rs-bubble"><span class="rs-tag">РОБОТ-СУБД · ОБЪЯВЛЕНИЕ</span><p></p><button class="rs-x" title="Закрыть">✕</button></div>`;
+    box.innerHTML = `<div class="rs-bot">${ROBOT}</div><div class="rs-bubble"><span class="rs-tag">РОБОТ-СУБД · ОБЪЯВЛЕНИЕ</span><p></p>
+      <div class="rs-fb">${FB.map(([e, t]) => `<button data-e="${e}" title="${t}">${e}<small>${t}</small></button>`).join('')}</div>
+      <div class="rs-thx" hidden>Отклик отправлен преподавателю</div><button class="rs-x" title="Закрыть">✕</button></div>`;
     document.body.append(box);
   }
   busy = true;
   const p = box.querySelector('p');
   p.textContent = '';
+  box.querySelector('.rs-fb').hidden = id == null;
+  box.querySelector('.rs-thx').hidden = true;
+  box.querySelectorAll('.rs-fb button').forEach(b => (b.disabled = false));
   box.hidden = false;
   requestAnimationFrame(() => box.classList.add('on'));
   SFX.unlock();
@@ -39,7 +52,6 @@ function show({text}) {
   }, 28);
   const hide = () => {
     clearInterval(step);
-    clearTimeout(timer);
     box.classList.remove('on');
     setTimeout(() => {
       box.hidden = true;
@@ -47,11 +59,19 @@ function show({text}) {
       if (queue.length) show(queue.shift());
     }, 450);
   };
-  const timer = setTimeout(hide, Math.max(5300, text.length * 75 + 800));
   box.querySelector('.rs-x').onclick = hide;
-  box.onclick = e => {
-    if (e.target === box) hide();
-  };
+  box.querySelectorAll('.rs-fb button').forEach(
+    b =>
+      (b.onclick = () => {
+        report('sayfb', {id, e: b.dataset.e});
+        box.querySelectorAll('.rs-fb button').forEach(x => {
+          x.disabled = true;
+          x.classList.toggle('on', x === b);
+        });
+        box.querySelector('.rs-thx').hidden = false;
+        setTimeout(hide, 1200);
+      }),
+  );
 }
 export function robotSay(msg) {
   if (busy) queue.push(msg);

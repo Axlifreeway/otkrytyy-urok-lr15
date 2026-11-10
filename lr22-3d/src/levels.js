@@ -11,10 +11,10 @@ const ALLOW = ['SELECT', 'EXPLAIN', 'INSERT'];
 export function levels(D) {
   const key = 4000 + (D.seed % 900),
     title = `Book ${1000 + (D.seed % 7000)}`,
-    from = 590,
+    from = 575 + (D.seed % 22), // то же правило — в ЛР-23 (таблица «после индексов»)
     au = D.AU[(D.seed % 30) + 3];
   const small = (D.seed % 50) + 5,
-    pre = `Book ${(D.seed % 8) + 1}2`,
+    pre = `Book ${10 + (D.seed % 89)}`,
     auId = (D.seed % 40) + 1;
   // часть 3: числа варианта. Книги наполнения — id 1001…21000: автор n % 40 + 1, год 1950 + n % 75, pages 100 + n % 500
   const g1 = 6000 + (D.seed % 700) * 3,
@@ -26,6 +26,14 @@ export function levels(D) {
   // автор и год с общими книгами: n ≡ cA − 1 (mod 40) и n ≡ cY − 1950 (mod 75) решаемо, если остатки равны по модулю 5
   const cA = ((D.seed + 5) % 40) + 1,
     cY = 1950 + ((cA - 1) % 5) + 5 * (D.seed % 15);
+  // уровни-таблицы: у каждого варианта свои числа — найдено, отброшено, оценка
+  const lim = 3 + (D.seed % 7),
+    top = 5 + (D.seed % 11),
+    dec = 1950 + 10 * (D.seed % 6),
+    thickP = 300 + 10 * (D.seed % 20),
+    most = 10 + (D.seed % 45),
+    kw = 10 + (D.seed % 25),
+    gw = 20 + (D.seed % 40);
   const isbn = `978-5-${1 + ((D.seed * 37) % 20000)}`,
     kk = 15000 + (D.seed % 900);
   // EXPLAIN ANALYZE запроса cond, у которого book дала ровно столько строк, сколько вернёт countSql (условие записано верно)
@@ -50,6 +58,19 @@ export function levels(D) {
     if (left.length) return {wait: `Планы есть не у всех запросов: осталось — ${left.join(', ')}.`};
     return {ok: true, note: got.map((x, i) => `${i + 1}: ${readOf(x.plan, 'book')}`).join(' · ')};
   };
+  // таблица уровня: строки — запросы, столбцы — что вписать по плану; need — каждый запрос выполнить с EXPLAIN ANALYZE здесь
+  const C = {
+    read: {k: 'read', h: 'Способ чтения', kind: 'read'},
+    rows: {k: 'rows', h: 'Найдено строк', kind: 'rows'},
+    rm: {k: 'rm', h: 'Отброшено фильтром', kind: 'rm'},
+    ms: {k: 'ms', h: 'Время, ms', kind: 'ms'},
+    est: {k: 'est', h: 'Оценка rows', kind: 'est'},
+    out: {k: 'out', h: 'Строк на выходе', kind: 'out'},
+    agg: {k: 'agg', h: 'Узел группировки', kind: 'agg'},
+    sort: {k: 'sort', h: 'Есть Sort?', kind: 'sortyn'},
+  };
+  const tab = (cols, rows) => ({t: 'book', need: true, cols: cols.map(k => C[k]), rows});
+  const FORM_CMDS = 'Сначала запрос с EXPLAIN ANALYZE, потом таблица по своему плану и кнопка «Проверить таблицу»';
   const IDX = [
     {k: 'idx', t: 'по индексу'},
     {k: 'seq', t: 'подряд — Seq Scan'},
@@ -143,56 +164,87 @@ export function levels(D) {
       key: 'nonkey',
       title: 'Запрос 2 · по названию',
       lab: 'ч. 2 · № 6–7 · поиск по неключевому столбцу',
-      text: `Запрос 2 — книга «${title}» (условие по title). EXPLAIN — способ чтения, EXPLAIN ANALYZE — время. Посмотрите и на строку Rows Removed by Filter: сколько строк прочитано зря.`,
+      text: `Запрос 2 — книга «${title}» (условие по title). EXPLAIN — способ чтения, EXPLAIN ANALYZE — время и строка Rows Removed by Filter: сколько строк прочитано зря. Впишите в таблицу, что увидели в плане.`,
       q: 'Как СУБД ищет по столбцу без индекса?',
-      goals: [`EXPLAIN SELECT * FROM book WHERE title = '${title}'`, 'EXPLAIN ANALYZE того же запроса'],
+      goals: [`EXPLAIN и EXPLAIN ANALYZE: SELECT * FROM book WHERE title = '${title}'`, 'Таблица: способ чтения, найдено, отброшено'],
       sol: [`EXPLAIN SELECT * FROM book WHERE title = '${title}'`, `EXPLAIN ANALYZE SELECT * FROM book WHERE title = '${title}'`],
-      check: 'tx',
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [{label: 'Запрос 2', what: `title = '${title}'`, sql: `SELECT * FROM book WHERE title = '${title}'`, re: /\btitle\s*=/i}],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: planPair(/\btitle\s*=/i, 'book', 'запрос 2'),
-      hint: "… WHERE title = 'Book …' — текст в одинарных кавычках.",
-      ok: 'Seq Scan: индекса по title нет — СУБД прочитала всю таблицу, а подошла одна книга.',
+      hint: "… WHERE title = 'Book …' — текст в одинарных кавычках. Найдено — actual rows у Seq Scan, отброшено — Rows Removed by Filter.",
+      ok: 'Seq Scan: индекса по title нет — СУБД прочитала всю таблицу, а подошла одна книга. Остальные отброшены фильтром.',
     },
     {
       key: 'like',
       title: 'По началу названия',
       lab: 'ч. 2 · LIKE без индекса',
-      text: `Книги, название которых начинается на «${pre}» (title LIKE '${pre}%'). EXPLAIN ANALYZE — способ чтения, время и сколько строк прочитано зря.`,
+      text: `Книги, название которых начинается на «${pre}» (title LIKE '${pre}%'). Выполните EXPLAIN ANALYZE и заполните таблицу: как прочитана book, сколько книг подошло и сколько строк отброшено фильтром.`,
       q: 'Помогает ли LIKE найти строки быстрее?',
-      goals: [`EXPLAIN ANALYZE SELECT * FROM book WHERE title LIKE '${pre}%'`],
+      goals: [`EXPLAIN ANALYZE SELECT * FROM book WHERE title LIKE '${pre}%'`, 'Таблица: способ чтения, найдено, отброшено'],
       sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE title LIKE '${pre}%'`],
-      check: 'tx',
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [{label: 'LIKE', what: `title LIKE '${pre}%'`, sql: `SELECT * FROM book WHERE title LIKE '${pre}%'`, re: /\btitle\s+like\b/i}],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: one(/\btitle\s+like\b/i),
-      hint: `… WHERE title LIKE '${pre}%' — процент: «дальше что угодно».`,
-      ok: 'Seq Scan: по title индекса нет — каждое название сверено с образцом.',
+      hint: `… WHERE title LIKE '${pre}%' — процент: «дальше что угодно». Подойдут и «${pre}», и «${pre}5», и «${pre}57».`,
+      ok: 'Seq Scan: по title индекса нет — каждое название сверено с образцом, а подошла малая часть.',
     },
     {
       key: 'range',
       title: 'Запрос 3 · диапазон',
       lab: 'ч. 2 · № 8–9 · отбор по диапазону',
-      text: `Запрос 3 — толстые книги: больше ${from} страниц (pages > ${from}). EXPLAIN — способ чтения, EXPLAIN ANALYZE — время.`,
+      text: `Запрос 3 — толстые книги: больше ${from} страниц (pages > ${from}). EXPLAIN — способ чтения, EXPLAIN ANALYZE — время. В таблицу — способ чтения, сколько книг нашлось и сколько отброшено.`,
       q: 'Как СУБД отбирает диапазон по столбцу без индекса?',
-      goals: [`EXPLAIN SELECT * FROM book WHERE pages > ${from}`, 'EXPLAIN ANALYZE того же запроса'],
+      goals: [`EXPLAIN и EXPLAIN ANALYZE: SELECT * FROM book WHERE pages > ${from}`, 'Таблица: способ чтения, найдено, отброшено'],
       sol: [`EXPLAIN SELECT * FROM book WHERE pages > ${from}`, `EXPLAIN ANALYZE SELECT * FROM book WHERE pages > ${from}`],
-      check: 'tx',
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [
+          {
+            label: 'Запрос 3',
+            what: `pages > ${from}`,
+            sql: `SELECT * FROM book WHERE pages > ${from}`,
+            re: new RegExp(`\\bpages\\s*>\\s*${from}\\b`, 'i'),
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: planPair(/\bpages\s*(>|<|between)/i, 'book', 'запрос 3'),
-      hint: `… WHERE pages > ${from}`,
-      ok: 'Снова Seq Scan: по pages индекса нет, проверить пришлось каждую строку.',
+      hint: `… WHERE pages > ${from}. Найдено + отброшено = все строки таблицы.`,
+      ok: 'Снова Seq Scan: по pages индекса нет, проверить пришлось каждую строку. Найдено и отброшено вместе — вся таблица.',
     },
     {
       key: 'byauthor',
       title: 'По внешнему ключу',
       lab: 'ч. 2 · ссылка — ещё не индекс',
-      text: `Книги автора с id ${auId}: условие author_id = ${auId}. На этом столбце внешний ключ fk_book_author. EXPLAIN ANALYZE — есть ли индекс?`,
+      text: `Книги автора с id ${auId}: условие author_id = ${auId}. На этом столбце внешний ключ fk_book_author. Сначала прогноз, потом EXPLAIN ANALYZE и таблица: есть ли индекс, сколько книг у автора, сколько строк прочитано зря.`,
       q: 'Создаёт ли внешний ключ индекс?',
-      goals: [`EXPLAIN ANALYZE SELECT * FROM book WHERE author_id = ${auId}`],
+      goals: [`EXPLAIN ANALYZE SELECT * FROM book WHERE author_id = ${auId}`, 'Таблица: способ чтения, найдено, отброшено'],
       sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE author_id = ${auId}`],
-      check: 'tx',
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [
+          {
+            label: 'Автор',
+            what: `author_id = ${auId}`,
+            sql: `SELECT * FROM book WHERE author_id = ${auId}`,
+            re: new RegExp(`\\bauthor_id\\s*=\\s*${auId}\\b`, 'i'),
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
       pred: {
@@ -203,7 +255,6 @@ export function levels(D) {
         ],
         answer: 'seq',
       },
-      verify: one(/\bauthor_id\s*=/i),
       hint: `… WHERE author_id = ${auId}`,
       ok: 'Seq Scan: первичный ключ получает индекс сам, а внешний ключ — нет. Его создают отдельно — это ЛР-23.',
     },
@@ -304,49 +355,64 @@ export function levels(D) {
     },
     {
       key: 'limit',
-      title: 'Любые пять',
+      title: 'Любые несколько',
       lab: 'ч. 3 · LIMIT без сортировки',
-      text: 'Запрос: любые пять книг — без условия и без сортировки. Напишите его сами и выполните EXPLAIN ANALYZE. Сравните у Seq Scan оценку rows (в первых скобках) и сколько строк прочитано на деле (actual … rows).',
+      text: `Запрос: любые ${lim} книг — без условия и без сортировки. Напишите его сами и выполните EXPLAIN ANALYZE. В таблицу — у строки Seq Scan: оценку rows (первые скобки, cost=…) и сколько строк прочитано на деле (вторые скобки, actual … rows).`,
       q: 'Всегда ли Seq Scan читает всю таблицу?',
-      goals: ['EXPLAIN ANALYZE запроса «любые пять книг»', 'Оценка rows и actual rows у Seq Scan — в отчёт'],
-      sol: ['EXPLAIN ANALYZE SELECT * FROM book LIMIT 5'],
-      check: 'tx',
+      goals: [`EXPLAIN ANALYZE запроса «любые ${lim} книг»`, 'Таблица: оценка и прочитано на деле'],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book LIMIT ${lim}`],
+      form: tab(
+        ['est', 'rows'],
+        [
+          {
+            label: 'LIMIT',
+            what: `любые ${lim} книг`,
+            sql: `SELECT * FROM book LIMIT ${lim}`,
+            re: new RegExp(`\\bfrom\\s+book\\s+limit\\s+${lim}\\s*;?\\s*$`, 'i'),
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: c => {
-        const an = explains(c.trail, /^\s*explain\s+analyze\s+select\s[\s\S]*\bfrom\s+book\s+limit\s+5\s*;?\s*$/i).pop();
-        if (!an)
-          return explains(c.trail, /\blimit\s+5\b/i).length
-            ? {wait: 'Нужен EXPLAIN ANALYZE запроса без WHERE и ORDER BY — только FROM book и LIMIT 5.'}
-            : null;
-        const sc = an.plan.nodes.find(n => n.table === 'book');
-        return {ok: true, note: `Limit ← ${readOf(an.plan, 'book')} · прочитано ${sc ? sc.rows : '?'} · ${an.plan.time} ms`};
-      },
-      hint: 'LIMIT 5 — в самом конце запроса.',
-      ok: 'Limit остановил чтение: Seq Scan отдал пять строк и закончил. Подряд — не значит «всё»: без ORDER BY первым строкам незачем ждать остальные.',
+      hint: `LIMIT ${lim} — в самом конце запроса, без WHERE и ORDER BY.`,
+      ok: 'Оценка — вся таблица, а прочитано столько, сколько попросили: Limit остановил чтение. Без ORDER BY первым строкам незачем ждать остальные.',
     },
     {
       key: 'sort',
-      title: 'Первые десять',
+      title: 'Первые по порядку',
       lab: 'ч. 3 · ORDER BY … LIMIT',
-      text: 'Два запроса, оба — с EXPLAIN ANALYZE: первые 10 книг по порядку номеров и 10 самых тонких книг. Напишите их сами и сравните планы: в каком появился узел Sort и сколько он занял времени?',
+      text: `Два запроса, оба — с EXPLAIN ANALYZE: первые ${top} книг по порядку номеров и ${top} самых тонких книг. Напишите их сами и заполните таблицу: как прочитана book, есть ли в плане узел Sort и сколько занял запрос.`,
       q: 'Когда СУБД приходится сортировать?',
-      goals: ['EXPLAIN ANALYZE: первые 10 по номеру', 'EXPLAIN ANALYZE: 10 самых тонких', 'Где Sort — в отчёт'],
-      sol: ['EXPLAIN ANALYZE SELECT * FROM book ORDER BY id LIMIT 10', 'EXPLAIN ANALYZE SELECT * FROM book ORDER BY pages LIMIT 10'],
-      check: 'tx',
+      goals: [`EXPLAIN ANALYZE: первые ${top} по номеру`, `EXPLAIN ANALYZE: ${top} самых тонких`, 'Таблица: способ чтения, Sort, время'],
+      sol: [
+        `EXPLAIN ANALYZE SELECT * FROM book ORDER BY id LIMIT ${top}`,
+        `EXPLAIN ANALYZE SELECT * FROM book ORDER BY pages LIMIT ${top}`,
+      ],
+      form: tab(
+        ['read', 'sort', 'ms'],
+        [
+          {
+            label: 'По номеру',
+            what: `первые ${top} по id`,
+            sql: `SELECT * FROM book ORDER BY id LIMIT ${top}`,
+            re: /order\s+by\s+(\w+\.)?id\b/i,
+          },
+          {
+            label: 'Самые тонкие',
+            what: `${top} с наименьшим pages`,
+            sql: `SELECT * FROM book ORDER BY pages LIMIT ${top}`,
+            re: /order\s+by\s+(\w+\.)?pages\b/i,
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: c => {
-        const a = explains(c.trail, /order\s+by\s+id\b/i).find(x => x.plan.analyze),
-          b = explains(c.trail, /order\s+by\s+pages\b/i).find(x => x.plan.analyze);
-        if (!a && !b) return null;
-        if (!a || !b)
-          return {wait: `Один план есть. Теперь EXPLAIN ANALYZE второго запроса — ${a ? 'самые тонкие книги' : 'первые по номеру'}.`};
-        const srt = p => (p.sort ? 'Sort ← ' : '') + readOf(p, 'book');
-        return {ok: true, note: `по id: ${srt(a.plan)} · ${a.plan.time} ms; по pages: ${srt(b.plan)} · ${b.plan.time} ms`};
-      },
-      hint: '«Первые по порядку» — ORDER BY … LIMIT 10. Самые тонкие — меньше всего страниц.',
-      ok: 'По id строки уже лежат в индексе по порядку — первые 10 берутся сразу. По pages индекса нет: всё читается и сортируется.',
+      hint: `«Первые по порядку» — ORDER BY … LIMIT ${top}. Самые тонкие — меньше всего страниц.`,
+      ok: 'По id строки уже лежат в индексе по порядку — первые берутся сразу, без Sort. По pages индекса нет: всё читается и сортируется.',
     },
     {
       key: 'agg',
@@ -364,63 +430,81 @@ export function levels(D) {
     },
     {
       key: 'group',
-      title: 'Книг у каждого автора',
+      title: 'Книг каждого года',
       lab: 'ч. 3 · план группировки',
-      text: 'Сколько книг у каждого автора: номер автора и число его книг. Напишите запрос с группировкой и выполните EXPLAIN ANALYZE. Найдите узел, который собрал группы, и сколько строк он выдал.',
+      text: `Среди книг с номерами от ${g1} до ${g1 + gw} включительно посчитайте, сколько книг каждого года издания: год и число книг. Напишите запрос с группировкой и выполните EXPLAIN ANALYZE. В таблицу — узел, который собрал группы, сколько групп он выдал и как прочитана book.`,
       q: 'Каким узлом СУБД группирует строки?',
-      goals: ['Запрос: author_id и число книг', 'EXPLAIN ANALYZE', 'Узел группировки и число групп — в отчёт'],
-      sol: ['EXPLAIN ANALYZE SELECT author_id, count(*) FROM book GROUP BY author_id'],
-      check: 'tx',
+      goals: ['Запрос: year и число книг, по номерам из задания', 'EXPLAIN ANALYZE', 'Таблица: узел группировки, групп, способ чтения'],
+      sol: [`EXPLAIN ANALYZE SELECT year, count(*) FROM book WHERE id BETWEEN ${g1} AND ${g1 + gw} GROUP BY year`],
+      form: tab(
+        ['agg', 'out', 'read'],
+        [
+          {
+            label: 'GROUP BY',
+            what: `год и число книг, id ${g1}–${g1 + gw}`,
+            sql: `SELECT year, count(*) FROM book WHERE id BETWEEN ${g1} AND ${g1 + gw} GROUP BY year`,
+            re: /group\s+by\s+(\w+\.)?year\b/i,
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
-      verify: c => {
-        const ex = explains(c.trail, /group\s+by\s+(\w+\.)?author_id\b/i);
-        if (!ex.length) return null;
-        const an = ex.filter(x => x.plan.analyze).pop();
-        if (!an) return {wait: 'План есть. Нужен EXPLAIN ANALYZE — с настоящим числом строк.'};
-        const g = /(HashAggregate|GroupAggregate)[^\n]*?actual[^\n]*?rows=(\d+)/.exec(an.plan.text);
-        if (!g) return {wait: 'В плане нет узла группировки — проверьте, что в запросе есть GROUP BY author_id и count(*).'};
-        return {ok: true, note: `${g[1]} · групп ${g[2]} ← ${readOf(an.plan, 'book')} · ${an.plan.time} ms`};
-      },
-      hint: 'SELECT author_id, count(*) … GROUP BY author_id — и EXPLAIN ANALYZE перед ним.',
-      ok: 'HashAggregate: СУБД прочитала таблицу один раз и разложила строки по хеш-таблице — по корзине на автора. Строк на выходе столько, сколько групп.',
+      star: true,
+      hint: `SELECT year, count(*) … WHERE id BETWEEN ${g1} AND ${g1 + gw} GROUP BY year. Групп столько, сколько разных годов, — это rows у верхнего узла.`,
+      ok: 'Узел группировки собрал строки по годам: на выходе столько строк, сколько групп. А читала их СУБД по индексу — диапазон номеров узкий.',
     },
     {
       key: 'combo',
       title: 'Автор и год',
       lab: 'ч. 3 · два условия сразу',
-      text: `Книги автора № ${cA}, изданные в ${cY} году. Напишите запрос сами и выполните EXPLAIN ANALYZE: каким узлом прочитана book, стоят ли в строке Filter оба условия, сколько строк найдено и сколько отброшено фильтром.`,
+      text: `Книги автора № ${cA}, изданные в ${cY} году. Напишите запрос сами и выполните EXPLAIN ANALYZE: каким узлом прочитана book, стоят ли в строке Filter оба условия, сколько строк найдено и сколько отброшено фильтром. Числа — в таблицу.`,
       q: 'Помогает ли второе условие прочитать меньше?',
-      goals: ['Запрос с двумя условиями', 'EXPLAIN ANALYZE', 'Найдено и отброшено — в отчёт'],
+      goals: ['Запрос с двумя условиями', 'EXPLAIN ANALYZE', 'Таблица: способ чтения, найдено, отброшено'],
       sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE author_id = ${cA} AND year = ${cY}`],
-      check: 'tx',
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [
+          {
+            label: 'Два условия',
+            what: `автор № ${cA}, ${cY} год`,
+            sql: `SELECT * FROM book WHERE author_id = ${cA} AND year = ${cY}`,
+            re: /\bauthor_id\b[\s\S]*\byear\b|\byear\b[\s\S]*\bauthor_id\b/i,
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: counted(
-        /\bauthor_id\b[\s\S]*\byear\b|\byear\b[\s\S]*\bauthor_id\b/i,
-        `SELECT count(*)::int AS n FROM library.book WHERE author_id = ${cA} AND year = ${cY}`,
-        `книг автора ${cA} за ${cY} год`,
-      ),
       hint: 'Оба условия сразу — через AND.',
       ok: 'Seq Scan: оба условия — в одной строке Filter, их проверяют у каждой строки. Второе условие сократило ответ, но не чтение: прочитана вся таблица.',
     },
     {
       key: 'decade',
-      title: 'Девяностые, толстые',
+      title: 'Десятилетие, толстые',
       lab: 'ч. 3 · диапазон и условие',
-      text: 'Книги 1990-х годов (с 1990 по 1999 включительно) толщиной больше 400 страниц. Напишите запрос сами, выполните EXPLAIN ANALYZE и запишите: способ чтения, сколько строк нашлось и сколько отброшено.',
+      text: `Книги ${dec}-х годов (с ${dec} по ${dec + 9} включительно) толщиной больше ${thickP} страниц. Напишите запрос сами, выполните EXPLAIN ANALYZE и заполните таблицу: способ чтения, сколько строк нашлось и сколько отброшено.`,
       q: 'Как СУБД отбирает строки по двум столбцам без индексов?',
-      goals: ['Запрос: годы 1990–1999 и больше 400 страниц', 'EXPLAIN ANALYZE', 'Способ чтения, найдено и отброшено — в отчёт'],
-      sol: ['EXPLAIN ANALYZE SELECT * FROM book WHERE year BETWEEN 1990 AND 1999 AND pages > 400'],
-      check: 'tx',
+      goals: [`Запрос: годы ${dec}–${dec + 9} и больше ${thickP} страниц`, 'EXPLAIN ANALYZE', 'Таблица: способ чтения, найдено, отброшено'],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE year BETWEEN ${dec} AND ${dec + 9} AND pages > ${thickP}`],
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [
+          {
+            label: 'Десятилетие',
+            what: `${dec}–${dec + 9}, больше ${thickP} страниц`,
+            sql: `SELECT * FROM book WHERE year BETWEEN ${dec} AND ${dec + 9} AND pages > ${thickP}`,
+            re: /\byear\b[\s\S]*\bpages\b|\bpages\b[\s\S]*\byear\b/i,
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: counted(
-        /\byear\b[\s\S]*\bpages\b|\bpages\b[\s\S]*\byear\b/i,
-        'SELECT count(*)::int AS n FROM library.book WHERE year BETWEEN 1990 AND 1999 AND pages > 400',
-        'книг 1990-х толще 400 страниц',
-      ),
-      hint: 'BETWEEN включает оба края. «Больше 400» — строго больше.',
-      ok: 'Условие на два столбца без индексов — снова Seq Scan: чтобы найти пару процентов строк, СУБД прочитала все.',
+      hint: `BETWEEN включает оба края. «Больше ${thickP}» — строго больше.`,
+      ok: 'Условие на два столбца без индексов — снова Seq Scan: чтобы найти малую часть строк, СУБД прочитала все.',
     },
     {
       key: 'twoids',
@@ -445,11 +529,23 @@ export function levels(D) {
       key: 'most',
       title: 'Почти все по ключу',
       lab: 'ч. 3 · индекс есть, а не нужен',
-      text: 'Все книги, кроме первой сотни номеров, — с id больше 100. Это почти вся таблица. Сначала прогноз, потом запрос и EXPLAIN ANALYZE: пойдёт ли СУБД по индексу первичного ключа?',
+      text: `Все книги, кроме первых ${most} номеров, — с id больше ${most}. Это почти вся таблица. Сначала прогноз, потом запрос и EXPLAIN ANALYZE: пойдёт ли СУБД по индексу первичного ключа? В таблицу — способ чтения, найдено и отброшено.`,
       q: 'Всегда ли СУБД идёт по индексу, если он есть?',
-      goals: ['Запрос: id больше 100', 'EXPLAIN ANALYZE'],
-      sol: ['EXPLAIN ANALYZE SELECT * FROM book WHERE id > 100'],
-      check: 'tx',
+      goals: [`Запрос: id больше ${most}`, 'EXPLAIN ANALYZE', 'Таблица: способ чтения, найдено, отброшено'],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE id > ${most}`],
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [
+          {
+            label: 'id > ' + most,
+            what: `все, кроме первых ${most}`,
+            sql: `SELECT * FROM book WHERE id > ${most}`,
+            re: new RegExp(`\\bid\\s*>\\s*${most}\\b`, 'i'),
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
       pred: {
@@ -460,26 +556,32 @@ export function levels(D) {
         ],
         answer: 'seq',
       },
-      verify: one(/\bid\s*>\s*100\b/i),
-      hint: 'WHERE id > 100 — и EXPLAIN ANALYZE перед запросом.',
-      ok: 'Seq Scan: когда нужна почти вся таблица, ходить через индекс — лишняя работа. СУБД выбирает по оценке строк.',
+      hint: `WHERE id > ${most} — и EXPLAIN ANALYZE перед запросом.`,
+      ok: 'Seq Scan: когда нужна почти вся таблица, ходить через индекс — лишняя работа. Отброшены как раз первые номера.',
     },
     {
       key: 'keyrange',
       title: 'Диапазон по ключу',
       lab: 'ч. 3 · узкий диапазон по индексу',
-      text: `Книги с номерами от ${key} до ${key + 20} включительно — тот же диапазон, что в запросе 3, но по первичному ключу. Напишите запрос, выполните EXPLAIN ANALYZE и сравните способ чтения с запросом 3 (pages > ${from}).`,
+      text: `Книги с номерами от ${key} до ${key + kw} включительно — диапазон, как в запросе 3, но по первичному ключу. Напишите запрос, выполните EXPLAIN ANALYZE и заполните таблицу. Сравните способ чтения с запросом 3 (pages > ${from}).`,
       q: 'Пойдёт ли по индексу диапазон по ключу?',
-      goals: [`Запрос: id от ${key} до ${key + 20}`, 'EXPLAIN ANALYZE', 'Сравнить с запросом 3'],
-      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE id BETWEEN ${key} AND ${key + 20}`],
-      check: 'tx',
+      goals: [`Запрос: id от ${key} до ${key + kw}`, 'EXPLAIN ANALYZE', 'Таблица: способ чтения, найдено, время'],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE id BETWEEN ${key} AND ${key + kw}`],
+      form: tab(
+        ['read', 'rows', 'ms'],
+        [
+          {
+            label: 'Диапазон id',
+            what: `${key}–${key + kw}`,
+            sql: `SELECT * FROM book WHERE id BETWEEN ${key} AND ${key + kw}`,
+            re: /\bid\s+between\b|\bid\s*>=?[\s\S]*\bid\s*<=?/i,
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
       allow: ALLOW,
       star: true,
-      verify: counted(
-        /\bid\s+between\b|\bid\s*>=?[\s\S]*\bid\s*<=?/i,
-        `SELECT count(*)::int AS n FROM library.book WHERE id BETWEEN ${key} AND ${key + 20}`,
-        'книг в этом диапазоне номеров',
-      ),
       hint: '«Включительно» — BETWEEN … AND … или >= и <=.',
       ok: 'По ключу и диапазон идёт по индексу: в индексе ключи лежат по порядку — СУБД берёт кусок подряд.',
     },

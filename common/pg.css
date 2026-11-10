@@ -1019,10 +1019,51 @@ body.pgx-big::after {
 .sync.wait {
   color: var(--mu);
 }
+/* вердикт — по центру окна запросов, над результатом: туда и смотрят после запуска */
+#deck {
+  position: relative;
+}
 #verdict {
-  flex: none;
-  max-height: 40%;
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  width: min(620px, calc(100% - 24px));
+  max-height: 55%;
   overflow-y: auto;
+  filter: drop-shadow(0 6px 18px rgba(20, 30, 45, 0.28));
+}
+#verdict > div {
+  margin: 0 0 6px;
+  animation: vpop 0.28s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+#verdict .v-ok {
+  text-align: center;
+  font-size: 14px;
+}
+#verdict .v-ok > b {
+  font-size: 17px;
+  color: var(--ok);
+}
+#verdict .v-ok .stars {
+  font-size: 22px;
+  letter-spacing: 2px;
+}
+#verdict .nextBtn {
+  display: block;
+  margin: 10px auto 2px;
+}
+@keyframes vpop {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #verdict > div {
+    animation: none;
+  }
 }
 #verdict:empty {
   display: none;
@@ -1559,6 +1600,44 @@ table.doc td {
   color: var(--mu);
 }
 
+.rs-fb {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.rs-fb button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 22px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 20px;
+  cursor: pointer;
+  border: 1px solid #c3c9d1;
+  background: #f7f9fb;
+}
+.rs-fb button small {
+  font: 600 12.5px var(--font);
+}
+.rs-fb button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+.rs-fb button.on {
+  background: #e3effa;
+  border-color: var(--blue);
+}
+.rs-fb button:disabled:not(.on) {
+  opacity: 0.4;
+}
+.rs-thx {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ok);
+}
+
 /* ═════════════════ протокол ═════════════════ */
 #proto {
   position: fixed;
@@ -1861,4 +1940,10 @@ table.doc td {
 .txstop code {
   font: 12px var(--mono);
   font-weight: 700;
+}
+#pgConf {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
 }

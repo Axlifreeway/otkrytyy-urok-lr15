@@ -90,6 +90,29 @@
   .rv-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--paper); border: 3px solid var(--ink); border-radius: 6px 6px 0 0; padding: 8px 12px }
   #rvVers a { margin-left: 6px; font-size: 12.5px; color: var(--teal); cursor: pointer; text-decoration: underline } #rvVers a.cur { color: var(--ink); font-weight: 700; text-decoration: none }
   #rvFrame { flex: 1; width: 100%; border: 3px solid var(--ink); border-top: 0; background: #fff; border-radius: 0 0 6px 6px }
+  /* студент: имя, а под ним группа, вариант и сигналы — меньше столбцов, та же информация */
+  td small.sub { display: block; color: var(--mute); font-size: 12px; margin-top: 1px }
+  .sig { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px } .sig .tag { font-size: 11px; padding: 0 5px }
+  .tag.soft { background: #ece6d6; color: var(--ink) }
+  .cur { font-size: 12px; margin-top: 2px } .cur .mu { font-size: 12px }
+  /* журнал студента: блоки по уровням, внутри — по порядку времени */
+  #drawer .seg { border: 2px solid var(--ink); border-radius: 6px; margin: 10px 0; background: #fff; overflow: hidden }
+  #drawer .seg > h4 { background: #f3eedf; padding: 5px 10px; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+  #drawer .seg > h4 .mu { font-weight: 500 } #drawer .seg .ev { padding: 6px 10px }
+  #drawer .seg.ok > h4 { background: #dff0e3 } #drawer .tag.ok, #card .tag.ok { color: #fff }
+  .ftab { border-collapse: collapse; margin: 4px 0; background: #fff; border: 2px solid var(--ink) } .ftab th { position: static; cursor: default; font-size: 11px; padding: 3px 6px; white-space: normal }
+  .ftab td { padding: 3px 6px; font-size: 12.5px; border-top: 1px solid #e3dccb } .ftab td.v { font: 600 12.5px var(--mono) }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px } .chips span { background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 2px 10px; font-size: 12.5px }
+  details.old { margin: 4px 0 } details.old summary { cursor: pointer; color: var(--teal); font-size: 12.5px }
+  /* карточка студента — из списка группы */
+  #card { position: fixed; inset: 0; z-index: 7; background: rgba(20,22,26,.55); display: flex; align-items: flex-start; justify-content: center; padding: 30px 16px; overflow: auto }
+  #card .box { background: var(--paper); border: 3px solid var(--ink); border-radius: 8px; box-shadow: 6px 6px 0 #000; padding: 16px 18px; width: min(940px, 100%) }
+  #card h2 { font-size: 22px } #card h3 { font-size: 16px; margin: 16px 0 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+  #card .lvg { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px }
+  #card .lvg div { border: 1.5px solid var(--ink); border-radius: 4px; padding: 3px 7px; font-size: 12.5px; background: #fff }
+  #card .lvg div.d { background: #e3f3e7 } #card .lvg div b { font-weight: 700 } #card .lvg .st { color: #c99700 }
+  #card .qa { border-top: 1px dashed #d8d0bd; padding: 5px 0; font-size: 13px } #card .qa b { display: block; font-size: 12.5px }
+  a.who { color: inherit; text-decoration: underline dotted; cursor: pointer }
   /* телефон: шапка переносится, таблицы прокручиваются по горизонтали */
   @media (max-width: 760px) {
     header { flex-wrap: wrap; gap: 6px } header h1 { width: 100%; font-size: 20px } header select { font-size: 16px }
@@ -114,7 +137,6 @@
   <button class="btn" id="sayBtn" title="Сообщение появится у студента: робот на полэкрана">🤖 Робот скажет</button>
   <button class="btn" id="grpBtn">Группы и списки</button>
   <button class="btn" id="projBtn">Проектор</button>
-  <button class="btn" id="trBtn" title="Обезличенная выгрузка набора по уровням (без ФИО, IP и групп) — для разбора коэффициента доверия. Файл .jsonl">⬇ Данные набора</button>
 </header>
 <div id="sayBox" class="panel" hidden>
   <h2>Робот скажет студентам</h2>
@@ -126,8 +148,8 @@
 <main>
   <div class="top"><div class="panel kpi" id="kpi"></div><div class="panel hist" id="hist"></div></div>
   <table id="tbl"><thead><tr>
-    <th data-s="name">Студент</th><th data-s="grp">Гр.</th><th>№</th><th data-s="lv">Уровень</th><th data-s="pts">Баллы</th>
-    <th data-s="errs">Ошибок на ур.</th><th>Последняя ошибка</th><th data-s="time">На уровне</th><th>Уходы / вставки</th><th data-s="trust" title="Насколько набор похож на работу своей головой: 100% — набирал, правил, пробовал; низкий — набор подряд без правок, паузы посреди слов, уходы со вкладки. Подсказка, к кому подойти, а не доказательство">Доверие</th><th>Сдал</th></tr></thead><tbody id="rows"></tbody></table>
+    <th data-s="name">Студент</th><th data-s="lv">Уровень</th><th data-s="pts">Баллы</th><th data-s="time">На уровне</th>
+    <th data-s="errs">Ошибки</th><th data-s="trust" title="Насколько набор похож на работу своей головой: 100% — набирал, правил, пробовал; низкий — набор подряд без правок, паузы посреди слов, уходы со вкладки. Подсказка, к кому подойти, а не доказательство. Считается по каждой лабе отдельно">Доверие</th><th>Отчёт</th></tr></thead><tbody id="rows"></tbody></table>
 </main>
 <div id="groups" hidden>
   <div class="panel gform" id="gForm"><h2 id="gTitle">Новая группа</h2>
@@ -135,7 +157,8 @@
     <label>Группа <input id="gName" placeholder="например 2.1"></label>
     <textarea id="gList" rows="10" placeholder="Иванов Иван&#10;Петрова Анна&#10;…"></textarea>
     <div><button class="btn on" id="gSave">Сохранить список</button> <button class="btn" id="gNew" hidden>Отмена</button> <span id="gMsg" class="mu"></span></div></div>
-  <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13–16 (аэропорт) открыты всегда. ЛР-17–20 (пиццерия) и ЛР-21–24 (библиотека) студенты не увидят, пока вы их не откроете; карта города появится, когда откроете хотя бы одну.</div><div id="gateList"></div></div>
+  <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13–16 (аэропорт) открыты всегда. ЛР-17–20 (пиццерия) и ЛР-21–24 (библиотека) студенты не увидят, пока вы их не откроете; карта города появится, когда откроете хотя бы одну.</div><div id="gateList"></div>
+    <div class="gate"><button class="btn" id="trBtn" title="Обезличенная выгрузка набора по уровням (без ФИО, IP и групп) — для разбора коэффициента доверия. Файл .jsonl">⬇ Данные набора</button><span class="mu">для разбора коэффициента доверия, без ФИО</span></div></div>
   <div id="gCards"></div></div>
 </div>
 <div id="proj" hidden></div>
@@ -143,6 +166,7 @@
 </div>
 <div id="drawer" hidden></div>
 <div id="ans" hidden><div class="box" id="ansBox"></div></div>
+<div id="card" hidden><div class="box" id="cardBox"></div></div>
 <div id="reports" class="panel" hidden><h2>Отчёты <span class="mu" id="repWhen"></span></h2><div id="repList"></div></div>
 <div id="repView" hidden><div class="rv-bar"><b id="rvTitle"></b><span id="rvVers"></span><span style="flex:1"></span>
   <button class="btn" id="rvPrint">Печать / PDF</button><button class="btn" id="rvX">✕ Закрыть</button></div>
@@ -221,10 +245,11 @@ function renderGroups() {
     return `<div class="panel gcard" style="padding:10px 12px"><h3>${esc(g.name)} <span class="mu">${g.students.filter(s => s.idx).length} студ.</span>
       <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
     <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th>${labs.map(l => `<th>${LABN[l]}</th>`).join('')}</tr>
-    ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td>${esc(s.name)}</td><td>${s.seed}</td>
+    ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td><a class="who" data-card="${s.id}" title="Карточка студента: все лабы, уровни, ответы и таблицы">${esc(s.name)}</a></td><td>${s.seed}</td>
       <td>${s.pin ? `${pins[s.id] ? `<span class="pinv">${pins[s.id]}</span>` : `задан <button class="btn" data-show="${s.id}">показать</button>`} <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>` : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
       ${labs.map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`;
   }).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
+  $('gCards').querySelectorAll('[data-card]').forEach(a => a.onclick = () => showCard(+a.dataset.card));
   $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editGroup(groupsData.find(x => x.name === b.dataset.edit)));
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
   $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { if (!confirm('Сбросить PIN? Студент придумает новый при следующем входе.')) return; await post('/api/admin/resetpin', {id: +b.dataset.pin}); delete pins[b.dataset.pin]; loadGroups(); });
@@ -239,6 +264,7 @@ async function tick() {
     renderReports();
     render();
     if (open) showLog(open, true);
+    if (!$('sayBox').hidden) loadSays(); // отклики студентов на объявление приходят позже
   } catch (e) { if (e.message === 'key') { $('app').hidden = true; $('login').hidden = false; $('keyErr').textContent = 'Ключ не подошёл'; } }
 }
 function render() {
@@ -251,8 +277,13 @@ function render() {
   $('day').value = day;
   $('newPair').classList.toggle('on', R.pair);
   $('newPair').hidden = !R.isToday;
-  const online = R.isToday ? ps.filter(p => p.idle < 60000).length : '—', stuck = ps.filter(p => p.stuck.length).length, sub = ps.filter(p => p.submit).length;
-  $('kpi').innerHTML = `<div><b>${ps.length}</b><span>студентов</span></div><div><b>${online}</b><span>активны сейчас</span></div><div><b style="color:var(--red)">${stuck}</b><span>застряли</span></div><div><b>${sub}</b><span>сдали</span></div><div><b>${new Set(reportsData.filter(r => !g || r.grp === g).map(r => r.client)).size}</b><span>прислали отчёт</span></div>`;
+  const online = R.isToday ? ps.filter(p => p.idle < 60000).length : '—', stuck = ps.filter(p => p.stuck.length).length, all = ps.filter(p => p.allDone).length;
+  // среднее доверие: по выбранной группе (или по всем) — у кого оно уже посчитано
+  const tr = ps.filter(p => p.trust != null), avgTr = tr.length ? Math.round(tr.reduce((a, p) => a + p.trust, 0) / tr.length) : null;
+  const byG = [...new Set(ps.map(p => p.grp))].filter(Boolean).map(gr => { const t = ps.filter(p => p.grp === gr && p.trust != null); return t.length ? `${gr}: ${Math.round(t.reduce((a, p) => a + p.trust, 0) / t.length)}%` : ''; }).filter(Boolean);
+  const repN = new Set(reportsData.filter(r => !g || r.grp === g).map(r => r.client)).size;
+  $('kpi').innerHTML = `<div><b>${ps.length}</b><span>студентов</span></div><div><b>${online}</b><span>активны сейчас</span></div><div><b style="color:var(--red)">${stuck}</b><span>застряли</span></div><div><b style="color:var(--green)">${all}</b><span>прошли всё</span></div><div><b>${repN}</b><span>прислали отчёт</span></div>
+    <div title="${esc(byG.length > 1 ? 'По группам: ' + byG.join(' · ') : 'Среднее по студентам, у кого доверие уже посчитано')}"><b>${avgTr == null ? '—' : `<span class="tr ${avgTr >= 75 ? 'hi' : avgTr >= 50 ? 'mid' : 'lo'}" style="font-size:22px">${avgTr}%</span>`}</b><span>ср. доверие${g ? ' группы' : ''}${byG.length > 1 ? ' ⓘ' : ''}</span></div>`;
   // где сейчас группа и сколько ошибок на каждом уровне
   const lab = $('labSel').value || (ps[0] && ps[0].lab) || 'lr13', N = total(lab);
   const at = Array(N).fill(0), errs = Array(N).fill(0);
@@ -261,34 +292,40 @@ function render() {
   $('hist').innerHTML = at.map((n, i) => `<div class="c" title="${esc((NAMES[lab] || [])[i] || '')}"><small>${n || ''}</small><div class="bar ${errs[i] >= 6 ? 'err' : ''}" style="height:${4 + n / mx * 46}px"></div>${i + 1}</div>`).join('');
   // сортировка
   const key = {name: p => p.fio, grp: p => p.grp + p.fio, lv: p => -(p.doneN * 100 + p.lv), pts: p => -p.pts, errs: p => -p.lvErrors, time: p => -p.onLevel, trust: p => p.trust == null ? 1000 : p.trust,
-    problems: p => (p.stuck.length ? 0 : 1) + ':' + String(1e9 - p.onLevel).padStart(10, '0')}[sortBy];
+    problems: p => (p.stuck.length ? 0 : p.allDone ? 2 : 1) + ':' + String(1e9 - (p.allDone ? 0 : p.onLevel)).padStart(10, '0')}[sortBy];
   ps.sort((a, b) => { const x = key(a), y = key(b); return x < y ? -1 : x > y ? 1 : 0; });
   $('rows').innerHTML = ps.map(p => {
     const N2 = p.total || 12;
     const names = NAMES[p.lab] || [];
-    const cells = Array.from({length: N2}, (_, i) => `<i data-lv="${i + 1}" class="${i + 1 === p.lv && !p.submit ? 'c' : i < p.doneN ? 'd' : ''}" title="${i + 1}. ${esc(names[i] || '')} — щёлкните: эталон и решение студента"></i>`).join('');
+    const cells = Array.from({length: N2}, (_, i) => `<i data-lv="${i + 1}" class="${i + 1 === p.lv && !p.allDone ? 'c' : i < p.doneN ? 'd' : ''}" title="${i + 1}. ${esc(names[i] || '')} — щёлкните: эталон и решение студента"></i>`).join('');
     const st = p.idle > 180000 ? 'off' : p.hidden ? 'hid' : 'on';
+    // сигналы — одной строкой под именем: уходы, вставки, набор без клавиатуры, снимки экрана
+    const sig = [p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : 'soft'}" title="уходил со вкладки ${p.away} раз, всего ${mins(p.awayMs)}">↗ ${p.away} · ${mins(p.awayMs)}</span>` : '',
+      p.pastes ? `<span class="tag warn" title="попытки вставки">вставок ${p.pastes}</span>` : '',
+      p.inserts ? `<span class="tag warn" title="Текст появился в поле без вставки и без нажатий клавиш: программа-«набиратель», расширение браузера или подсказка буфера на телефоне">без клавиатуры ${p.inserts}</span>` : '',
+      p.shots ? `<span class="tag warn">снимков ${p.shots}</span>` : ''].filter(Boolean).join('');
+    // время на уровне: копится по уровню (вернулся к пройденному и обратно — не с нуля); кто прошёл всё — не «застрял»
+    const when = p.allDone ? `<span class="tag ok">✓ всё пройдено</span>` : p.inPractice ? '<span class="tag soft">∞ тренировка</span>' : p.curOk ? `<span class="mu" title="Студент открыл уже пройденный уровень">смотрит пройденный</span>` : mins(p.onLevel);
+    const rep = lastReport(p.client);
     return `<tr class="row ${p.stuck.length ? 'stuck' : ''} ${p.idle > 600000 ? 'idle' : ''}" data-c="${esc(p.client)}">
-      <td><span class="dot ${st}" title="${st === 'hid' ? 'вкладка не активна' : st === 'off' ? 'нет действий ' + mins(p.idle) : 'активен'}"></span><b>${esc(p.fio || '—')}</b>${p.stuck.length ? `<div class="why">${esc(p.stuck.join(' · '))}</div>` : ''}</td>
-      <td>${esc(p.grp)}</td><td>${p.seed ?? ''}</td>
-      <td><div class="lvl">${cells}</div><div style="font-size:12px;margin-top:2px">${p.lv}. ${esc(names[p.lv - 1] || '')} <span style="color:var(--mute)">${esc((p.lab || '').toUpperCase())}</span></div></td>
-      <td><b>${String(p.pts).replace('.', ',')}</b>/9</td>
-      <td>${p.lvErrors ? `<span class="tag ${p.lvErrors >= 3 ? 'warn' : ''}">${p.lvErrors}</span>` : '0'} <span style="color:var(--mute);font-size:12px">всего ${p.errors + p.lints}</span></td>
-      <td><div class="err" title="${esc(p.lastErr)}">${p.lastErr ? esc(ruErr(p.lastErr)) : ''}</div>${p.lastErrTs ? `<div style="font-size:11.5px;color:var(--mute)">${mins(now - p.lastErrTs)} назад</div>` : ''}</td>
-      <td>${mins(p.onLevel)}</td>
-      <td>${p.away ? `<span class="tag ${p.awayMs > 300000 ? 'warn' : ''}">${p.away} / ${mins(p.awayMs)}</span>` : '—'} ${p.pastes ? `<span class="tag warn">вставок ${p.pastes}</span>` : ''} ${p.inserts ? `<span class="tag warn" title="Текст появился в поле без вставки и без нажатий клавиш: программа-«набиратель», расширение браузера или подсказка буфера на телефоне">без клавиатуры ${p.inserts}</span>` : ''} ${p.shots ? `<span class="tag warn">снимков экрана ${p.shots}</span>` : ''}</td>
-      <td>${trustCell(p.trust, p.trustWhy)}${p.trust != null && p.trust < 75 && p.trustWhy ? `<div style="font-size:11.5px;color:var(--mute);max-width:190px">${esc(whyText(p.trustWhy))}</div>` : ''}</td>
-      <td>${p.submit ? `<span class="tag ok">${String(p.submit.pts).replace('.', ',')} б. · ${p.submit.done} ур.</span>` : ''}${p.practice ? ` <span class="tag" title="Тренировка после уровней: решено заданий (без баллов)">∞ ${p.practice}</span>` : ''}${lastReport(p.client) ? ` <button class="btn" data-rep="${lastReport(p.client).id}" title="Открыть отчёт">📄</button>` : ''}</td></tr>`;
-  }).join('') || '<tr><td colspan="11" style="padding:20px;color:var(--mute)">Пока никого. Студенты появятся, как только откроют лабу и введут фамилию.</td></tr>';
+      <td><span class="dot ${st}" title="${st === 'hid' ? 'вкладка не активна' : st === 'off' ? 'нет действий ' + mins(p.idle) : 'активен'}"></span><b>${esc(p.fio || '—')}</b><small class="sub">${esc(p.grp)}${p.seed != null ? ' · вариант ' + p.seed : ''}</small>${p.stuck.length ? `<div class="why">${esc(p.stuck.join(' · '))}</div>` : ''}${sig ? `<div class="sig">${sig}</div>` : ''}</td>
+      <td><div class="lvl">${cells}</div><div class="cur">${p.allDone ? `пройдено ${p.doneN} из ${N2}` : `${p.lv}. ${esc(names[p.lv - 1] || '')}`} <span class="mu">${esc(LABN[p.lab] || (p.lab || '').toUpperCase())}</span></div></td>
+      <td><b>${String(p.pts).replace('.', ',')}</b>/9${p.practice ? `<div class="mu" title="Тренировка после уровней: решено заданий (без баллов)">∞ ${p.practice}</div>` : ''}</td>
+      <td>${when}</td>
+      <td>${p.lvErrors ? `<span class="tag ${p.lvErrors >= 3 ? 'warn' : ''}" title="ошибок на текущем уровне">${p.lvErrors}</span>` : '<span class="mu">0</span>'} <span class="mu" style="font-size:12px">всего ${p.errors + p.lints}</span>${p.lastErr && !p.allDone ? `<div class="err" title="${esc(p.lastErr)}">${esc(ruErr(p.lastErr))}</div>` : ''}</td>
+      <td>${trustCell(p.trust, p.trustWhy)}</td>
+      <td>${p.submit ? `<span class="tag ok" title="сдал">${String(p.submit.pts).replace('.', ',')} б.</span> ` : ''}${rep ? `<button class="btn" data-rep="${rep.id}" title="Последний отчёт за период: ${dhm(rep.ts)}">📄 ${hm(rep.ts)}</button>` : ''}</td></tr>`;
+  }).join('') || '<tr><td colspan="7" style="padding:20px;color:var(--mute)">Пока никого. Студенты появятся, как только откроют лабу и войдут.</td></tr>';
   if (g) {
     const gr = groupsData.find(x => x.name === g);
     const seen = new Set(ps.map(p => p.client));
     const miss = gr ? gr.students.filter(s => s.idx && !seen.has('s' + s.id)) : [];
-    $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span>${esc(s.name)}</td><td>${esc(g)}</td><td>${s.seed}</td><td colspan="8">не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/' + total(l)).join(', ') : ''}</td></tr>`).join(''));
+    $('rows').insertAdjacentHTML('beforeend', miss.map(s => `<tr class="absent"><td><span class="dot off"></span><a class="who" data-card="${s.id}">${esc(s.name)}</a></td><td colspan="6">${esc(g)} · вариант ${s.seed} — не заходил за выбранный период${s.labs && Object.keys(s.labs).length ? ' · сохранено: ' + Object.entries(s.labs).map(([l, n]) => l.toUpperCase() + ' ' + n + '/' + total(l)).join(', ') : ''}</td></tr>`).join(''));
   }
   $('rows').querySelectorAll('tr.row').forEach(tr => tr.onclick = () => showLog(tr.dataset.c));
   $('rows').querySelectorAll('tr.row .lvl i').forEach(c => c.onclick = e => { e.stopPropagation(); showAnswer(c.closest('tr').dataset.c, +c.dataset.lv); });
   $('rows').querySelectorAll('[data-rep]').forEach(b => b.onclick = e => { e.stopPropagation(); openReport(+b.dataset.rep); });
+  $('rows').querySelectorAll('[data-card]').forEach(a => a.onclick = e => { e.stopPropagation(); showCard(+a.dataset.card); });
   if (document.body.classList.contains('proj')) renderProj(ps);
 }
 // проектор: только пятеро лучших на пьедестале. Место — по звёздам с поправкой на доверие:
@@ -314,7 +351,7 @@ function renderProj(ps) {
 // Эталоны — teacher/answers.js (собирает tools/build.mjs из самих лаб), грузится при первом щелчке:
 // у каждого варианта свои данные, поэтому эталон считается по номеру варианта студента
 let ansLoad = null;
-const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=619442ed37'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
+const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=41da731e4d'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
 const sqlBlock = qs => qs.map(q => `<pre>${hl(String(q).replace(/;?\s*$/, ';'))}</pre>`).join('');
 async function showAnswer(client, lvN) {
   const p = data.people.find(x => x.client === client); if (!p) return;
@@ -346,7 +383,7 @@ async function showAnswer(client, lvN) {
   box.innerHTML = `<button class="btn" id="ansX" style="float:right">✕</button>
     <h2>${lvN}. ${esc(title)}</h2><div class="mu">${esc(p.fio)} · ${esc(p.grp)} · вариант № ${p.seed ?? '—'} · ${esc(LABN[p.lab] || p.lab || '')}</div>
     ${a ? `<p style="margin:10px 0 0">${esc(a.text)}</p>${a.goals.length ? `<ul>${a.goals.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}` : `<p class="bad">${A ? 'Этого уровня нет среди эталонов лабы' : p.seed == null ? 'У студента не записан вариант — эталон не посчитать' : 'Эталоны для этой лабы недоступны'}</p>`}
-    <div class="two"><div><h3>Эталон</h3>${a ? sol : ''}</div><div><h3>Как прошёл студент</h3>${his}</div></div>
+    <div class="two"><div><h3>Эталон</h3>${a ? sol : ''}</div><div><h3>Как прошёл студент</h3>${his}${key && (p.forms || {})[key] ? `<h3>Таблица по плану</h3>${formTable(p.forms[key].rows)}` : ''}</div></div>
     <p style="margin:12px 0 0" title="Пометка уходит только в обезличенную выгрузку «Данные набора» — по ней настраивается коэффициент доверия. Студент её не видит">Для разбора доверия: <span id="lbBox" class="mu">…</span></p>`;
   $('ansX').onclick = () => { $('ans').hidden = true; };
   // пометка «честно / переписывал» по уровню — разметка для настройки common/trust.js
@@ -361,33 +398,112 @@ async function showAnswer(client, lvN) {
 }
 $('ans').onclick = e => { if (e.target === $('ans')) $('ans').hidden = true; };
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('ans').hidden) $('ans').hidden = true; });
+// таблица, которую студент вписал по плану (лабы библиотеки): [[заголовки], [строка, значения…]]
+const formTable = rows => rows && rows.length ? `<table class="ftab"><tr>${rows[0].map(h => `<th>${esc(h)}</th>`).join('')}</tr>${rows.slice(1).map(r => `<tr>${r.map((v, i) => `<td class="${i ? 'v' : ''}">${esc(v) || '<span class="mu">—</span>'}</td>`).join('')}</tr>`).join('')}</table>` : '';
+// отчёты за период: последний по каждой лабе, остальные — свёрнуты
+function repButtons(items, R) {
+  const inR = items.filter(x => x.ts >= R.since && x.ts < R.until), by = {};
+  inR.forEach(x => (by[x.lab] = by[x.lab] || []).push(x));
+  const btn = x => `<button class="btn" data-rep="${x.id}" style="margin:2px">📄 ${dhm(x.ts)} · ${esc(LABN[x.lab] || x.lab)} · ${String(x.pts).replace('.', ',')} б.</button>`;
+  const html = Object.values(by).map(v => btn(v[0]) + (v.length > 1 ? `<details class="old"><summary>прежние версии (${v.length - 1})</summary>${v.slice(1).map(btn).join('')}</details>` : '')).join('');
+  const older = items.length - inR.length;
+  return html || older ? `<div style="margin:0 0 10px"><b>Отчёты${R.pair ? ' за пару' : ' за день'}:</b> ${html || '<span class="mu">нет</span>'}${older ? ` <span class="mu">· ещё ${older} за другие дни — в карточке студента</span>` : ''}</div>` : '';
+}
 async function showLog(client, quiet) {
   open = client;
   const p = data.people.find(x => x.client === client); if (!p) return;
   const R = range(), q = new URLSearchParams({client, since: R.since, until: R.until});
   const [r, reps] = await Promise.all([api('/api/log?' + q), api('/api/admin/reports?client=' + encodeURIComponent(client)).catch(() => ({items: []}))]);
   const names = NAMES[p.lab] || [];
-  const T = {hello: 'вошёл', level: 'уровень', run: 'команда', lint: 'ошибка записи', rollback: 'не совпало — откат', done: 'уровень пройден', paste: 'вставка заблокирована', shot: 'нажат Print Screen', away: 'ушёл со вкладки', submit: 'сдал'};
-  const keep = $('drawer').scrollTop;
+  const keep = $('drawer').scrollTop, opened = [...$('drawer').querySelectorAll('details')].map(d => d.open);
   $('drawer').hidden = false;
-  $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button>${/^s\d+$/.test(client) ? `<button class="btn" id="dSay" style="float:right;margin-right:8px" title="Робот скажет только этому студенту">🤖 Сказать</button>` : ''}<h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · № ${p.seed ?? ''} · ${esc((p.lab || '').toUpperCase())}</span></h2>
-    <p style="margin:6px 0 10px">${R.isToday ? 'Сейчас' : 'На конец дня'}: уровень ${p.lv} «${esc(names[p.lv - 1] || '')}», ${mins(p.onLevel)}; пройдено ${p.doneN}, баллов ${String(p.pts).replace('.', ',')}</p>
-    ${reps.items.length ? `<p style="margin:0 0 10px"><b>Отчёты:</b> ${reps.items.map(x => `<button class="btn" data-rep="${x.id}" style="margin:2px">📄 ${dhm(x.ts)} · ${esc(LABN[x.lab] || x.lab)} · ${String(x.pts).replace('.', ',')} б.</button>`).join('')}</p>` : ''}
-    ${r.events.slice().reverse().map(e => {
-      const d = e.data || {}, t = new Date(e.ts).toLocaleTimeString('ru-RU');
-      if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${hl(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
-      if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">${esc(d.msg)}</b><pre>${hl(d.sql)}</pre></div>`;
-      if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">${d.via === 'input' ? 'текст появился без клавиатуры' : 'вставка заблокирована'}</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
-      if (e.type === 'rollback') return `<div class="ev"><span class="t">${t}</span>ур. ${d.lv} · <b class="bad">не совпало — откат</b><div class="bad" style="font-size:12.5px">${esc(d.msg)}</div></div>`;
-      if (e.type === 'report') return `<div class="ev"><span class="t">${t}</span><b class="ok">отправил отчёт</b>${d.pts != null ? ` · ${String(d.pts).replace('.', ',')} б., ${d.done} ур.` : ''} <button class="btn" data-rep="${d.id}">📄 открыть</button></div>`;
-      if (e.type === 'away') return `<div class="ev"><span class="t">${t}</span>ушёл со вкладки на ${mins(d.ms)}</div>`;
-      return `<div class="ev"><span class="t">${t}</span>${T[e.type] || e.type}${d.lv ? ' ' + d.lv + (names[d.lv - 1] ? ' «' + esc(names[d.lv - 1]) + '»' : '') : ''}${d.reset ? ' (сброс)' : ''}${e.type === 'done' ? ' · ' + '★'.repeat(d.stars || 0) + (d.trust != null ? ' · доверие ' + trustCell(d.trust, '') : '') : ''}${e.type === 'submit' ? ` · ${d.pts} б., ${d.done} ур.` : ''}</div>`;
-    }).join('')}`;
-  if (quiet) $('drawer').scrollTop = keep;
+  // журнал по уровням: каждый заход на уровень — свой блок, внутри — команды по порядку, как они шли; сверху — последний
+  const ev = r.events.slice();
+  for (let i = 0; i + 1 < ev.length; i++) // «пройден» иногда доходит на миг раньше своей команды — ставим после неё
+    if (ev[i].type === 'done' && ev[i + 1].type === 'run' && (ev[i + 1].data || {}).lv === (ev[i].data || {}).lv && ev[i + 1].ts - ev[i].ts < 3000) [ev[i], ev[i + 1]] = [ev[i + 1], ev[i]];
+  const segs = [];
+  let cur = null;
+  for (const e of ev) {
+    const d = e.data || {};
+    if (!cur || (e.type === 'level' && d.lv) || (d.lv && cur.lv && d.lv !== cur.lv && ['run', 'lint', 'rollback', 'done', 'form'].includes(e.type))) segs.push(cur = {lv: d.lv || null, items: [], done: null});
+    if (!cur.lv && d.lv) cur.lv = d.lv;
+    if (e.type === 'done') cur.done = d;
+    cur.items.push(e);
+  }
+  const T = {hello: 'вошёл', level: 'открыл уровень', paste: 'вставка заблокирована', shot: 'нажат Print Screen', submit: 'сдал', practice: 'тренировка: решено'};
+  const evHtml = e => {
+    const d = e.data || {}, t = hm(e.ts) + ':' + String(new Date(e.ts).getSeconds()).padStart(2, '0');
+    if (e.type === 'run') return `<div class="ev"><span class="t">${t}</span><b class="${d.ok ? 'ok' : 'bad'}">${esc(d.out)}</b><pre>${hl(d.sql)}</pre>${!d.ok && d.txt ? `<div class="bad" style="font-size:12.5px">${esc(d.txt)}</div>` : ''}</div>`;
+    if (e.type === 'lint') return `<div class="ev"><span class="t">${t}</span><b class="bad">${esc(d.msg)}</b><pre>${hl(d.sql)}</pre></div>`;
+    if (e.type === 'paste') return `<div class="ev"><span class="t">${t}</span><b class="bad">${d.via === 'input' ? 'текст появился без клавиатуры' : 'вставка заблокирована'}</b> (${d.len} симв.)${d.text ? `<pre>${esc(d.text)}</pre>` : ''}</div>`;
+    if (e.type === 'rollback') return `<div class="ev"><span class="t">${t}</span><b class="bad">не совпало — откат</b><div class="bad" style="font-size:12.5px">${esc(d.msg)}</div></div>`;
+    if (e.type === 'form') return `<div class="ev"><span class="t">${t}</span><b class="${d.ok ? 'ok' : 'bad'}">${d.ok ? 'таблица по плану — верно' : 'таблица по плану — не сошлось'}</b>${formTable(d.rows)}${d.bad ? `<div class="bad" style="font-size:12.5px">${esc(d.bad)}</div>` : ''}</div>`;
+    if (e.type === 'report') return `<div class="ev"><span class="t">${t}</span><b class="ok">отправил отчёт</b>${d.pts != null ? ` · ${String(d.pts).replace('.', ',')} б., ${d.done} ур.` : ''} <button class="btn" data-rep="${d.id}">📄 открыть</button></div>`;
+    if (e.type === 'away') return `<div class="ev"><span class="t">${t}</span><span class="mu">ушёл со вкладки на ${mins(d.ms)}</span></div>`;
+    if (e.type === 'sayfb') return `<div class="ev"><span class="t">${t}</span>ответил роботу: <b>${esc(d.e)}</b></div>`;
+    if (e.type === 'done') return `<div class="ev"><span class="t">${t}</span><b class="ok">уровень пройден</b> · ${'★'.repeat(d.stars || 0) || 'без звёзд'}${d.fails ? ` · промахов ${d.fails}` : ''}${d.trust != null ? ' · доверие ' + trustCell(d.trust, '') : ''}</div>`;
+    if (e.type === 'level') return '';
+    return `<div class="ev"><span class="t">${t}</span><span class="mu">${T[e.type] || e.type}${e.type === 'submit' ? ` · ${d.pts} б., ${d.done} ур.` : ''}${e.type === 'practice' ? ' ' + d.n : ''}</span></div>`;
+  };
+  const segHtml = sg => {
+    const body = sg.items.map(evHtml).join('');
+    if (!body) return '';
+    const t0 = hm(sg.items[0].ts), t1 = hm(sg.items.at(-1).ts);
+    return `<div class="seg ${sg.done ? 'ok' : ''}"><h4>${sg.lv ? `ур. ${sg.lv}${names[sg.lv - 1] ? ' «' + esc(names[sg.lv - 1]) + '»' : ''}` : 'вне уровня'}<span class="mu">${t0}${t1 !== t0 ? '–' + t1 : ''}</span>${sg.done ? `<span class="tag ok">пройден ${'★'.repeat(sg.done.stars || 0)}</span>` : ''}</h4>${body}</div>`;
+  };
+  const forms = Object.entries(p.forms || {});
+  $('drawer').innerHTML = `<button class="btn" id="dx" style="float:right">✕</button>${/^s\d+$/.test(client) ? `<button class="btn" id="dSay" style="float:right;margin-right:8px" title="Робот скажет только этому студенту">🤖 Сказать</button><button class="btn" id="dCard" style="float:right;margin-right:8px" title="Все лабы, уровни, ответы и таблицы студента">Карточка</button>` : ''}<h2>${esc(p.fio)} <span style="color:var(--mute);font-size:15px">${esc(p.grp)} · вариант ${p.seed ?? '—'} · ${esc(LABN[p.lab] || p.lab || '')}</span></h2>
+    <div class="chips"><span>${p.allDone ? '✓ всё пройдено' : `${R.isToday ? 'сейчас' : 'на конец дня'}: ур. ${p.lv} «${esc(names[p.lv - 1] || '')}», ${mins(p.onLevel)}`}</span><span>пройдено ${p.doneN} из ${p.total || 12}</span><span>баллов ${String(p.pts).replace('.', ',')}</span><span>доверие ${trustCell(p.trust, p.trustWhy)}</span>${p.trust != null && p.trust < 75 && p.trustWhy ? `<span class="mu">${esc(whyText(p.trustWhy))}</span>` : ''}</div>
+    ${repButtons(reps.items || [], R)}
+    ${forms.length ? `<details ${forms.length <= 3 ? 'open' : ''}><summary><b>Таблицы по планам</b> <span class="mu">— что студент вписал (последняя попытка)</span></summary>${forms.sort((a, b) => (a[1].lv || 0) - (b[1].lv || 0)).map(([k, f]) => `<div style="margin:6px 0"><b>ур. ${f.lv} «${esc(names[f.lv - 1] || k)}»</b> ${f.ok ? '<span class="tag ok">верно</span>' : '<span class="tag warn">не сошлось</span>'}${formTable(f.rows)}</div>`).join('')}</details>` : ''}
+    ${segs.reverse().map(segHtml).join('') || '<p class="mu">За выбранный период событий нет</p>'}`;
+  if (quiet) {
+    $('drawer').querySelectorAll('details').forEach((d, i) => { if (opened[i] != null) d.open = opened[i]; });
+    $('drawer').scrollTop = keep;
+  }
   $('dx').onclick = () => { open = null; $('drawer').hidden = true; };
   $('drawer').querySelectorAll('[data-rep]').forEach(b => b.onclick = () => openReport(+b.dataset.rep));
   if ($('dSay')) $('dSay').onclick = () => { open = null; $('drawer').hidden = true; openSay(+client.slice(1)); };
+  if ($('dCard')) $('dCard').onclick = () => showCard(+client.slice(1));
 }
+// ── карточка студента: все лабы — уровни со звёздами и доверием, таблицы по планам, ответы на вопросы, отчёты ──
+const KEYS = window.LEVEL_KEYS || {};
+async function showCard(sid) {
+  $('card').hidden = false;
+  const box = $('cardBox');
+  box.innerHTML = '<p class="mu">Загружаю…</p>';
+  let c;
+  try { c = await api('/api/admin/student?id=' + sid); } catch (e) { box.innerHTML = '<p class="bad">Нет связи с сервером</p>'; return; }
+  if (!c || !c.labs) { box.innerHTML = '<p class="bad">Студент не найден</p>'; return; }
+  const stars = r => !r || !r.done ? 0 : (r.fails || 0) === 0 ? 3 : r.fails <= 2 ? 2 : 1;
+  const labs = Object.entries(c.labs).sort((a, b) => a[0].localeCompare(b[0]));
+  const labHtml = ([lab, L]) => {
+    const keys = KEYS[lab] || Object.keys(L.lv), names = NAMES[lab] || [];
+    const done = keys.filter(k => (L.lv[k] || {}).done).length;
+    const trs = keys.map(k => (L.lv[k] || {}).tr).filter(x => typeof x === 'number');
+    const avg = trs.length ? Math.round(trs.reduce((a, b) => a + b, 0) / trs.length) : null;
+    const grid = keys.map((k, i) => { const r = L.lv[k] || {}; return `<div class="${r.done ? 'd' : ''}" title="${esc(r.note || '')}"><b>${i + 1}.</b> ${esc(names[i] || k)}${r.done ? ` <span class="st">${'★'.repeat(stars(r))}</span>${r.auto ? ' <span class="mu">засчитан</span>' : ''}` : ''}${r.fails ? ` <span class="mu">· промахов ${r.fails}</span>` : ''}${typeof r.tr === 'number' ? ' · ' + trustCell(r.tr, r.tw) : ''}</div>`; }).join('');
+    const tabs = keys.map((k, i) => [k, i, (L.lv[k] || {}).ptab]).filter(x => x[2] && x[2].length).map(([k, i, t]) => {
+      const cols = Object.keys(t[0]).filter(x => x !== 'label' && x !== 'what');
+      return `<div style="margin:6px 0"><b>${i + 1}. ${esc(names[i] || k)}</b>${formTable([['', ...cols], ...t.map(r => [r.label + (r.what ? ' · ' + r.what : ''), ...cols.map(x => r[x])])])}</div>`;
+    }).join('');
+    const ans = Object.entries(L.answers || {}).filter(([, v]) => String(v || '').trim());
+    const reps = (c.reports || []).filter(x => x.lab === lab);
+    return `<h3>${esc(LABN[lab] || lab)} <span class="mu">${esc(LABS[lab] || '')}</span><span class="tag ${done >= keys.length ? 'ok' : ''}">${done} из ${keys.length}</span>${avg != null ? `доверие ${trustCell(avg, '')}` : ''}${L.practice ? `<span class="tag soft">∞ ${L.practice}</span>` : ''}<span class="mu" style="font-weight:400">${L.last ? 'последний раз ' + dhm(L.last) : ''}${L.away ? ` · уходов ${L.away} (${mins(L.awayMs)})` : ''}${L.pastes ? ` · вставок ${L.pastes}` : ''}</span></h3>
+      <div class="lvg">${grid}</div>
+      ${tabs ? `<details><summary><b>Таблицы по планам</b></summary>${tabs}</details>` : ''}
+      ${ans.length ? `<details><summary><b>Ответы на вопросы протокола</b> <span class="mu">(${ans.length})</span></summary>${ans.map(([i, v]) => `<div class="qa"><b>Вопрос ${+i + 1}</b>${esc(v)}</div>`).join('')}</details>` : ''}
+      ${reps.length ? `<div style="margin-top:6px"><b>Отчёты:</b> <button class="btn" data-rep="${reps[0].id}">📄 последний · ${dhm(reps[0].ts)} · ${String(reps[0].pts).replace('.', ',')} б.</button>${reps.length > 1 ? `<details class="old"><summary>прежние (${reps.length - 1})</summary>${reps.slice(1).map(x => `<button class="btn" data-rep="${x.id}" style="margin:2px">${dhm(x.ts)} · ${String(x.pts).replace('.', ',')} б.</button>`).join('')}</details>` : ''}</div>` : ''}`;
+  };
+  box.innerHTML = `<button class="btn" id="cardX" style="float:right">✕</button><button class="btn" id="cardSay" style="float:right;margin-right:8px">🤖 Сказать</button>
+    <h2>${esc(c.name)}</h2><div class="mu">группа ${esc(c.grp)} · № ${c.idx} в списке · вариант ${c.seed} · PIN ${c.pin ? 'задан' : 'ещё не входил'}</div>
+    ${labs.length ? labs.map(labHtml).join('') : '<p class="mu" style="margin-top:12px">Ещё не открывал ни одной лабы.</p>'}`;
+  $('cardX').onclick = () => { $('card').hidden = true; };
+  $('cardSay').onclick = () => { $('card').hidden = true; openSay(sid); };
+  box.querySelectorAll('[data-rep]').forEach(b => b.onclick = () => openReport(+b.dataset.rep));
+}
+$('card').onclick = e => { if (e.target === $('card')) $('card').hidden = true; };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('card').hidden && $('repView').hidden) $('card').hidden = true; });
 // ── отчёты студентов ──
 const lastReport = client => reportsData.find(r => r.client === client);   // список отсортирован от новых
 function renderReports() {
@@ -403,9 +519,9 @@ function renderReports() {
   $('repN').textContent = list.length ? '· ' + list.length : '';
   const R = range();
   $('repWhen').textContent = R.pair ? 'с ' + hm(R.since) : new Date(R.since).toLocaleDateString('ru-RU', {day: 'numeric', month: 'long'});
-  $('repList').innerHTML = list.length ? `<table><tr><th>Студент</th><th>Группа</th><th>Работа</th><th>Баллы</th><th>Уровней</th><th>Отправлен</th><th>Версии</th></tr>
+  $('repList').innerHTML = list.length ? `<table><tr><th>Студент</th><th>Группа</th><th>Работа</th><th>Баллы</th><th>Уровней</th><th>Последняя отправка</th><th>Прежние за период</th></tr>
     ${list.map(v => { const r = v[0]; return `<tr class="row" data-rep="${r.id}"><td><b>${esc(r.fio)}</b></td><td>${esc(r.grp)}</td><td>${esc(LABN[r.lab] || r.lab)}</td><td>${String(r.pts).replace('.', ',')}</td><td>${r.done}</td><td>${dhm(r.ts)}</td>
-      <td class="vers">${v.length > 1 ? v.map((x, i) => `<a data-rep="${x.id}">${i ? hm(x.ts) : 'последняя'}</a>`).join('') : ''}</td></tr>`; }).join('')}</table>`
+      <td class="vers">${v.length > 1 ? `<details class="old"><summary>ещё ${v.length - 1}</summary>${v.slice(1).map(x => `<a data-rep="${x.id}">${hm(x.ts)}</a>`).join('')}</details>` : ''}</td></tr>`; }).join('')}</table>`
     : '<p class="mu">За этот период отчётов нет. Студенты отправляют их кнопкой «📤 Отправить преподавателю» в протоколе.</p>';
   $('repList').querySelectorAll('[data-rep]').forEach(el => el.onclick = e => { e.stopPropagation(); openReport(+el.dataset.rep); });
 }
@@ -442,7 +558,7 @@ $('repBtn').onclick = () => { const on = $('reports').hidden; $('reports').hidde
 let started = false;
 // робот скажет: объявление студентам
 async function loadSays() {
-  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.to ? esc(x.to) : x.grp ? esc(x.grp) : 'всем'} — ${esc(x.text)}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
+  try { const r = await api('/api/admin/says'); $('sayList').innerHTML = r.items.length ? '<b>Последние:</b>' + r.items.map(x => `<div>${new Date(x.ts).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})} · ${x.to ? esc(x.to) : x.grp ? esc(x.grp) : 'всем'} — ${esc(x.text)}${Object.keys(x.fb || {}).length ? ' <span title="отклик студентов">' + Object.entries(x.fb).map(([e, n]) => `${e} ${n}`).join(' · ') + '</span>' : ''}</div>`).join('') : ''; } catch (e) { /* нет связи */ }
 }
 $('sayBtn').onclick = () => {
   const on = $('sayBox').hidden; $('sayBox').hidden = !on; $('sayBtn').classList.toggle('on', on);
@@ -459,7 +575,7 @@ $('sayGo').onclick = async () => {
   const text = $('sayText').value.trim(); if (!text) { $('sayText').focus(); return; }
   try {
     await post('/api/admin/say', {text, sid: +$('sayTo').value || 0});
-    $('sayMsg').textContent = 'Отправлено — появится у студентов в течение 4 секунд'; $('sayText').value = ''; loadSays();
+    $('sayMsg').textContent = 'Отправлено — появится у студентов в течение 4 секунд и будет висеть, пока не закроют; отклики эмодзи — ниже'; $('sayText').value = ''; loadSays();
   } catch (e) { $('sayMsg').textContent = 'Ошибка: ' + e.message; }
 };
 $('sayText').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('sayGo').click(); };

@@ -15,6 +15,7 @@ export function levels(D) {
     isbn = `978-5-${(D.seed * 37) % 20000}`;
   const Q1 = `SELECT * FROM book WHERE title = '${title}'`;
   // те же запросы 1–4, что в таблице ЛР-22 (ключ, автор — по тем же правилам варианта)
+  const from = 575 + (D.seed % 22); // как в ЛР-22
   const key = 4000 + (D.seed % 900),
     au4 = D.AU[(D.seed % 30) + 3];
   const low = title.toLowerCase();
@@ -197,11 +198,11 @@ export function levels(D) {
       key: 'pages',
       title: 'Индекс на диапазон',
       lab: 'ч. 3 · узкий диапазон по индексу',
-      text: 'Толстые книги — больше 590 страниц — ищут часто. Создайте индекс ix_book_pages и выполните EXPLAIN ANALYZE запроса pages > 590.',
+      text: `Толстые книги — больше ${from} страниц — ищут часто. Создайте индекс ix_book_pages и выполните EXPLAIN ANALYZE запроса pages > ${from}.`,
       q: 'Пойдёт ли диапазон по индексу?',
-      goals: ['Индекс ix_book_pages', 'EXPLAIN ANALYZE запроса pages > 590'],
+      goals: ['Индекс ix_book_pages', `EXPLAIN ANALYZE запроса pages > ${from}`],
       ref: ['CREATE INDEX ix_book_pages ON book (pages)'],
-      sol: ['CREATE INDEX ix_book_pages ON book (pages)', 'EXPLAIN ANALYZE SELECT * FROM book WHERE pages > 590'],
+      sol: ['CREATE INDEX ix_book_pages ON book (pages)', `EXPLAIN ANALYZE SELECT * FROM book WHERE pages > ${from}`],
       check: 'tx',
       allow: ALLOW,
       star: true,
@@ -210,9 +211,9 @@ export function levels(D) {
         if (!ix) return null;
         if (ix.name !== 'ix_book_pages') return {fail: `Индекс назван ${ix.name}, а по правилу — ix_book_pages.`};
         return plan1(
-          /\bpages\s*>\s*590\b/i,
+          new RegExp(`\\bpages\\s*>\\s*${from}\\b`, 'i'),
           p => byIndex(p, 'book', 'ix_book_pages'),
-          'Индекс создан. Теперь EXPLAIN ANALYZE запроса pages > 590.',
+          `Индекс создан. Теперь EXPLAIN ANALYZE запроса pages > ${from}.`,
         )(c);
       },
       hint: 'CREATE INDEX ix_book_pages ON book (pages);',
@@ -259,7 +260,7 @@ export function levels(D) {
         rows: [
           {label: 'Запрос 1', what: `по ключу: id = ${key}`, sql: `SELECT * FROM book WHERE id = ${key}`, before: 'Index Scan'},
           {label: 'Запрос 2', what: `по названию: «${title}»`, sql: Q1, before: 'Seq Scan'},
-          {label: 'Запрос 3', what: 'диапазон: pages > 590', sql: 'SELECT * FROM book WHERE pages > 590', before: 'Seq Scan'},
+          {label: 'Запрос 3', what: `диапазон: pages > ${from}`, sql: `SELECT * FROM book WHERE pages > ${from}`, before: 'Seq Scan'},
           {
             label: 'Запрос 4',
             what: `соединение с author: ${au4.full_name}`,

@@ -457,6 +457,64 @@ function keys() {
   });
 }
 
+// конфетти за пройденный уровень: лёгкий холст поверх окна, полторы секунды; big — контрольный, залп побольше
+let confT = null;
+function confetti(big = false) {
+  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  clearConfetti();
+  const cv = document.createElement('canvas');
+  cv.id = 'pgConf';
+  cv.width = innerWidth;
+  cv.height = innerHeight;
+  document.body.append(cv);
+  const c = cv.getContext('2d'),
+    COL = ['#ffc21a', '#3f9a5a', '#2f6f9f', '#d2483c', '#8b5cf6', '#f08c3a'];
+  const n = big ? 220 : 110,
+    ps = Array.from({length: n}, (_, i) => {
+      const left = i % 2 === 0; // два залпа — из нижних углов к центру
+      return {
+        x: left ? innerWidth * 0.18 : innerWidth * 0.82,
+        y: innerHeight * 0.9,
+        vx: (left ? 1 : -1) * (3 + Math.random() * 7),
+        vy: -(9 + Math.random() * 9),
+        r: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.4,
+        w: 6 + Math.random() * 6,
+        h: 4 + Math.random() * 4,
+        c: COL[i % COL.length],
+      };
+    });
+  const t0 = performance.now(),
+    life = big ? 2600 : 1700;
+  const step = t => {
+    const k = (t - t0) / life;
+    c.clearRect(0, 0, cv.width, cv.height);
+    if (k >= 1 || !cv.isConnected) return clearConfetti();
+    c.globalAlpha = k > 0.7 ? (1 - k) / 0.3 : 1;
+    for (const p of ps) {
+      p.vy += 0.38;
+      p.vx *= 0.985;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.r += p.vr;
+      c.save();
+      c.translate(p.x, p.y);
+      c.rotate(p.r);
+      c.fillStyle = p.c;
+      c.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.r * 2)) + 1);
+      c.restore();
+    }
+    confT = requestAnimationFrame(step);
+  };
+  confT = requestAnimationFrame(step);
+}
+function clearConfetti() {
+  if (confT) cancelAnimationFrame(confT);
+  confT = null;
+  const el = document.getElementById('pgConf');
+  if (el) el.remove();
+}
+
 // «мир» для common/shell.js и common/qlab.js: всё, что в 3D-лабах анимирует сцену, здесь ничего не делает
 export function createPgWorld(el, {db: dbName = 'library'} = {}) {
   const T = tree(el, dbName);
@@ -488,6 +546,13 @@ export function createPgWorld(el, {db: dbName = 'library'} = {}) {
     },
     async sync() {},
     refresh: () => T.refresh(),
+    confetti: () => confetti(false),
+    clearConfetti,
+    // контрольный пройден: большой залп вместо взлёта самолёта
+    async takeoff() {
+      confetti(true);
+      await sleep(900);
+    },
   };
   const nop = () => Promise.resolve();
   return new Proxy(base, {
