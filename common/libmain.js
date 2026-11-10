@@ -35,6 +35,7 @@ export function libLab({lab, title, intro, about, levels, PTS, REF, REF_NEED = [
     COLS,
     sleep,
     maxRows: 500,
+    inlinePred: true, // прогноз — блоком в задании, а не окном поверх результата
     tablesHint:
       'Таблицы схемы <code>library</code>: <code>book</code> — книги, <code>author</code> — авторы, <code>reader</code> — читатели, <code>loan</code> — выдачи. Объекты базы — в дереве слева, оно обновляется после каждой команды. Метакоманды psql: <code>\\d book</code>, <code>\\di</code>, <code>\\dp</code>.',
   });

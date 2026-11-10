@@ -167,18 +167,55 @@ async function lab3d(lab, dir, old = false) {
         freeSeat: seats.find(s => !taken.includes(s)),
       };
     }, lab);
+    // прогноз в задании (лабы библиотеки): всегда первый вариант, до запуска команд
+    for (let k = 0; k < 10; k++) {
+      const left = await page.evaluate(() => {
+        const b = document.querySelector('#predw button[data-pk]:not([disabled])');
+        if (b) b.click();
+        return !!b;
+      });
+      if (!left) break;
+    }
     const cmds = script(lab, lv, D);
-    if (!cmds) {
+    const form = await page.evaluate(i => !!window.LAB.L[i].form, i);
+    if (!cmds && !form) {
       res.push({key: lv.key, skipped: true});
       continue;
     }
-    for (const c of cmds) {
+    for (const c of cmds || []) {
       await page.evaluate(c => {
         document.getElementById('sql').value = c;
         return window.LAB.run();
       }, c);
       await page.waitForFunction(() => !window.LAB.running, null, {timeout: 60000});
     }
+    // таблица для отчёта: значения — из настоящих планов, как переписал бы студент
+    if (form)
+      await page.evaluate(async i => {
+        const f = window.LAB.L[i].form,
+          db = await window.__pg;
+        const cols = f.cols || [
+          {k: 'read', kind: 'read'},
+          {k: 'ms', kind: 'ms'},
+          {k: 'rm', kind: 'rm'},
+        ];
+        for (let r = 0; r < f.rows.length; r++) {
+          const row = f.rows[r];
+          const lines = (await db.query('EXPLAIN ANALYZE ' + row.sql)).rows.map(x => Object.values(x)[0]);
+          const scan = lines
+            .filter(l => !/Bitmap Index Scan/.test(l))
+            .map(l => /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan)(?: using \w+)? on (\w+)/.exec(l))
+            .find(m => m && m[2] === (f.t || 'book'));
+          const rm = lines.reduce((a, l) => a + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
+          for (const c of cols) {
+            const el = document.querySelector(`#ptab [data-f="${r}.${c.k}"]`);
+            el.value = c.kind === 'read' ? scan[1] : c.kind === 'rm' ? String(rm) : c.kind === 'ms' ? '0.5' : row[c.k];
+            el.dispatchEvent(new Event('input'));
+          }
+        }
+        document.getElementById('ptabBtn').click();
+      }, i);
+    if (form) await page.waitForFunction(k => (window.LAB.G.P.lv[k] || {}).done, lv.key, {timeout: 30000}).catch(() => {});
     await sleep(300);
     const r = await page.evaluate(
       k => ({

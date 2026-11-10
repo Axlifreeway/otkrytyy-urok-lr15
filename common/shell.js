@@ -158,9 +158,12 @@ export function toast(t) {
   }, 4200);
 }
 export function errBox(title, text) {
+  // плашка «Уровень пройден» с кнопкой дальше остаётся под сообщением: уровень засчитан, промах после него — не беда
+  const keep = $('verdict').querySelector('.v-ok');
   $('verdict').innerHTML = `<div class="v-bad"><b>${esc(title)}</b>${esc(text)}<button class="vx" id="vx" title="Скрыть">✕</button></div>`;
+  if (keep) $('verdict').appendChild(keep);
   $('vx').onclick = () => {
-    $('verdict').innerHTML = '';
+    $('vx').parentElement.remove();
   };
 }
 // ok: true — пройден, false — не совпало, null — промежуточное сообщение
@@ -261,6 +264,15 @@ export const levelTag = lv =>
     ? `<span class="tag">ТРЕНИРОВКА · без баллов</span><span class="tag hardt">решено: ${G.P.practice || 0}</span>`
     : `<span class="tag">${lv.final ? 'КОНТРОЛЬНЫЙ' : 'УРОВЕНЬ ' + (G.lv + 1) + ' / ' + L.length}</span>${lv.hard ? '<span class="tag hardt">СЛОЖНЫЙ · ' + comma(cfg.PTS[lv.key]) + ' балла</span>' : ''}`;
 
+// прогнозы уровня: lv.pred — один (ключ — lv.key), lv.preds — несколько (ключи lv.key.0, lv.key.1 …)
+export const predsOf = lv => (lv.preds ? lv.preds.map((p, i) => [`${lv.key}.${i}`, p]) : lv.pred ? [[lv.key, lv.pred]] : []);
+export const predsLeft = lv => predsOf(lv).filter(([k]) => !G.P.pred[k]);
+export function answerPred(k, p, choice) {
+  const c = p.choices.find(x => x.k === choice),
+    a = p.choices.find(x => x.k === p.answer);
+  G.P.pred[k] = {q: p.q, label: c.t, alabel: a.t, right: choice === p.answer};
+  save();
+}
 // прогноз до запуска: ответ пишется в протокол
 export function predict(lv) {
   return new Promise(res => {
@@ -341,10 +353,15 @@ export async function success(lv, rec) {
   SFX.ok();
   W.play('jump', true);
   W.confetti();
-  const pred = lv.pred && G.P.pred[lv.key];
-  const pr = pred
-    ? `<div class="pr ${pred.right ? 'ok' : 'no'}">Ваш прогноз: «${esc(pred.label)}» — ${pred.right ? 'верно' : 'на деле «' + esc(pred.alabel) + '»'}</div>`
-    : '';
+  const many = predsOf(lv).length > 1;
+  const pr = predsOf(lv)
+    .map(([k]) => G.P.pred[k])
+    .filter(Boolean)
+    .map(
+      pred =>
+        `<div class="pr ${pred.right ? 'ok' : 'no'}">${many ? esc(pred.q) + ' — прогноз' : 'Ваш прогноз'}: «${esc(pred.label)}» — ${pred.right ? 'верно' : 'на деле «' + esc(pred.alabel) + '»'}</div>`,
+    )
+    .join('');
   const st = `<div class="stars">${'★'.repeat(starsOf(rec))}${'☆'.repeat(3 - starsOf(rec))}<span>${(rec.fails || 0) === 0 ? 'без промахов' : 'промахов: ' + rec.fails}</span></div>`;
   if (lv.final) {
     verdict(true, lv.ok, st + pr, false);
@@ -485,6 +502,21 @@ function protocol() {
       return `<tr><td>${esc(l.title)}<div class="pr-mu">${esc(l.lab)}</div></td><td><pre class="sql">${ok ? highlight(r.sql || '', Object.keys(cfg.TABLES)) : 'не пройден'}</pre></td><td><pre>${esc(r.note || r.tag || '')}</pre></td><td>${ok ? r.fails || 0 : ''}</td><td>${ok ? comma(pts) : '0'} / ${comma(pts)}</td></tr>`;
     })
     .join('')}</table>
+  ${L.filter(l => (P.lv[l.key] || {}).ptab)
+    .map(l => {
+      const t = P.lv[l.key].ptab,
+        cols = (l.form.cols || [{h: 'Способ чтения'}, {h: 'Время, ms'}, {h: 'Отброшено фильтром'}]).map(c => c.h);
+      return `<h3>${esc(l.title)}</h3><table><tr><th>Запрос</th>${cols.map(h => `<th>${esc(h)}</th>`).join('')}</tr>${t
+        .map(
+          r =>
+            `<tr><td>${esc(r.label)}<div class="pr-mu">${esc(r.what)}</div></td>${Object.keys(r)
+              .filter(k => k !== 'label' && k !== 'what')
+              .map(k => `<td>${esc(r[k])}</td>`)
+              .join('')}</tr>`,
+        )
+        .join('')}</table>`;
+    })
+    .join('')}
   ${P.practice ? `<p style="margin-top:8px">Тренировка после уровней (без баллов): решено заданий — <b>${P.practice}</b></p>` : ''}
   <h3>Прогнозы</h3><table><tr><th>Вопрос</th><th>Ответ</th><th>На деле</th></tr>${Object.values(P.pred)
     .map(p => `<tr><td>${esc(p.q)}</td><td>${esc(p.label)}</td><td>${p.right ? '✓' : esc(p.alabel)}</td></tr>`)

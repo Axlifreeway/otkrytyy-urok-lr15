@@ -350,8 +350,8 @@ ${share != null ? `<rect x="-45" y="66" width="90" height="4" rx="2" class="pgx-
     })
     .join('');
   const an = all.some(x => x.tot != null);
-  return `<div class="pgx-bar0"><button class="btn sm" data-replay>↻ Повторить анимацию</button>${total.map(t => `<span>${esc(t)}</span>`).join('')}${an ? '' : '<span class="mu">без ANALYZE — числа строк по оценке планировщика, времени нет</span>'}</div>
-<div class="pgx-wrap"><svg class="pgx" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto">${edges}${nodesSvg}</svg></div>
+  return `<div class="pgx-bar0"><button class="btn sm" data-replay>↻ Повторить анимацию</button><button class="btn sm" data-big title="Развернуть план почти на весь экран (Esc — свернуть)">⤢ Крупно</button>${total.map(t => `<span>${esc(t)}</span>`).join('')}${an ? '' : '<span class="mu">без ANALYZE — числа строк по оценке планировщика, времени нет</span>'}</div>
+<div class="pgx-wrap"><svg class="pgx" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="--w:${W}px;--h:${H}px">${edges}${nodesSvg}</svg></div>
 <table class="pgx-t"><tr><th>Узел</th><th>Строк${an ? '' : ' (оценка)'}</th><th>План, строк</th><th>Своё время, ms</th><th>Отброшено фильтром</th></tr>${rows}</table>`;
 }
 
@@ -370,8 +370,24 @@ function outputTabs() {
   tabs.forEach(b => (b.onclick = () => !b.disabled && show(b.dataset.tab)));
   let t0 = 0,
     lastPlan = '';
+  // крупно: план поверх окна почти на весь экран; Esc, повторный щелчок или щелчок по фону — свернуть
+  const big = on => {
+    plan.classList.toggle('big', on);
+    document.body.classList.toggle('pgx-big', on);
+    const b = plan.querySelector('[data-big]');
+    if (b) b.textContent = on ? '✕ Свернуть' : '⤢ Крупно';
+  };
   plan.addEventListener('click', e => {
-    if (e.target.closest('[data-replay]')) plan.innerHTML = planHtml(lastPlan);
+    if (e.target.closest('[data-replay]')) {
+      plan.innerHTML = planHtml(lastPlan);
+      big(plan.classList.contains('big'));
+    } else if (e.target.closest('[data-big]')) big(!plan.classList.contains('big'));
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && plan.classList.contains('big')) big(false);
+  });
+  document.addEventListener('mousedown', e => {
+    if (plan.classList.contains('big') && !plan.contains(e.target)) big(false);
   });
   $('runBtn').addEventListener('click', () => (t0 = performance.now()), true);
   const sync = () => {
@@ -386,6 +402,8 @@ function outputTabs() {
     if (pt !== lastPlan) {
       lastPlan = pt;
       plan.innerHTML = pt ? planHtml(pt) : '';
+      if (!pt) big(false);
+      else big(plan.classList.contains('big'));
     }
     if (!res.childNodes.length) {
       st.textContent = '';
@@ -397,7 +415,9 @@ function outputTabs() {
     const ms = t0 ? Math.max(1, Math.round(performance.now() - t0)) : 0;
     st.className = bad ? 'bad' : 'ok';
     st.textContent = bad
-      ? 'Ошибка — подробности во вкладке Messages'
+      ? res.querySelector('.txstop')
+        ? 'Транзакция прервана — выполните ROLLBACK (подробности во вкладке Messages)'
+        : 'Ошибка — подробности во вкладке Messages'
       : (grid ? `Total rows: ${rows}` : head ? head.textContent.slice(0, 120) : 'Query returned successfully') +
         (ms ? ` · Query complete ${(ms / 1000).toFixed(3)} s` : '');
     show(bad ? 'msg' : qp ? 'plan' : grid ? 'data' : 'msg');
