@@ -8,7 +8,7 @@ const range = (a, b) => Array.from({length: b - a + 1}, (_, i) => 'lr' + (a + i)
 export const GROUPS = {
   airport: [...range(13, 16), ...range(13, 16).map(l => l + '-practice'), 'labs-lr13', 'labs-lr14', 'labs-lr16', 'mvp', 'hub'],
   pizza: [...range(17, 20), ...range(17, 19).map(l => l + '-practice')],
-  library: range(21, 24),
+  library: [...range(21, 24), 'lr21-practice', 'lr22-practice'],
   other: null, // всё остальное: город, главная, телефон, доступ к лабам, сервер, пульт
 };
 

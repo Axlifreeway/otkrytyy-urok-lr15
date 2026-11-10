@@ -1,6 +1,7 @@
 // ЛР-21 · «Закрепление: изменение данных и структуры» — библиотека. Общий запуск — common/libmain.js.
 import {libLab} from '../../common/libmain.js';
 import {levels} from './levels.js';
+import {practice} from './practice.js';
 import {INSERT_REF, UPDATE_REF, ALTER_REF, TX_REF} from '../../common/sqlref.js';
 
 libLab({
@@ -55,6 +56,7 @@ libLab({
   ],
   REF: [INSERT_REF, UPDATE_REF, ALTER_REF, TX_REF],
   REF_NEED: ['ins3', 'aim', 'thick', 'addcol', 'fix', 'ckloan', 'txdel', 'txerr', 'final'],
+  practice,
   questions: [
     'Уровень «Книга без автора»: приведите отказ СУБД и объясните, что он защищает.',
     'Уровень «Переиздание»: сколько строк вернул SELECT и сколько изменил UPDATE?',

@@ -108,6 +108,43 @@ function script(lab, lv, D) {
   return s;
 }
 
+// таблица lv.form (лабы библиотеки): значения — из настоящих планов, как переписал бы студент
+async function fillForm(page, i) {
+  await page.evaluate(async i => {
+    const f = window.LAB.L[i].form,
+      db = await window.__pg;
+    const cols = f.cols || [
+      {k: 'read', kind: 'read'},
+      {k: 'ms', kind: 'ms'},
+      {k: 'rm', kind: 'rm'},
+    ];
+    for (let r = 0; r < f.rows.length; r++) {
+      const row = f.rows[r];
+      const lines = (await db.query('EXPLAIN ANALYZE ' + row.sql)).rows.map(x => Object.values(x)[0]);
+      const scan = lines
+        .filter(l => !/Bitmap Index Scan/.test(l))
+        .map(l => /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan)(?: using \w+)? on (\w+)/.exec(l))
+        .find(m => m && m[2] === (f.t || 'book'));
+      const rm = lines.reduce((a, l) => a + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
+      for (const c of cols) {
+        const el = document.querySelector(`#ptab [data-f="${r}.${c.k}"]`);
+        el.value =
+          c.kind === 'read'
+            ? scan[1]
+            : c.kind === 'rm'
+              ? String(rm)
+              : c.kind === 'rows'
+                ? String(+((/actual time=[^)]*rows=(\d+)/.exec(lines.find(l => l.includes(' on ' + (f.t || 'book'))) || '') || [])[1] || 0))
+                : c.kind === 'ms'
+                  ? '0.5'
+                  : row[c.k];
+        el.dispatchEvent(new Event('input'));
+      }
+    }
+    document.getElementById('ptabBtn').click();
+  }, i);
+}
+
 // old — порядок студента, начавшего лабу до добавления уровней: прежние, затем новые, затем контрольный
 async function lab3d(lab, dir, old = false) {
   const {page, errors} = await open(`/${dir}/index.html`);
@@ -190,31 +227,7 @@ async function lab3d(lab, dir, old = false) {
       await page.waitForFunction(() => !window.LAB.running, null, {timeout: 60000});
     }
     // таблица для отчёта: значения — из настоящих планов, как переписал бы студент
-    if (form)
-      await page.evaluate(async i => {
-        const f = window.LAB.L[i].form,
-          db = await window.__pg;
-        const cols = f.cols || [
-          {k: 'read', kind: 'read'},
-          {k: 'ms', kind: 'ms'},
-          {k: 'rm', kind: 'rm'},
-        ];
-        for (let r = 0; r < f.rows.length; r++) {
-          const row = f.rows[r];
-          const lines = (await db.query('EXPLAIN ANALYZE ' + row.sql)).rows.map(x => Object.values(x)[0]);
-          const scan = lines
-            .filter(l => !/Bitmap Index Scan/.test(l))
-            .map(l => /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan)(?: using \w+)? on (\w+)/.exec(l))
-            .find(m => m && m[2] === (f.t || 'book'));
-          const rm = lines.reduce((a, l) => a + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
-          for (const c of cols) {
-            const el = document.querySelector(`#ptab [data-f="${r}.${c.k}"]`);
-            el.value = c.kind === 'read' ? scan[1] : c.kind === 'rm' ? String(rm) : c.kind === 'ms' ? '0.5' : row[c.k];
-            el.dispatchEvent(new Event('input'));
-          }
-        }
-        document.getElementById('ptabBtn').click();
-      }, i);
+    if (form) await fillForm(page, i);
     if (form) await page.waitForFunction(k => (window.LAB.G.P.lv[k] || {}).done, lv.key, {timeout: 30000}).catch(() => {});
     await sleep(300);
     const r = await page.evaluate(
@@ -395,14 +408,20 @@ async function practiceRun(lab, dir) {
     await page.waitForFunction(() => !window.LAB.running && window.LAB.L.at(-1).practice, null, {timeout: 30000});
     const lv = await page.evaluate(() => {
       const l = window.LAB.L.at(-1);
-      return {title: l.title, ref: l.ref || [l.ask], n: window.LAB.G.P.practice || 0};
+      return {title: l.title, ref: l.sol || l.ref || [l.ask], form: !!l.form, n: window.LAB.G.P.practice || 0};
     });
+    // прогноз в задании — первый вариант
+    await page.evaluate(() => document.querySelectorAll('#predw button[data-pk]:not([disabled])').forEach(b => b.click()));
     for (const q of lv.ref) {
       await page.evaluate(q => {
         document.getElementById('sql').value = q;
         return window.LAB.run();
       }, q);
       await page.waitForFunction(() => !window.LAB.running, null, {timeout: 60000});
+    }
+    if (lv.form) {
+      await fillForm(page, await page.evaluate(() => window.LAB.L.length - 1));
+      await page.waitForFunction(n => (window.LAB.G.P.practice || 0) > n, lv.n, {timeout: 30000}).catch(() => {});
     }
     const n = await page.evaluate(() => window.LAB.G.P.practice || 0);
     res.push(lv.title + (n === lv.n + 1 ? '' : ' — НЕ ЗАСЧИТАНО'));
@@ -581,6 +600,8 @@ const jobs = {
   'lr17-practice': () => practiceRun('lr17', 'lr17-3d'),
   'lr18-practice': () => practiceRun('lr18', 'lr18-3d'),
   'lr19-practice': () => practiceRun('lr19', 'lr19-3d'),
+  'lr21-practice': () => practiceRun('lr21', 'lr21-3d'),
+  'lr22-practice': () => practiceRun('lr22', 'lr22-3d'),
   gate,
   'server-flow': serverFlow,
   teacher: () =>
