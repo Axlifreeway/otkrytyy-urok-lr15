@@ -30,7 +30,7 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice', 'trace', 'form', 'sayfb'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 21, 'lr22': 24, 'lr23': 14, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
+LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 21, 'lr22': 30, 'lr23': 14, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
 GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24')   # пиццерия и библиотека: открывает преподаватель
 MAX_BODY = 400000
 MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
@@ -67,7 +67,11 @@ CREATE TABLE IF NOT EXISTS setting (k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS trace (id INTEGER PRIMARY KEY, ts INTEGER, client TEXT, lab TEXT, grp TEXT, data TEXT);
 CREATE INDEX IF NOT EXISTS trace_ts ON trace(ts);
 CREATE TABLE IF NOT EXISTS label (client TEXT, lab TEXT, lv INTEGER, val TEXT, ts INTEGER, PRIMARY KEY (client, lab, lv));
+CREATE TABLE IF NOT EXISTS freeze (grp TEXT, lab TEXT, ts INTEGER, PRIMARY KEY (grp, lab));
+CREATE TABLE IF NOT EXISTS frozen (sid INTEGER, lab TEXT, keys TEXT, PRIMARY KEY (sid, lab));
 '''
+# фиксация оценок: преподаватель фиксирует результат группы по лабе — сервер запоминает, какие уровни у кого
+# уже пройдены (frozen). Уровни, пройденные после фиксации, лаба засчитывает с коэффициентом LATE (common/shell.js).
 MAX_TRACE = 60000                           # трасса набора одного уровня (common/trust.js) — обычно 2–15 КБ
 LABELS = {'honest', 'copy'}                 # пометка преподавателя для разбора: честно / переписывал
 # столбцы, добавленные позже: (таблица, столбец, тип) — для баз, созданных старой версией
@@ -108,7 +112,7 @@ ADDED = {
     'lr19': ['veg', 'fleet', 'pickup', 'cheap', 'district', 'percour', 'months'],
     'lr20': ['qtyfix', 'phone', 'cancel', 'guarded', 'forget', 'txcommit', 'swap'],
     'lr21': ['newcard', 'reauthor', 'addnull', 'dropcol', 'return', 'thick', 'delaim', 'ckloan', 'txerr', 'noyear', 'twocol', 'genre'],
-    'lr22': ['small', 'like', 'byauthor', 'whole', 'sort', 'agg', 'most', 'report', 'guess3', 'limit', 'group', 'combo', 'decade', 'twoids', 'keyrange', 'join3', 'guess3b'],
+    'lr22': ['small', 'like', 'byauthor', 'whole', 'sort', 'agg', 'most', 'report', 'guess3', 'limit', 'group', 'combo', 'decade', 'twoids', 'keyrange', 'join3', 'guess3b', 'orcond', 'estmiss', 'having', 'offset', 'rewrite', 'joinagg'],
     'lr23': ['order', 'func', 'uniq', 'uniqfail', 'pages', 'wide', 'size', 'after'],
     'lr24': ['dp', 'who', 'colgrant', 'colcheck', 'again'],
 }
@@ -530,6 +534,44 @@ class Store:
             self.con.execute('INSERT OR REPLACE INTO setting (k, v) VALUES (?, ?)', ('open:' + lab, '1' if on else '0'))
             self.con.commit()
 
+    # ── фиксация оценок группы по лабе ──
+    def _done_keys(self, sid, lab):
+        """Пройденные уровни студента по лабе — как в списке группы (прогресс + события done). Вызывать под замком."""
+        r = self.con.execute("SELECT json_extract(data, '$.lv') FROM progress WHERE sid = ? AND lab = ?", (sid, lab)).fetchone()
+        d = {'lv': json.loads(r[0] or '{}')} if r else None
+        ev = self.ev_progress(sid, lab).get((sid, lab))
+        d = credit(lab, merge(d, ev) if ev else d or {})
+        return sorted(k for k, v in (d.get('lv') or {}).items() if isinstance(v, dict) and v.get('done') and k != 'practice')
+
+    def set_freeze(self, grp, lab, on):
+        with self.lock:
+            if not self.con.execute('SELECT 1 FROM grp WHERE name = ?', (grp,)).fetchone():
+                return False
+            sids = [x for (x,) in self.con.execute('SELECT id FROM student WHERE grp = ?', (grp,))]
+            self.con.execute('DELETE FROM freeze WHERE grp = ? AND lab = ?', (grp, lab))
+            self.con.executemany('DELETE FROM frozen WHERE sid = ? AND lab = ?', [(x, lab) for x in sids])
+            if on:
+                self.con.execute('INSERT INTO freeze (grp, lab, ts) VALUES (?, ?, ?)', (grp, lab, now_ms()))
+                self.con.executemany('INSERT INTO frozen (sid, lab, keys) VALUES (?, ?, ?)',
+                                     [(x, lab, json.dumps(self._done_keys(x, lab))) for x in sids])
+            self.con.commit()
+        return True
+
+    def freezes(self):
+        """{группа: {лаба: время фиксации}} — для панели преподавателя."""
+        out = {}
+        with self.lock:
+            for grp, lab, ts in self.con.execute('SELECT grp, lab, ts FROM freeze'):
+                out.setdefault(grp, {})[lab] = ts
+        return out
+
+    def frozen_for(self, sid):
+        """{лаба: {'ts': время, 'keys': [уровни, пройденные к фиксации]}} для студента — по его группе."""
+        with self.lock:
+            rows = self.con.execute('SELECT f.lab, f.ts, z.keys FROM student s JOIN freeze f ON f.grp = s.grp '
+                                    'LEFT JOIN frozen z ON z.sid = s.id AND z.lab = f.lab WHERE s.id = ?', (sid,)).fetchall()
+        return {lab: {'ts': ts, 'keys': json.loads(keys or '[]')} for lab, ts, keys in rows}
+
     # ── отчёты: снимок протокола, который студент отправил преподавателю ──
     def add_report(self, client, lab, fio, grp, seed, pts, done, html):
         with self.lock:
@@ -608,7 +650,7 @@ class Store:
             seen = {lab: (first, last, n) for lab, first, last, n in self.con.execute(
                 "SELECT lab, min(ts), max(ts), count(*) FROM ev WHERE client = ? AND type <> 'hb' GROUP BY lab", (f's{sid}',))}
             labs_db = [x for (x,) in self.con.execute('SELECT lab FROM progress WHERE sid = ?', (sid,))]
-        labs = {}
+        labs, fz = {}, self.frozen_for(sid)
         for lab in LEVELS:
             if lab not in labs_db and lab not in seen:
                 continue
@@ -619,7 +661,7 @@ class Store:
             first, last, n = seen.get(lab, (0, 0, 0))
             labs[lab] = {'lv': lv, 'answers': data.get('answers') or {}, 'practice': data.get('practice') or 0, 'sentAt': data.get('sentAt') or 0,
                          'away': data.get('away') or 0, 'awayMs': data.get('awayMs') or 0, 'pastes': data.get('pastes') or 0,
-                         'first': first, 'last': last, 'events': n}
+                         'first': first, 'last': last, 'events': n, 'frozen': fz.get(lab)}
         return {'id': r[0], 'name': r[1], 'grp': r[2], 'idx': r[3], 'seed': r[4], 'pin': bool(r[5]), 'labs': labs,
                 'reports': self.reports(client=f's{sid}')}
 
@@ -661,7 +703,7 @@ class Store:
                 if con.execute('SELECT 1 FROM grp WHERE name = ?', (name,)).fetchone():
                     return f'Группа {name} уже есть — выберите другое название'
                 con.execute('UPDATE grp SET name = ? WHERE name = ?', (name, old))
-                for t in ('student', 'ev', 'say', 'report'):
+                for t in ('student', 'ev', 'say', 'report', 'freeze'):
                     con.execute(f'UPDATE {t} SET grp = ? WHERE grp = ?', (name, old))
             if not con.execute('SELECT 1 FROM grp WHERE name = ?', (name,)).fetchone():
                 o = (con.execute('SELECT max(ord) FROM grp').fetchone()[0] or 0) + 1
@@ -701,6 +743,8 @@ class Store:
     def delete_group(self, name):
         with self.lock:
             self.con.execute('DELETE FROM progress WHERE sid IN (SELECT id FROM student WHERE grp = ?)', (name,))
+            self.con.execute('DELETE FROM frozen WHERE sid IN (SELECT id FROM student WHERE grp = ?)', (name,))
+            self.con.execute('DELETE FROM freeze WHERE grp = ?', (name,))
             self.con.execute('DELETE FROM student WHERE grp = ?', (name,))
             self.con.execute('DELETE FROM grp WHERE name = ?', (name,))
             self.con.commit()
@@ -803,11 +847,12 @@ class Handler(BaseHTTPRequestHandler):
         sid = self.sid(q)
         if not sid:
             return self.send(403, {'err': 'token'})
-        data, ts = self.store.progress(sid, q.get('lab', ''))
-        self.send(200, {'data': data, 'ts': ts})
+        lab = q.get('lab', '')
+        data, ts = self.store.progress(sid, lab)
+        self.send(200, {'data': data, 'ts': ts, 'frozen': self.store.frozen_for(sid).get(lab)})
 
     def admin_groups(self, q):
-        self.send(200, {'groups': self.store.admin_groups(), 'levels': LEVELS})
+        self.send(200, {'groups': self.store.admin_groups(), 'levels': LEVELS, 'freeze': self.store.freezes()})
 
     def get_says(self, q):
         sid = self.sid(q)
@@ -817,7 +862,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             since = -1
         last, items = self.store.says(since, st[1] if st else '', sid if st else None)
-        self.send(200, {'last': last, 'items': items})
+        self.send(200, {'last': last, 'items': items, 'frozen': self.store.frozen_for(sid) if st else {}})
 
     def admin_says(self, q):
         self.send(200, {'items': self.store.recent_says()})
@@ -1003,6 +1048,14 @@ class Handler(BaseHTTPRequestHandler):
         self.store.set_lab_open(lab, bool(e.get('open')))
         self.send(200, {'open': self.store.labs_open()})
 
+    def admin_freeze(self, e):
+        lab, grp = clip(e.get('lab'), 10), clip(e.get('grp'), 20)
+        if lab not in LEVELS:
+            return self.send(400, {'err': 'lab'})
+        if not self.store.set_freeze(grp, lab, bool(e.get('on'))):
+            return self.send(404, {'err': 'Нет такой группы'})
+        self.send(200, {'freeze': self.store.freezes()})
+
     def admin_resetpin(self, e):
         self.store.reset_pin(int(e.get('id') or 0))
         self.send(200, {'ok': True})
@@ -1063,6 +1116,7 @@ POST_ROUTES = {
     '/api/admin/say': (Handler.admin_say, True),
     '/api/admin/delgroup': (Handler.admin_delgroup, True),
     '/api/admin/labs': (Handler.admin_labs, True),
+    '/api/admin/freeze': (Handler.admin_freeze, True),
     '/api/admin/label': (Handler.admin_label, True),
 }
 

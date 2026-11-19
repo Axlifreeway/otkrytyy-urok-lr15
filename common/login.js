@@ -171,11 +171,15 @@ export function syncInit(s, labName, statusCb) {
   clearTimeout(retry);
   if (sess) setStatus('ok');
 }
+// фиксация оценок группы по этой лабе ({ts, keys} или null) — приходит вместе с прогрессом
+export let pulledFrozen = null;
 export async function pull() {
+  pulledFrozen = null;
   if (!sess) return null;
   try {
     const r = await api(`/api/progress?lab=${lab}`, null, {'X-Labs-Token': sess.token});
     setStatus('ok');
+    pulledFrozen = r.frozen || null;
     return r.data;
   } catch (e) {
     setStatus(e.status === 403 ? 'auth' : 'off');

@@ -1947,3 +1947,17 @@ table.doc td {
   z-index: 40;
   pointer-events: none;
 }
+/* фиксация оценок группы: метка в строке уровней, уровни после неё — за половину баллов */
+#levels .frz {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bad);
+  border: 1px solid var(--bad);
+  border-radius: 3px;
+  padding: 1px 6px;
+  cursor: help;
+}
+.lvb.late.done {
+  background: #fdf3dc;
+  border-color: #e0b84f;
+}

@@ -62,7 +62,7 @@
   .gform { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px } .gform h2 { font-size: 18px } .mu { color: var(--mute); font-size: 12.5px }
   .gform.editing { outline: 4px solid var(--sun); outline-offset: 2px } .pinv { font: 700 15px var(--mono); letter-spacing: 2px; margin-right: 4px }
   .gform input, .gform textarea { width: 100%; font: 500 14px var(--font); padding: 6px 8px; border: 2.5px solid var(--ink); border-radius: 5px }
-  .gcard { margin-bottom: 14px } #labGate { margin-bottom: 14px } .gate { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px dashed #d8d0bd } .gate b { min-width: 60px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
+  .gcard { margin-bottom: 14px } .frz { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 8px } .frz select { font: inherit; padding: 3px 6px } #labGate { margin-bottom: 14px } .gate { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px dashed #d8d0bd } .gate b { min-width: 60px } .gcard h3 { font-size: 18px; margin: 4px 0 6px; display: flex; gap: 8px; align-items: center }
   tr.absent td { color: #9a9488; background: #f4f1ea }
   #proj .card.top1 { background: var(--sun) } #projX { position: fixed; right: 14px; top: 10px; z-index: 6 }
   /* проектор: пьедестал — трое лучших по звёздам, при равенстве — кто набрал раньше */
@@ -192,7 +192,7 @@ const urlKey = new URLSearchParams(location.search).get('key');
 if (urlKey) { store('labs-key', urlKey); history.replaceState(null, '', location.pathname); }
 let KEY = urlKey || store('labs-key') || '';
 let since = +store('labs-since') || 0, sortBy = 'problems', data = null, open = null, groupsData = [], reportsData = [];
-let editing = '', pins = {};   // какую группу правим (прежнее название); показанные PIN: id → цифры
+let editing = '', pins = {}, freezeData = {};   // freezeData: группа → {лаба: время фиксации оценок}   // какую группу правим (прежнее название); показанные PIN: id → цифры
 // период: выбранный день целиком; сегодня — можно «с начала пары»
 const dstr = t => { const x = new Date(t); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
 let day = dstr(Date.now());
@@ -237,19 +237,38 @@ async function loadGates() {
     });
   } catch (e) { $('gateList').textContent = 'Нет связи с сервером'; }
 }
-async function loadGroups() { try { const r = await api('/api/admin/groups'); groupsData = r.groups || []; Object.assign(LEVELS, r.levels); } catch (e) { groupsData = []; } renderGroups(); }
+async function loadGroups() { try { const r = await api('/api/admin/groups'); groupsData = r.groups || []; freezeData = r.freeze || {}; Object.assign(LEVELS, r.levels); } catch (e) { groupsData = []; } renderGroups(); }
+// фиксация оценок: после неё уровни, пройденные студентами группы, засчитываются за половину баллов (common/shell.js, LATE)
+const dmhm = t => new Date(t).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+const freezeRow = g => {
+  const fz = freezeData[g.name] || {};
+  return `<div class="frz"><b>Оценки</b>${Object.entries(fz).map(([l, ts]) => `<span class="tag warn" title="Уровни, пройденные после фиксации, студентам засчитываются за половину баллов">🔒 ${LABN[l] || l} · ${dmhm(ts)}</span><button class="btn" data-unfreeze="${l}" data-g="${esc(g.name)}">снять</button>`).join('')}
+    <select data-fsel="${esc(g.name)}">${Object.keys(LABS).filter(l => !fz[l]).map(l => `<option value="${l}">${LABN[l]}</option>`).join('')}</select><button class="btn" data-freeze="${esc(g.name)}" title="Запомнить, что у кого пройдено сейчас. Дальше доработка возможна, но уровни засчитываются за половину баллов — студенты это видят">Зафиксировать</button></div>`;
+};
 function renderGroups() {
   $('gCards').innerHTML = groupsData.map(g => {
     // колонки — аэропорт всегда, остальные лабы — если в группе по ним есть прогресс
     const labs = Object.keys(LABS).filter(l => +l.slice(2) <= 16 || g.students.some(s => s.labs && s.labs[l] != null));
     return `<div class="panel gcard" style="padding:10px 12px"><h3>${esc(g.name)} <span class="mu">${g.students.filter(s => s.idx).length} студ.</span>
       <button class="btn" data-edit="${esc(g.name)}">Изменить список</button><button class="btn" data-del="${esc(g.name)}">Удалить группу</button></h3>
-    <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th>${labs.map(l => `<th>${LABN[l]}</th>`).join('')}</tr>
+    ${freezeRow(g)}
+    <table><tr><th>№</th><th>Студент</th><th>Вариант</th><th>PIN</th>${labs.map(l => `<th>${LABN[l]}${(freezeData[g.name] || {})[l] ? ' 🔒' : ''}</th>`).join('')}</tr>
     ${g.students.filter(s => s.idx).map(s => `<tr><td>${s.idx}</td><td><a class="who" data-card="${s.id}" title="Карточка студента: все лабы, уровни, ответы и таблицы">${esc(s.name)}</a></td><td>${s.seed}</td>
       <td>${s.pin ? `${pins[s.id] ? `<span class="pinv">${pins[s.id]}</span>` : `задан <button class="btn" data-show="${s.id}">показать</button>`} <button class="btn" data-pin="${s.id}" title="Студент придумает новый при входе">сбросить</button>` : '<span class="mu">ещё не входил</span>'}${s.sameDev && s.sameDev.length ? `<div style="color:var(--red);font-size:12px" title="PIN этих аккаунтов задан с одного компьютера">⚠ одно устройство с: ${esc(s.sameDev.join(', '))}</div>` : ''}</td>
       ${labs.map(l => `<td>${s.labs[l] != null ? s.labs[l] + '/' + total(l) : '—'}</td>`).join('')}</tr>`).join('')}</table></div>`;
   }).join('') || '<p class="mu">Групп пока нет — добавьте первую слева.</p>';
   $('gCards').querySelectorAll('[data-card]').forEach(a => a.onclick = () => showCard(+a.dataset.card));
+  $('gCards').querySelectorAll('[data-freeze]').forEach(b => b.onclick = async () => {
+    const g = b.dataset.freeze, l = b.previousElementSibling.value;
+    if (!l || !confirm(`Зафиксировать оценки группы ${g} по ${LABN[l]}?\n\nСейчас пройденные уровни сохранятся как есть. Доработать можно, но уровни, пройденные после фиксации, засчитываются за половину баллов — студенты увидят это в лабе.`)) return;
+    try { freezeData = (await post('/api/admin/freeze', {grp: g, lab: l, on: true})).freeze; } catch (e) { alert('Не получилось: ' + e.message); }
+    renderGroups();
+  });
+  $('gCards').querySelectorAll('[data-unfreeze]').forEach(b => b.onclick = async () => {
+    if (!confirm(`Снять фиксацию ${LABN[b.dataset.unfreeze]} у группы ${b.dataset.g}? Все уровни снова засчитываются полностью.`)) return;
+    try { freezeData = (await post('/api/admin/freeze', {grp: b.dataset.g, lab: b.dataset.unfreeze, on: false})).freeze; } catch (e) { alert('Не получилось: ' + e.message); }
+    renderGroups();
+  });
   $('gCards').querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editGroup(groupsData.find(x => x.name === b.dataset.edit)));
   $('gCards').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm(`Удалить группу ${b.dataset.del} вместе с прогрессом студентов?`)) return; await post('/api/admin/delgroup', {name: b.dataset.del}); loadGroups(); });
   $('gCards').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => { if (!confirm('Сбросить PIN? Студент придумает новый при следующем входе.')) return; await post('/api/admin/resetpin', {id: +b.dataset.pin}); delete pins[b.dataset.pin]; loadGroups(); });
@@ -351,7 +370,7 @@ function renderProj(ps) {
 // Эталоны — teacher/answers.js (собирает tools/build.mjs из самих лаб), грузится при первом щелчке:
 // у каждого варианта свои данные, поэтому эталон считается по номеру варианта студента
 let ansLoad = null;
-const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=41da731e4d'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
+const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=5328d6efae'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
 const sqlBlock = qs => qs.map(q => `<pre>${hl(String(q).replace(/;?\s*$/, ';'))}</pre>`).join('');
 async function showAnswer(client, lvN) {
   const p = data.people.find(x => x.client === client); if (!p) return;
@@ -482,14 +501,14 @@ async function showCard(sid) {
     const done = keys.filter(k => (L.lv[k] || {}).done).length;
     const trs = keys.map(k => (L.lv[k] || {}).tr).filter(x => typeof x === 'number');
     const avg = trs.length ? Math.round(trs.reduce((a, b) => a + b, 0) / trs.length) : null;
-    const grid = keys.map((k, i) => { const r = L.lv[k] || {}; return `<div class="${r.done ? 'd' : ''}" title="${esc(r.note || '')}"><b>${i + 1}.</b> ${esc(names[i] || k)}${r.done ? ` <span class="st">${'★'.repeat(stars(r))}</span>${r.auto ? ' <span class="mu">засчитан</span>' : ''}` : ''}${r.fails ? ` <span class="mu">· промахов ${r.fails}</span>` : ''}${typeof r.tr === 'number' ? ' · ' + trustCell(r.tr, r.tw) : ''}</div>`; }).join('');
+    const grid = keys.map((k, i) => { const r = L.lv[k] || {}; return `<div class="${r.done ? 'd' : ''}" title="${esc(r.note || '')}"><b>${i + 1}.</b> ${esc(names[i] || k)}${r.done ? ` <span class="st">${'★'.repeat(stars(r))}</span>${r.auto ? ' <span class="mu">засчитан</span>' : ''}${L.frozen && !r.auto && !L.frozen.keys.includes(k) ? ' <span class="tag warn" title="Пройден после фиксации оценок — за половину баллов">после фиксации</span>' : ''}` : ''}${r.fails ? ` <span class="mu">· промахов ${r.fails}</span>` : ''}${typeof r.tr === 'number' ? ' · ' + trustCell(r.tr, r.tw) : ''}</div>`; }).join('');
     const tabs = keys.map((k, i) => [k, i, (L.lv[k] || {}).ptab]).filter(x => x[2] && x[2].length).map(([k, i, t]) => {
       const cols = Object.keys(t[0]).filter(x => x !== 'label' && x !== 'what');
       return `<div style="margin:6px 0"><b>${i + 1}. ${esc(names[i] || k)}</b>${formTable([['', ...cols], ...t.map(r => [r.label + (r.what ? ' · ' + r.what : ''), ...cols.map(x => r[x])])])}</div>`;
     }).join('');
     const ans = Object.entries(L.answers || {}).filter(([, v]) => String(v || '').trim());
     const reps = (c.reports || []).filter(x => x.lab === lab);
-    return `<h3>${esc(LABN[lab] || lab)} <span class="mu">${esc(LABS[lab] || '')}</span><span class="tag ${done >= keys.length ? 'ok' : ''}">${done} из ${keys.length}</span>${avg != null ? `доверие ${trustCell(avg, '')}` : ''}${L.practice ? `<span class="tag soft">∞ ${L.practice}</span>` : ''}<span class="mu" style="font-weight:400">${L.last ? 'последний раз ' + dhm(L.last) : ''}${L.away ? ` · уходов ${L.away} (${mins(L.awayMs)})` : ''}${L.pastes ? ` · вставок ${L.pastes}` : ''}</span></h3>
+    return `<h3>${esc(LABN[lab] || lab)} <span class="mu">${esc(LABS[lab] || '')}</span><span class="tag ${done >= keys.length ? 'ok' : ''}">${done} из ${keys.length}</span>${L.frozen ? `<span class="tag warn">🔒 зафиксировано ${dmhm(L.frozen.ts)}: было ${L.frozen.keys.length}</span>` : ''}${avg != null ? `доверие ${trustCell(avg, '')}` : ''}${L.practice ? `<span class="tag soft">∞ ${L.practice}</span>` : ''}<span class="mu" style="font-weight:400">${L.last ? 'последний раз ' + dhm(L.last) : ''}${L.away ? ` · уходов ${L.away} (${mins(L.awayMs)})` : ''}${L.pastes ? ` · вставок ${L.pastes}` : ''}</span></h3>
       <div class="lvg">${grid}</div>
       ${tabs ? `<details><summary><b>Таблицы по планам</b></summary>${tabs}</details>` : ''}
       ${ans.length ? `<details><summary><b>Ответы на вопросы протокола</b> <span class="mu">(${ans.length})</span></summary>${ans.map(([i, v]) => `<div class="qa"><b>Вопрос ${+i + 1}</b>${esc(v)}</div>`).join('')}</details>` : ''}

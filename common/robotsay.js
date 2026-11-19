@@ -78,8 +78,8 @@ export function robotSay(msg) {
   else show(msg);
 }
 
-// опрос сервера: новые объявления для группы вошедшего студента
-export function listenRobot(getToken) {
+// опрос сервера: новые объявления для группы вошедшего студента; onFrozen — фиксация оценок группы ({лаба: {ts, keys}})
+export function listenRobot(getToken, onFrozen = () => {}) {
   if (!/^https?:$/.test(location.protocol)) return;
   let since = -1,
     fails = 0,
@@ -92,6 +92,7 @@ export function listenRobot(getToken) {
       if (!r.ok) throw new Error(r.status); // сбой связи — опрос продолжится
       const j = await r.json();
       seen = true;
+      if (t && j.frozen) onFrozen(j.frozen);
       if (since >= 0) j.items.forEach(robotSay);
       since = j.last;
       fails = 0;

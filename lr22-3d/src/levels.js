@@ -36,6 +36,22 @@ export function levels(D) {
     gw = 20 + (D.seed % 40);
   const isbn = `978-5-${1 + ((D.seed * 37) % 20000)}`,
     kk = 15000 + (D.seed % 900);
+  // часть 4: трудные планы — числа варианта
+  const per = [10, 15, 20, 25][D.seed % 4],
+    page = 300 + ((D.seed * 7) % 400), // страница каталога: прочитано (page − 1) · per + per строк
+    shift = 3 + (D.seed % 17),
+    rid = 5000 + ((D.seed * 13) % 9000), // книга, которую «не видит» индекс: id + shift = rid + shift
+    oX = 10000 + ((D.seed * 11) % 5000),
+    oP = 450 + ((D.seed * 7) % 140),
+    // автор и толщины с общими книгами: n % 40 = eA − 1 и n % 500 = p − 100 совместны, если равны по модулю 20;
+    // толщин в списке eK, у каждой — 20 книг автора, а СУБД ждёт по одной
+    eA = ((D.seed + 17) % 40) + 1,
+    eK = 2 + (D.seed % 3),
+    eP = Array.from({length: eK}, (_, i) => 100 + ((eA - 1) % 20) + 20 * (D.seed % 20) + 20 * i),
+    // группы с HAVING: в диапазоне hN книг — у каждого автора по hT или hT + 1, больше hT — у hN % 40 авторов
+    h1 = 3000 + (D.seed % 60) * 50,
+    hN = 413 + (D.seed % 20),
+    hT = Math.floor(hN / 40);
   // EXPLAIN ANALYZE запроса cond, у которого book дала ровно столько строк, сколько вернёт countSql (условие записано верно)
   const counted = (cond, countSql, what) => async c => {
     const ex = explains(c.trail, cond);
@@ -644,6 +660,224 @@ export function levels(D) {
       verify: every([new RegExp(`\\bid\\s*=\\s*${gx}\\b`), new RegExp(`\\bauthor_id\\s*=\\s*${gy}\\b`), /\bid\s*<=?\s*(1100|1099)\b/]),
       hint: 'Индекс есть на id, а на author_id — нет (внешний ключ индекса не создаёт). Номеров меньше 1100 — около 160 из 20 000.',
       ok: 'По индексу — там, где по ключу нужно немного строк; по author_id индекса нет — подряд, сколько бы строк ни подошло.',
+    },
+    // ═══════════════════════════════ часть 4 · трудные планы: запрос и выводы — сами
+    {
+      key: 'orcond',
+      title: 'Или — или',
+      lab: 'ч. 4 · OR с неключевым столбцом',
+      text: `Читатель ищет книгу № ${oX} или любую книгу толще ${oP} страниц — одним запросом, через OR. Индекс по id есть. Сначала прогноз, потом напишите запрос сами, выполните EXPLAIN ANALYZE и заполните таблицу.`,
+      q: 'Помогает ли индекс, если одно из условий OR — без индекса?',
+      goals: ['Прогноз', 'Запрос: номер или толщина — через OR', 'EXPLAIN ANALYZE', 'Таблица: способ чтения, найдено, отброшено'],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE id = ${oX} OR pages > ${oP}`],
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [
+          {
+            label: 'OR',
+            what: `№ ${oX} или толще ${oP} страниц`,
+            sql: `SELECT * FROM book WHERE id = ${oX} OR pages > ${oP}`,
+            re: new RegExp(`\\b${oX}\\b[\\s\\S]*\\bor\\b[\\s\\S]*\\bpages\\b|\\bpages\\b[\\s\\S]*\\bor\\b[\\s\\S]*\\b${oX}\\b`, 'i'),
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
+      allow: ALLOW,
+      star: true,
+      pred: {
+        q: `Как СУБД прочитает book для id = ${oX} OR pages > ${oP}?`,
+        choices: [
+          {k: 'idx', t: 'по индексу — в условии же есть id'},
+          {k: 'seq', t: 'подряд — по pages индекса нет'},
+        ],
+        answer: 'seq',
+      },
+      hint: 'Строку подходит хотя бы одно условие из двух. Найдено — actual rows у строки чтения, отброшено — Rows Removed by Filter.',
+      ok: 'Seq Scan: строке достаточно одного условия, а книги нужной толщины по индексу id не найти — значит, читать всё подряд. Индекс по id не спас ни одной строки.',
+    },
+    {
+      key: 'estmiss',
+      title: 'СУБД ошиблась',
+      lab: 'ч. 4 · оценка против факта',
+      text: `Книги автора № ${eA} толщиной ровно ${eP.join(', ')} страниц (любое из этих чисел). Напишите запрос сами и выполните EXPLAIN ANALYZE. В таблицу — оценку rows у строки чтения book (первые скобки), сколько книг нашлось на деле (вторые скобки) и сколько отброшено. Во сколько раз СУБД ошиблась — объясните в протоколе.`,
+      q: 'Откуда СУБД берёт оценку для двух условий сразу?',
+      goals: ['Запрос: автор и число страниц', 'EXPLAIN ANALYZE', 'Таблица: оценка, найдено, отброшено'],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book WHERE author_id = ${eA} AND pages IN (${eP.join(', ')})`],
+      form: tab(
+        ['est', 'rows', 'rm'],
+        [
+          {
+            label: 'Автор и страницы',
+            what: `автор № ${eA}, ${eP.join(' / ')} страниц`,
+            sql: `SELECT * FROM book WHERE author_id = ${eA} AND pages IN (${eP.join(', ')})`,
+            re: /\bauthor_id\b[\s\S]*\bpages\b|\bpages\b[\s\S]*\bauthor_id\b/i,
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
+      allow: ALLOW,
+      star: true,
+      pred: {
+        q: `Авторов 40, разных толщин 500, в списке — ${eK}. Сколько книг найдётся?`,
+        choices: [
+          {k: 'one', t: `около ${eK} — 20 000 / 40 / 500 × ${eK}`},
+          {k: 'many', t: 'в разы больше, чем ждёт СУБД'},
+        ],
+        answer: 'many',
+      },
+      hint: 'Список значений — pages IN (…). Оценка — rows= в скобках cost=…, факт — rows= в скобках actual …. Наполнение книг — в задании уровня «20 000 книг»: автор и толщина считаются от одного и того же n.',
+      ok: 'СУБД перемножила доли: 1/40 автора × 1/500 толщины — и ждала по одной книге на каждую толщину. Но в наших данных автор и толщина зависят от одного n, и условия совпадают куда чаще. Статистика по столбцам по отдельности не знает о связи столбцов.',
+    },
+    {
+      key: 'having',
+      title: 'Плодовитые авторы',
+      lab: 'ч. 4 · группы и HAVING',
+      text: `Среди книг с номерами от ${h1} до ${h1 + hN - 1} включительно найдите авторов, у которых в этом диапазоне больше ${hT} книг: номер автора и число книг. Напишите запрос сами, выполните EXPLAIN ANALYZE и заполните таблицу: узел группировки, сколько групп осталось на выходе после HAVING и как прочитана book.`,
+      q: 'Где в плане работает HAVING?',
+      goals: [
+        'Запрос: номер автора и число книг, только у кого больше, чем в задании',
+        'EXPLAIN ANALYZE',
+        'Таблица: узел группировки, групп на выходе, способ чтения',
+      ],
+      sol: [
+        `EXPLAIN ANALYZE SELECT author_id, count(*) FROM book WHERE id BETWEEN ${h1} AND ${h1 + hN - 1} GROUP BY author_id HAVING count(*) > ${hT}`,
+      ],
+      form: tab(
+        ['agg', 'out', 'read'],
+        [
+          {
+            label: 'HAVING',
+            what: `id ${h1}–${h1 + hN - 1}, больше ${hT} книг`,
+            sql: `SELECT author_id, count(*) FROM book WHERE id BETWEEN ${h1} AND ${h1 + hN - 1} GROUP BY author_id HAVING count(*) > ${hT}`,
+            re: /\bhaving\b/i,
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
+      allow: ALLOW,
+      star: true,
+      hint: 'Отбор групп — HAVING count(*) > …, после GROUP BY. Его Filter стоит у узла группировки, а не у чтения таблицы.',
+      ok: 'HAVING — это Filter у самого узла группировки: сначала собраны все группы, потом лишние отброшены. На чтение таблицы он не влияет — его сократило условие WHERE на диапазон номеров.',
+    },
+    {
+      key: 'offset',
+      hard: true,
+      title: 'Страница каталога',
+      lab: 'сложный · ч. 4 · LIMIT … OFFSET',
+      text: `Электронный каталог показывает книги по порядку номеров, по ${per} на странице. Читатель открыл страницу № ${page}. Выведите её одним запросом, выполните EXPLAIN ANALYZE и заполните таблицу: как прочитана book, сколько строк book прочитано на деле и сколько строк выдал запрос.`,
+      q: 'Дёшево ли открыть далёкую страницу, если есть индекс?',
+      goals: [`Запрос: страница № ${page} по ${per} книг`, 'EXPLAIN ANALYZE', 'Таблица: способ чтения, прочитано, на выходе'],
+      sol: [`EXPLAIN ANALYZE SELECT * FROM book ORDER BY id LIMIT ${per} OFFSET ${(page - 1) * per}`],
+      form: {
+        t: 'book',
+        need: true,
+        cols: [C.read, {k: 'rows', h: 'Прочитано строк book', kind: 'rows'}, C.out],
+        rows: [
+          {
+            label: `Страница ${page}`,
+            what: `по ${per} книг, по номерам`,
+            sql: `SELECT * FROM book ORDER BY id LIMIT ${per} OFFSET ${(page - 1) * per}`,
+            re: /\boffset\b/i,
+          },
+        ],
+      },
+      check: 'form',
+      cmds: FORM_CMDS,
+      allow: ALLOW,
+      star: true,
+      pred: {
+        q: `Сколько строк book прочитает СУБД для страницы № ${page}?`,
+        choices: [
+          {k: 'page', t: `только ${per} — индекс сразу ведёт на страницу`},
+          {k: 'all', t: 'все строки всех страниц до неё и её саму'},
+        ],
+        answer: 'all',
+      },
+      hint: `OFFSET — сколько строк пропустить: страницы до № ${page} — это (${page} − 1) × ${per} строк. Прочитано — actual rows у Index Scan, на выходе — у верхней строки Limit.`,
+      ok: 'Index Scan прочитал все строки до нужной страницы: OFFSET их не перепрыгивает, а отсчитывает по одной и выбрасывает. Чем дальше страница, тем дороже. Быстрее — «продолжить с последнего номера»: WHERE id > … ORDER BY id LIMIT ….',
+    },
+    {
+      key: 'rewrite',
+      hard: true,
+      title: 'Запрос не видит индекс',
+      lab: 'сложный · ч. 4 · перепишите условие',
+      text: `Коллега ищет книгу так: SELECT * FROM book WHERE id + ${shift} = ${rid + shift}. Выполните его с EXPLAIN ANALYZE, затем перепишите условие так, чтобы запрос вернул ту же книгу, но пошёл по индексу pk_book, — и тоже EXPLAIN ANALYZE. Таблица — по обоим планам.`,
+      q: 'Почему выражение над столбцом мешает индексу?',
+      goals: [
+        'EXPLAIN ANALYZE запроса коллеги',
+        'Переписанный запрос — та же книга, по индексу',
+        'Таблица: способ чтения и отброшено — у обоих',
+      ],
+      sol: [
+        `EXPLAIN ANALYZE SELECT * FROM book WHERE id + ${shift} = ${rid + shift}`,
+        `EXPLAIN ANALYZE SELECT * FROM book WHERE id = ${rid}`,
+      ],
+      form: tab(
+        ['read', 'rows', 'rm'],
+        [
+          {
+            label: 'Как у коллеги',
+            what: `id + ${shift} = ${rid + shift}`,
+            sql: `SELECT * FROM book WHERE id + ${shift} = ${rid + shift}`,
+            re: new RegExp(`\\bid\\s*\\+\\s*${shift}\\s*=\\s*${rid + shift}\\b`, 'i'),
+          },
+          {
+            label: 'Переписан',
+            what: 'та же книга, по индексу',
+            sql: `SELECT * FROM book WHERE id = ${rid}`,
+            re: new RegExp(`\\bid\\s*=\\s*${rid}\\b`, 'i'),
+          },
+        ],
+      ),
+      check: 'form',
+      cmds: FORM_CMDS,
+      allow: ALLOW,
+      star: true,
+      hint: 'Индекс хранит сами значения id, а не id + число. Перенесите число в другую часть равенства: столбец должен остаться один.',
+      ok: 'У коллеги — Seq Scan: чтобы проверить id + число, СУБД вычислила выражение для каждой из 20 000 строк. Столбец «в чистом виде» — и сразу Index Scan, ни одной лишней строки. Правило: не оборачивайте индексированный столбец в выражения и функции.',
+    },
+    {
+      key: 'joinagg',
+      hard: true,
+      title: 'Самые читаемые авторы',
+      lab: 'сложный · ч. 4 · соединение и группировка',
+      text: 'Для каждого автора, чьи книги брали в библиотеке, выведите его имя и сколько раз выдавали его книги. Нужны три таблицы: loan, book, author. Напишите запрос сами, выполните EXPLAIN ANALYZE и заполните таблицу: верхний узел соединения, узел группировки, сколько строк book прочитано на деле и сколько авторов в ответе.',
+      q: 'Сколько из 20 000 книг пришлось прочитать, чтобы сосчитать выдачи?',
+      goals: [
+        'Запрос: имя автора и число выдач — loan, book, author',
+        'EXPLAIN ANALYZE',
+        'Таблица: соединение, группировка, прочитано книг, авторов',
+      ],
+      sol: [
+        'EXPLAIN ANALYZE SELECT a.full_name, count(*) FROM loan l JOIN book b ON b.id = l.book_id JOIN author a ON a.id = b.author_id GROUP BY a.full_name',
+      ],
+      form: {
+        t: 'book',
+        need: true,
+        cols: [
+          {k: 'join', h: 'Верхнее соединение', kind: 'join'},
+          C.agg,
+          {k: 'rows', h: 'Прочитано строк book', kind: 'rows'},
+          {k: 'out', h: 'Авторов в ответе', kind: 'out'},
+        ],
+        rows: [
+          {
+            label: 'Выдачи по авторам',
+            what: 'loan + book + author, GROUP BY',
+            sql: 'SELECT a.full_name, count(*) FROM loan l JOIN book b ON b.id = l.book_id JOIN author a ON a.id = b.author_id GROUP BY a.full_name',
+            re: /^(?=[\s\S]*\bloan\b)(?=[\s\S]*\bauthor\b)(?=[\s\S]*\bgroup\s+by\b)/i,
+          },
+        ],
+      },
+      check: 'form',
+      cmds: FORM_CMDS,
+      allow: ALLOW,
+      star: true,
+      hint: 'FROM loan l JOIN book b ON … JOIN author a ON … GROUP BY …. План — снизу вверх: верхняя строка с Join или Nested Loop — последнее соединение, над ним — узел группировки.',
+      ok: 'Выдачи ссылаются только на первые книги — по индексу pk_book СУБД прочитала их немного и остановилась. Соединение собрало пары «выдача — автор», узел группировки свёл их в одну строку на автора.',
     },
     // ═══════════════════════════════ контрольный
     {
