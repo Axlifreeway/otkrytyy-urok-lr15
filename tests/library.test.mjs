@@ -113,13 +113,11 @@ test('ЛР-22: на 20 000 книг ключ — по индексу, назва
   assert.equal((await read('nonkey')).kind, 'Seq Scan');
   assert.equal((await read('range')).kind, 'Seq Scan');
   assert.ok((await plan(by('join').sol[0])).nodes.some(n => n.kind === 'Hash Join'));
-  assert.equal((await read('like')).kind, 'Seq Scan');
   assert.equal((await read('byauthor')).kind, 'Seq Scan', 'внешний ключ — без индекса');
   assert.equal((await read('most')).kind, 'Seq Scan', 'почти вся таблица — подряд, хоть и по ключу');
   assert.equal((await read('sort', 0)).kind, 'Index Scan', 'ORDER BY id LIMIT — по индексу');
   assert.ok((await plan(by('sort').sol[1])).sort, 'ORDER BY pages — сортировка');
   assert.ok(!(await plan(by('sort').sol[0])).sort, 'ORDER BY id — без сортировки');
-  assert.ok((await plan(by('agg').sol[0])).agg);
   assert.equal((await read('keyrange')).kind, 'Index Scan', 'узкий диапазон по ключу — по индексу');
   assert.ok((await plan(by('keyrange').sol[0])).time > 0, 'EXPLAIN ANALYZE даёт время');
 });
@@ -129,7 +127,8 @@ test('ЛР-22: прогнозы сходятся с планами, контро
     const D = makeData(s);
     const L = L22(D),
       by = k => L.find(l => l.key === k);
-    assert.equal(L.length, 24, 'ЛР-22: 24 уровня');
+    assert.equal(L.length, 30, 'ЛР-22: 30 уровней');
+    assert.equal(L.filter(l => l.sup).length, 10, 'ЛР-22: 10 сверхсложных');
     await reset(baseSql(D) + FILL + ';\nANALYZE;');
     const isIdx = n => !!n.index;
     // прогнозы «по индексу / подряд»: в уровнях-прогнозах запрос — в эталоне по порядку
@@ -177,6 +176,104 @@ test('ЛР-22: прогнозы сходятся с планами, контро
     assert.equal(R.length, 4);
     assert.equal((await plan('EXPLAIN ' + R[0].sql)).nodes[0].kind, 'Index Scan');
     assert.equal((await plan('EXPLAIN ' + R[1].sql)).nodes[0].kind, 'Seq Scan');
+  }
+});
+
+test('ЛР-22, сверхсложные: OR — подряд, оценка ошибается, HAVING, OFFSET читает всё до страницы, выражение — мимо индекса', async () => {
+  for (const s of [0, 7, 23, 59, 115]) {
+    const D = makeData(s);
+    const L = L22(D),
+      by = k => L.find(l => l.key === k);
+    await reset(baseSql(D) + FILL + ';\nANALYZE;');
+    const fact = async (k, i = 0) => {
+      const lines = (await db.query('EXPLAIN ANALYZE ' + by(k).form.rows[i].sql)).rows.map(r => Object.values(r)[0]);
+      const P = planNodes(lines);
+      return {P, lines, book: P.nodes.find(n => n.table === 'book'), out: +/actual time=[^)]*rows=(\d+)/.exec(lines[0])[1]};
+    };
+    // эталон каждого уровня подходит под проверку своей строки таблицы
+    for (const k of ['orcond', 'estmiss', 'having', 'offset', 'rewrite', 'joinagg', 'keyset', 'notloaned', 'topthick', 'readers'])
+      by(k).form.rows.forEach((r, i) => assert.ok(r.re.test(by(k).sol[i] || by(k).sol[0]), `${s} ${k}: эталон ${i + 1} — под проверку`));
+    const or = await fact('orcond');
+    assert.equal(or.book.kind, 'Seq Scan', `${s}: OR с pages — подряд`);
+    assert.equal(by('orcond').pred.answer, 'seq');
+    const est = await fact('estmiss'),
+      tl = est.lines.find(l => /Seq Scan on book/.test(l));
+    const e = +/cost=[^)]*rows=(\d+)/.exec(tl)[1];
+    assert.ok(est.book.rows >= 10 * e, `${s}: оценка ${e}, найдено ${est.book.rows} — в разы больше`);
+    const hv = await fact('having');
+    assert.match(hv.lines[0], /HashAggregate|GroupAggregate/);
+    assert.ok(hv.out > 0 && hv.out < 40, `${s}: после HAVING групп ${hv.out}`);
+    const of = await fact('offset'),
+      per = +/LIMIT (\d+)/.exec(by('offset').sol[0])[1],
+      off = +/OFFSET (\d+)/.exec(by('offset').sol[0])[1];
+    assert.equal(of.book.kind, 'Index Scan');
+    assert.equal(of.book.rows, off + per, `${s}: OFFSET — прочитаны все строки до страницы`);
+    assert.equal(of.out, per);
+    const [r1, r2] = [await fact('rewrite', 0), await fact('rewrite', 1)];
+    assert.equal(r1.book.kind, 'Seq Scan', `${s}: id + число — мимо индекса`);
+    assert.equal(r2.book.kind, 'Index Scan', `${s}: переписанный — по индексу`);
+    const same = async i => (await db.query(by('rewrite').form.rows[i].sql)).rows.map(r => r.id);
+    assert.deepEqual(await same(0), await same(1), `${s}: переписанный запрос вернул ту же книгу`);
+    assert.equal((await same(0)).length, 1);
+    // страница без OFFSET: та же страница, прочитано ровно столько, сколько на ней
+    const ks = await fact('keyset');
+    assert.equal(ks.book.kind, 'Index Scan');
+    assert.equal(ks.book.rows, per, `${s}: без OFFSET прочитана одна страница`);
+    const pg = sql => db.query(sql).then(r => r.rows.map(x => x.id));
+    assert.deepEqual(await pg(by('keyset').form.rows[0].sql), await pg(by('offset').form.rows[0].sql), `${s}: та же страница`);
+    const nl = await fact('notloaned');
+    assert.match(nl.lines[0], /Anti Join/, `${s}: NOT EXISTS — Anti Join`);
+    assert.ok(nl.out > 0 && nl.out < 60);
+    const tt = await fact('topthick');
+    assert.ok(tt.P.sort && tt.book.kind === 'Seq Scan' && tt.book.rows > 400, `${s}: самые толстые — Seq Scan и Sort`);
+    const rd = await fact('readers');
+    assert.ok(rd.out > 0 && rd.out < 14 && rd.P.nodes.some(n => !n.table), `${s}: активных читателей ${rd.out}`);
+    const ja = await fact('joinagg');
+    assert.ok(ja.book.index && ja.book.rows < 200, `${s}: выдачи по авторам — book по индексу, прочитано ${ja.book.rows}`);
+    assert.ok(
+      ja.P.nodes.some(n => !n.table),
+      `${s}: есть узел соединения`,
+    );
+  }
+});
+
+test('ЛР-23: 20 обычных и 10 сверхсложных — эталоны по цепочке дают задуманные планы', async () => {
+  for (const s of [7, 59, 115]) {
+    const D = makeData(s),
+      L = L23(D);
+    assert.equal(L.length, 30);
+    assert.equal(L.filter(l => l.sup).length, 10);
+    await reset(baseSql(D) + FILL + ';\nANALYZE;');
+    const got = {};
+    for (const lv of L) {
+      for (const q of lv.sol || lv.ref || [lv.ask]) {
+        if (/^\s*\\/.test(q)) continue;
+        try {
+          const r = await db.query(q);
+          if (/^explain/i.test(q)) {
+            const lines = r.rows.map(x => Object.values(x)[0]);
+            got[lv.key] = {...planNodes(lines), text: lines.join('\n')};
+          }
+        } catch (e) {
+          assert.equal(lv.code, e.code, `${s} ${lv.key}: ${q} → ${e.message}`);
+        }
+      }
+    }
+    const book = k => got[k].nodes.find(n => n.table === 'book');
+    assert.equal(book('likeidx').index, 'ix_book_title', `${s}: LIKE по началу — по индексу`);
+    assert.equal(book('onlyidx').kind, 'Index Only Scan');
+    assert.equal(book('exprix').index, 'ix_book_lower_title');
+    assert.equal(book('multi').index, 'ix_book_author_id_year');
+    assert.ok(!got.multiord.sort && book('multiord').index, `${s}: составной индекс — без Sort`);
+    assert.match(got.bitmapor.text, /BitmapOr/);
+    assert.ok(book('maxpages').index && book('maxpages').rows === 1, `${s}: максимум — одна строка по индексу`);
+    for (const k of ['newest', 'ordermulti']) assert.ok(!got[k].sort && book(k).index, `${s} ${k}: без Sort`);
+    assert.equal(book('lowerlike').index, 'ix_book_lower_title');
+    assert.equal(book('dupidx').index, 'ix_book_author_id_year');
+    assert.equal(book('partial').index, 'ix_book_pages_thick');
+    assert.ok(book('choose').index && got.choose.removed === 0, `${s}: подобранный индекс — 0 строк зря`);
+    assert.equal(book('uniqisbn').index, 'ux_book_isbn');
+    assert.match(got.covering.text, /Index Only Scan[\s\S]*Heap Fetches: 0\b/);
   }
 });
 
@@ -322,10 +419,11 @@ test('ЛР-22: больше половины уровней — таблица �
       const got = [];
       for (const r of lv.form.rows) {
         const lines = (await db.query('EXPLAIN ANALYZE ' + r.sql)).rows.map(x => Object.values(x)[0]);
-        const n = planNodes(lines).nodes.find(x => x.table === 'book');
-        assert.ok(n, `${s} ${lv.key}: в плане есть чтение book`);
+        const t = lv.form.t || 'book',
+          n = planNodes(lines).nodes.find(x => x.table === t);
+        assert.ok(n, `${s} ${lv.key}: в плане есть чтение ${t}`);
         const rm = lines.reduce((a, l) => a + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
-        got.push(`${r.sql}|${n.rows}|${rm}`);
+        got.push(`${r.sql}|${n.rows}|${rm}|${(/actual time=[^)]*rows=(\d+)/.exec(lines[0]) || [])[1]}`); // без времени: оно разное всегда
         // запрос строки — тот, что студент пишет сам: эталон уровня подходит под условие строки
         if (r.re && lv.form.need)
           assert.ok(

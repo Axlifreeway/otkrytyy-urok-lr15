@@ -141,6 +141,32 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(set(r['data']['lv']), {'a', 'b'})
         self.assertEqual(self.call('/api/progress?lab=lr13')[0], 403)
 
+    def test_freeze_group_results(self):
+        # фиксация: сервер запоминает, что у кого пройдено; студент узнаёт о ней и из прогресса, и из опроса объявлений
+        self.group()
+        tok = self.login('Иванов')[1]['token']
+        tok2 = self.login('Петрова', '4321')[1]['token']
+        self.call('/api/progress', {'token': tok, 'lab': 'lr15', 'data': {'lv': {'star': {'done': True}, 'cols': {'runs': 2}}}})
+        self.call('/api/ev', {'type': 'done', 'client': 'x', 'lab': 'lr15', 'token': tok, 'data': {'lv': 3, 'key': 'loyal'}})
+        self.assertEqual(self.call('/api/admin/freeze', {'grp': 'ИИ-25', 'lab': 'lr15', 'on': True})[0], 403)
+        self.assertEqual(self.call('/api/admin/freeze', {'key': KEY, 'grp': 'нет', 'lab': 'lr15', 'on': True})[0], 404)
+        self.assertEqual(self.call('/api/admin/freeze', {'key': KEY, 'grp': 'ИИ-25', 'lab': 'xx', 'on': True})[0], 400)
+        st, r = self.call('/api/admin/freeze', {'key': KEY, 'grp': 'ИИ-25', 'lab': 'lr15', 'on': True})
+        self.assertEqual(st, 200)
+        self.assertIn('lr15', r['freeze']['ИИ-25'])
+        # пройдено после фиксации — в снимок не попадает
+        self.call('/api/ev', {'type': 'done', 'client': 'x', 'lab': 'lr15', 'token': tok, 'data': {'lv': 2, 'key': 'cols'}})
+        fz = self.call('/api/progress?lab=lr15', headers={'X-Labs-Token': tok})[1]['frozen']
+        self.assertEqual(fz['keys'], ['loyal', 'star'])
+        self.assertEqual(self.call('/api/progress?lab=lr16', headers={'X-Labs-Token': tok})[1]['frozen'], None)
+        self.assertEqual(self.call('/api/say?since=-1', headers={'X-Labs-Token': tok2})[1]['frozen']['lr15']['keys'], [])
+        self.assertEqual(self.call('/api/say?since=-1')[1]['frozen'], {})
+        self.assertIn('lr15', self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['freeze']['ИИ-25'])
+        # снять фиксацию
+        self.call('/api/admin/freeze', {'key': KEY, 'grp': 'ИИ-25', 'lab': 'lr15', 'on': False})
+        self.assertIsNone(self.call('/api/progress?lab=lr15', headers={'X-Labs-Token': tok})[1]['frozen'])
+        self.assertEqual(self.call('/api/admin/groups', headers={'X-Labs-Key': KEY})[1]['freeze'], {})
+
     def test_added_levels_credited_after_final(self):
         # лаба пройдена до появления новых уровней — они засчитаны, недопройденная — нет
         self.group()

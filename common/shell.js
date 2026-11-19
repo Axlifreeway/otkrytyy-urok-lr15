@@ -5,7 +5,7 @@ import {$, esc, sleep, comma, ls, lsJSON} from './util.js';
 import {SFX, sound} from './sfx.js';
 import {openDb, loadSql as load} from './db.js';
 import {report, setCtx, clientId, watchAway, guardPaste} from './net.js';
-import {loginScreen, mergeP, syncInit, syncStatus, pull, push} from './login.js';
+import {loginScreen, mergeP, syncInit, syncStatus, pull, push, pulledFrozen} from './login.js';
 import {isTeacherCode} from './teacher.js';
 import {attachHighlight, highlight} from './sqlhl.js';
 import {snapshotHtml, sendReport} from './report.js';
@@ -207,14 +207,44 @@ const trustAll = () => {
 export const curState = () => {
   const lv = G && G.lv != null ? L[G.lv] : null,
     n = L.filter(l => !l.practice).length;
-  return {ok: !!(lv && (lv.practice || (G.P.lv[lv.key] || {}).done)), all: doneN() >= n, px: !!(lv && lv.practice)};
+  // «всё пройдено» — пройден контрольный: сверхсложные уровни после него — для тех, кто идёт на «5»
+  const fin = L.find(l => l.final);
+  return {
+    ok: !!(lv && (lv.practice || (G.P.lv[lv.key] || {}).done)),
+    all: doneN() >= n || !!(fin && (G.P.lv[fin.key] || {}).done),
+    px: !!(lv && lv.practice),
+  };
 };
 export const recOf = lv => (G.P.lv[lv.key] = G.P.lv[lv.key] || {runs: 0, fails: 0});
 const doneN = () => L.filter(l => !l.practice && (G.P.lv[l.key] || {}).done).length;
 export const starsOf = r => (!r || !r.done ? 0 : (r.fails || 0) === 0 ? 3 : r.fails <= 2 ? 2 : 1);
+// Фиксация оценок группы (пульт → «Группы и списки»): сервер запомнил, какие уровни были пройдены (G.frozen.keys).
+// Доработать можно, но уровень, пройденный после фиксации, приносит только LATE своих баллов.
+export const LATE = 0.5;
+export const isLate = (l, P = G.P) => {
+  const f = G && G.frozen,
+    r = P.lv[l.key] || {};
+  return !!(f && r.done && !r.auto && !f.keys.includes(l.key));
+};
 export function score() {
-  const rows = L.filter(l => !l.practice).map(l => ({l, pts: cfg.PTS[l.key] || 0, ok: !!(G.P.lv[l.key] || {}).done}));
+  const rows = L.filter(l => !l.practice).map(l => {
+    const late = isLate(l),
+      full = cfg.PTS[l.key] || 0;
+    return {l, full, late, pts: late ? Math.round(full * LATE * 100) / 100 : full, ok: !!(G.P.lv[l.key] || {}).done};
+  });
   return {rows, sum: Math.round(rows.reduce((t, r) => t + (r.ok ? r.pts : 0), 0) * 10) / 10};
+}
+const fzWhen = () => new Date(G.frozen.ts).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+const FZ_TEXT = () =>
+  `Результат группы зафиксирован ${fzWhen()}. Доработать можно, но уровни, пройденные после этого, засчитываются за ${LATE === 0.5 ? 'половину' : comma(LATE * 100) + ' %'} баллов.`;
+// фиксация пришла с сервера (при входе или посреди работы — из опроса объявлений)
+export function setFrozen(f) {
+  const was = G && G.frozen;
+  const next = f && typeof f.ts === 'number' ? {ts: f.ts, keys: Array.isArray(f.keys) ? f.keys : []} : null;
+  if (!G || G.demo || (was ? next && next.ts === was.ts : !next)) return;
+  G.frozen = next;
+  renderLevels();
+  if (next) robotSay({id: null, text: FZ_TEXT()});
 }
 const MARK = s => (s >= 8.5 ? '5' : s >= 6.5 ? '4' : s >= 4.5 ? '3' : '2');
 export function journal(sql, out) {
@@ -241,11 +271,12 @@ export function renderLevels() {
       const rec = G.P.lv[lv.key] || {};
       if (lv.practice)
         return `<button class="lvb px${i === G.lv ? ' on' : ''}" data-i="${i}" title="Тренировка: решено ${G.P.practice || 0}">∞</button>`;
-      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${esc(lv.title)}">${unlocked(i) ? (lv.final ? cfg.finalIcon || '✈' : i + 1) : cfg.lockIcon || '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
+      const late = isLate(lv);
+      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${late ? ' late' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}${lv.sup ? ' sup' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${lv.sup ? 'Сверхсложный · ' : ''}${esc(lv.title)}${late ? ' · пройден после фиксации — за половину баллов' : ''}">${unlocked(i) ? (lv.final ? cfg.finalIcon || '✈' : i + 1) : cfg.lockIcon || '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
     }).join('') +
     (G.demo
       ? '<span class="demo">ДЕМО</span>'
-      : `<span class="pts">${score().sum.toFixed(1).replace('.0', '')}<small>/9</small></span>${G.sess ? `<span id="sync" class="sync ${syncStatus()}">${SYNC[syncStatus()]}</span>` : ''}`);
+      : `<span class="pts">${score().sum.toFixed(1).replace('.0', '')}<small>/9</small></span>${G.frozen ? `<span class="frz" title="${esc(FZ_TEXT())}">🔒 зафиксировано ${fzWhen()} · дальше ×${comma(LATE)}</span>` : ''}${G.sess ? `<span id="sync" class="sync ${syncStatus()}">${SYNC[syncStatus()]}</span>` : ''}`);
   $('levels')
     .querySelectorAll('[data-i]')
     .forEach(
@@ -258,7 +289,7 @@ export function renderLevels() {
 // подсказка после промахов и кнопка «Решение» в демо-режиме
 export function missionButtons(lv, rec, minFails = 2) {
   const sol = ((lv.sol || lv.ref || lv.ask) && G.demo) || (lv.practice && (lv.ref || lv.ask) && (rec.fails || 0) >= 2); // в тренировке после двух промахов можно подсмотреть
-  return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${sol ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, lv.sel || (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
+  return `<div class="mbtn">${!lv.final && !lv.sup && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${sol ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, lv.sel || (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
 }
 export function bindMissionButtons(lv, rec) {
   if ($('hintBtn'))
@@ -275,7 +306,9 @@ export function bindMissionButtons(lv, rec) {
 export const levelTag = lv =>
   lv.practice
     ? `<span class="tag">ТРЕНИРОВКА · без баллов</span><span class="tag hardt">решено: ${G.P.practice || 0}</span>`
-    : `<span class="tag">${lv.final ? 'КОНТРОЛЬНЫЙ' : 'УРОВЕНЬ ' + (G.lv + 1) + ' / ' + L.length}</span>${lv.hard ? '<span class="tag hardt">СЛОЖНЫЙ · ' + comma(cfg.PTS[lv.key]) + ' балла</span>' : ''}`;
+    : lv.sup
+      ? `<span class="tag">УРОВЕНЬ ${G.lv + 1} / ${L.length}</span><span class="tag supt">★ СВЕРХСЛОЖНЫЙ · ${comma(cfg.PTS[lv.key])} балла · без подсказок</span>`
+      : `<span class="tag">${lv.final ? 'КОНТРОЛЬНЫЙ' : 'УРОВЕНЬ ' + (G.lv + 1) + ' / ' + L.length}</span>${lv.hard ? '<span class="tag hardt">СЛОЖНЫЙ · ' + comma(cfg.PTS[lv.key]) + ' балла</span>' : ''}`;
 
 // прогнозы уровня: lv.pred — один (ключ — lv.key), lv.preds — несколько (ключи lv.key.0, lv.key.1 …)
 export const predsOf = lv => (lv.preds ? lv.preds.map((p, i) => [`${lv.key}.${i}`, p]) : lv.pred ? [[lv.key, lv.pred]] : []);
@@ -375,7 +408,11 @@ export async function success(lv, rec) {
         `<div class="pr ${pred.right ? 'ok' : 'no'}">${many ? esc(pred.q) + ' — прогноз' : 'Ваш прогноз'}: «${esc(pred.label)}» — ${pred.right ? 'верно' : 'на деле «' + esc(pred.alabel) + '»'}</div>`,
     )
     .join('');
-  const st = `<div class="stars">${'★'.repeat(starsOf(rec))}${'☆'.repeat(3 - starsOf(rec))}<span>${(rec.fails || 0) === 0 ? 'без промахов' : 'промахов: ' + rec.fails}</span></div>`;
+  const st =
+    `<div class="stars">${'★'.repeat(starsOf(rec))}${'☆'.repeat(3 - starsOf(rec))}<span>${(rec.fails || 0) === 0 ? 'без промахов' : 'промахов: ' + rec.fails}</span></div>` +
+    (isLate(lv)
+      ? `<div class="pr no">Результат группы зафиксирован ${fzWhen()}: уровень засчитан за ${comma(score().rows.find(r => r.l === lv).pts)} из ${comma(cfg.PTS[lv.key] || 0)} балла.</div>`
+      : '');
   if (lv.final) {
     verdict(true, lv.ok, st + pr, false);
     await sleep(1600);
@@ -393,9 +430,10 @@ export async function success(lv, rec) {
 // например «план на 60 книгах» до наполнения таблицы), остаётся на месте и засчитывается сам.
 export function oldOrder(P = G.P) {
   const added = new Set(cfg.added || []),
-    fin = L[L.length - 1];
-  const late = l => added.has(l.key) && !l.early;
-  L = [...L.filter(l => !late(l) && l !== fin), ...L.filter(late), fin];
+    fin = L.find(l => l.final),
+    sup = L.filter(l => l.sup); // сверхсложные — всегда после контрольного
+  const late = l => added.has(l.key) && !l.early && !l.sup;
+  L = [...L.filter(l => !late(l) && l !== fin && !l.sup), ...L.filter(late), fin, ...sup];
   L.filter(l => added.has(l.key) && l.early && !(P.lv[l.key] || {}).done).forEach(l => {
     P.lv[l.key] = {
       runs: 0,
@@ -409,7 +447,7 @@ export function oldOrder(P = G.P) {
 }
 // лаба пройдена до того, как в неё добавили уровни, — новые уровни засчитываются
 function credit(P) {
-  const fin = P.lv[L[L.length - 1].key]; // последний (контрольный) уровень
+  const fin = P.lv[L.find(l => l.final).key]; // контрольный уровень
   if (!cfg.added || !(fin || {}).done) return;
   cfg.added.forEach(k => {
     if (!(P.lv[k] || {}).done)
@@ -484,10 +522,19 @@ function endScreen() {
   const preds = Object.values(G.P.pred),
     pr = preds.filter(p => p.right).length;
   const [v3, l3] = cfg.end.stat();
+  // первый непройденный сверхсложный уровень (−1 — их нет или все пройдены)
+  const supLeft = L.findIndex(l => l.sup && !(G.P.lv[l.key] || {}).done);
   m.innerHTML = `<div class="dlg panel end"><span class="tag">${esc(cfg.end.tag)}</span><h2>${esc(cfg.endTitle ? cfg.endTitle() : `Рейс ${cfg.flight()} в воздухе`)}</h2>
     <div class="end-row"><div><b>${doneN()}/${L.length}</b><span>уровней</span></div><div><b>${pr}/${preds.length}</b><span>прогнозов верно</span></div>
       <div><b>${v3}</b><span>${esc(l3)}</span></div><div><b>${score().sum}/9</b><span>баллов автоматически</span></div></div>
-    <div class="btns"><button class="nextBtn" id="protoBtn">Протокол для отчёта</button>${cfg.practice ? '<button class="btn" id="pxBtn">🔁 Тренировка без баллов</button>' : ''}<button class="btn" id="backBtn">Вернуться</button></div></div>`;
+    ${supLeft >= 0 ? `<p class="mu">Обычные уровни пройдены. Для «5» нужны сверхсложные: ${L.filter(l => l.sup).length} задач без подсказок, запрос и выводы — сами.</p>` : ''}
+    <div class="btns">${supLeft >= 0 ? '<button class="nextBtn" id="supBtn">★ Сверхсложные уровни</button>' : ''}<button class="${supLeft >= 0 ? 'btn' : 'nextBtn'}" id="protoBtn">Протокол для отчёта</button>${cfg.practice ? '<button class="btn" id="pxBtn">🔁 Тренировка без баллов</button>' : ''}<button class="btn" id="backBtn">Вернуться</button></div></div>`;
+  if ($('supBtn'))
+    $('supBtn').onclick = () => {
+      m.hidden = true;
+      W.resetRoot();
+      cfg.startLevel(supLeft);
+    };
   $('protoBtn').onclick = protocol;
   if ($('pxBtn')) $('pxBtn').onclick = startPractice;
   $('backBtn').onclick = () => {
@@ -514,9 +561,9 @@ function protocol() {
     <span>Запусков</span><span>${P.journal.length} · ошибок записи команд: ${P.lints || 0} · уходов со вкладки: ${P.away || 0}${awayMin ? ` (≈${awayMin} мин)` : ''} · заблокировано вставок: ${P.pastes || 0}${P.inserts ? ` · текста без клавиатуры: ${P.inserts}` : ''}${P.shots ? ` · снимков экрана: ${P.shots}` : ''}</span></div>
   <h3>Уровни</h3><table><tr><th>Уровень</th><th>Команды</th><th>Ответ СУБД</th><th>Промахов</th><th>Баллы</th></tr>
   ${sc.rows
-    .map(({l, pts, ok}) => {
+    .map(({l, pts, full, late, ok}) => {
       const r = P.lv[l.key] || {};
-      return `<tr><td>${esc(l.title)}<div class="pr-mu">${esc(l.lab)}</div></td><td><pre class="sql">${ok ? highlight(r.sql || '', Object.keys(cfg.TABLES)) : 'не пройден'}</pre></td><td><pre>${esc(r.note || r.tag || '')}</pre></td><td>${ok ? r.fails || 0 : ''}</td><td>${ok ? comma(pts) : '0'} / ${comma(pts)}</td></tr>`;
+      return `<tr><td>${esc(l.title)}<div class="pr-mu">${esc(l.lab)}</div></td><td><pre class="sql">${ok ? highlight(r.sql || '', Object.keys(cfg.TABLES)) : 'не пройден'}</pre></td><td><pre>${esc(r.note || r.tag || '')}</pre></td><td>${ok ? r.fails || 0 : ''}</td><td>${ok ? comma(pts) : '0'} / ${comma(full)}${late ? '<div class="pr-mu">после фиксации</div>' : ''}</td></tr>`;
     })
     .join('')}</table>
   ${L.filter(l => (P.lv[l.key] || {}).ptab)
@@ -539,7 +586,7 @@ function protocol() {
     .map(p => `<tr><td>${esc(p.q)}</td><td>${esc(p.label)}</td><td>${p.right ? '✓' : esc(p.alabel)}</td></tr>`)
     .join('')}</table>
   <h3>Ответы на вопросы</h3>${cfg.questions.map((q, i) => `<div class="pr-q"><b>${i + 1}. ${esc(q)}</b><textarea data-a="${i}">${esc((P.answers || {})[i] || '')}</textarea></div>`).join('')}
-  <h3>Оценка</h3><table><tr><td>Уровни (автоматически)</td><td><b>${comma(sc.sum)}</b> из 9</td></tr><tr><td>Ответы на вопросы</td><td>до 1 — проверяет преподаватель</td></tr><tr><td>Защита</td><td>обязательна</td></tr>
+  <h3>Оценка</h3><table><tr><td>Уровни (автоматически)</td><td><b>${comma(sc.sum)}</b> из 9</td></tr>${G.frozen ? `<tr><td>Фиксация результата</td><td>${fzWhen()} · пройдено после неё: ${sc.rows.filter(r => r.ok && r.late).length} (за ${comma(LATE)} балла)</td></tr>` : ''}<tr><td>Ответы на вопросы</td><td>до 1 — проверяет преподаватель</td></tr><tr><td>Защита</td><td>обязательна</td></tr>
   <tr><td>Шкала (уровни + ответы)</td><td>8,5–10 → «5» · 6,5–8,4 → «4» · 4,5–6,4 → «3»</td></tr></table>
   <p style="margin-top:22px">Проверил: Алёшкин А. А. ______________</p></div>`;
   $('fio').oninput = e => {
@@ -596,6 +643,7 @@ function submitDialog() {
   m.hidden = false;
   m.innerHTML = `<div class="dlg panel"><span class="tag">Сдать работу</span><h2>${done} из ${L.length} уровней</h2>
     <p>Сейчас набрано <b>${comma(sc.sum)} из 9</b> баллов за уровни. Без ответов на вопросы это ${MARK(sc.sum) === '2' ? 'пока ниже «3»' : 'не меньше чем на «' + MARK(sc.sum) + '»'}; ответы добавят до 1 балла. Шкала: 8,5+ → «5», 6,5+ → «4», 4,5+ → «3».</p>
+    ${G.frozen ? `<p class="bad">${esc(FZ_TEXT())}</p>` : ''}
     <p class="mu">Протокол уходит преподавателю кнопкой «Отправить преподавателю» — печатать не нужно. После сдачи можно продолжить и отправить заново.</p>
     <div class="btns"><button class="nextBtn" id="subGo">Сформировать протокол</button><button class="btn" id="subBack">Продолжить работу</button></div></div>`;
   $('subGo').onclick = () => {
@@ -716,6 +764,7 @@ async function begin(seed, demo = false, fio = '', grp = '', sess = null) {
     lkey,
     sess,
     P: P || {lv: {}, pred: {}, journal: [], answers: {}, fio: '', cur: 0},
+    frozen: demo || !pulledFrozen ? null : {ts: pulledFrozen.ts, keys: pulledFrozen.keys || []},
     lv: null,
     slots: {},
     hist: [],
@@ -825,7 +874,10 @@ export async function boot() {
   });
   hl = attachHighlight($('sql'), Object.keys(cfg.TABLES));
   T = watchTyping($('sql'));
-  listenRobot(() => G && G.sess && G.sess.token); // объявления преподавателя
+  listenRobot(
+    () => G && G.sess && G.sess.token,
+    f => setFrozen(f[cfg.lab]),
+  ); // объявления преподавателя и фиксация оценок группы
   // вид pgAdmin: вердикт с кнопкой «Следующий уровень» и сообщения об ошибке — по центру, над окном запросов
   if (cfg.flat) $('deck').append($('verdict'));
   if (!cfg.flat) {
