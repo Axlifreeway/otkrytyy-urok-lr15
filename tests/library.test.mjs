@@ -237,6 +237,46 @@ test('ЛР-22, сверхсложные: OR — подряд, оценка ош�
   }
 });
 
+test('ЛР-23: 20 обычных и 10 сверхсложных — эталоны по цепочке дают задуманные планы', async () => {
+  for (const s of [7, 59, 115]) {
+    const D = makeData(s),
+      L = L23(D);
+    assert.equal(L.length, 30);
+    assert.equal(L.filter(l => l.sup).length, 10);
+    await reset(baseSql(D) + FILL + ';\nANALYZE;');
+    const got = {};
+    for (const lv of L) {
+      for (const q of lv.sol || lv.ref || [lv.ask]) {
+        if (/^\s*\\/.test(q)) continue;
+        try {
+          const r = await db.query(q);
+          if (/^explain/i.test(q)) {
+            const lines = r.rows.map(x => Object.values(x)[0]);
+            got[lv.key] = {...planNodes(lines), text: lines.join('\n')};
+          }
+        } catch (e) {
+          assert.equal(lv.code, e.code, `${s} ${lv.key}: ${q} → ${e.message}`);
+        }
+      }
+    }
+    const book = k => got[k].nodes.find(n => n.table === 'book');
+    assert.equal(book('likeidx').index, 'ix_book_title', `${s}: LIKE по началу — по индексу`);
+    assert.equal(book('onlyidx').kind, 'Index Only Scan');
+    assert.equal(book('exprix').index, 'ix_book_lower_title');
+    assert.equal(book('multi').index, 'ix_book_author_id_year');
+    assert.ok(!got.multiord.sort && book('multiord').index, `${s}: составной индекс — без Sort`);
+    assert.match(got.bitmapor.text, /BitmapOr/);
+    assert.ok(book('maxpages').index && book('maxpages').rows === 1, `${s}: максимум — одна строка по индексу`);
+    for (const k of ['newest', 'ordermulti']) assert.ok(!got[k].sort && book(k).index, `${s} ${k}: без Sort`);
+    assert.equal(book('lowerlike').index, 'ix_book_lower_title');
+    assert.equal(book('dupidx').index, 'ix_book_author_id_year');
+    assert.equal(book('partial').index, 'ix_book_pages_thick');
+    assert.ok(book('choose').index && got.choose.removed === 0, `${s}: подобранный индекс — 0 строк зря`);
+    assert.equal(book('uniqisbn').index, 'ux_book_isbn');
+    assert.match(got.covering.text, /Index Only Scan[\s\S]*Heap Fetches: 0\b/);
+  }
+});
+
 test('ЛР-23: после CREATE INDEX — по индексу; внешний ключ — Bitmap по ix_book_author_id', async () => {
   for (const s of [7, 115]) {
     const D = makeData(s);
