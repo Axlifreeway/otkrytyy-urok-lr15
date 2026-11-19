@@ -1961,3 +1961,17 @@ table.doc td {
   background: #fdf3dc;
   border-color: #e0b84f;
 }
+/* сверхсложные уровни — после контрольного, для «5» */
+.lvb.sup {
+  border-color: #b9a3f0;
+  color: #6d28d9;
+}
+.lvb.sup.done {
+  background: #f1ebff;
+  border-color: #8b5cf6;
+}
+#mission .tag.supt,
+.dlg .tag.supt {
+  color: #6d28d9;
+  margin-left: 8px;
+}

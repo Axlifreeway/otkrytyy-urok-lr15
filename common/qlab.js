@@ -174,7 +174,7 @@ export function planNodes(lines) {
   lines.forEach(l => {
     const rows = +((/actual time=[^)]*rows=(\d+)/.exec(l) || /rows=(\d+)/.exec(l) || [])[1] || 0);
     const bi = /Bitmap Index Scan on (\w+)/.exec(l);
-    const m = !bi && /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan)(?: using (\w+))? on (\w+)/.exec(l);
+    const m = !bi && /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan)(?: Backward)?(?: using (\w+))? on (\w+)/.exec(l); // Backward — индекс в обратном порядке
     const j = /(Hash Join|Merge Join|Nested Loop)/.exec(l);
     // Bitmap Index Scan — часть Bitmap Heap Scan строкой выше: индекс — ей
     if (bi) {
@@ -1372,7 +1372,7 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     const P = planNodes(lines),
       n = P.nodes.find(x => x.table === t);
     const rm = lines.reduce((s, l) => s + +((/Rows Removed by Filter: (\d+)/.exec(l) || [])[1] || 0), 0);
-    const tl = lines.find(l => !/Bitmap Index Scan/.test(l) && new RegExp(`(Scan|Scan using \\w+) on ${t}\\b`).test(l)) || '';
+    const tl = lines.find(l => !/Bitmap Index Scan/.test(l) && new RegExp(`Scan(?: Backward)?(?: using \\w+)? on ${t}\\b`).test(l)) || '';
     const agg = lines.map(l => /\b(HashAggregate|GroupAggregate|Aggregate)\b/.exec(l)).find(Boolean);
     const join = lines.map(l => /(Hash Join|Merge Join|Nested Loop)/.exec(l)).find(Boolean);
     return {

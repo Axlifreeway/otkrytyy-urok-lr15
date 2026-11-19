@@ -2292,3 +2292,15 @@ table.doc td {
 .lvb.late.done {
   background: #c9a227;
 }
+/* сверхсложные уровни — после контрольного, для «5» */
+.lvb.sup {
+  border-color: #7c3aed;
+}
+.lvb.sup.done {
+  background: #7c3aed;
+}
+.tag.supt {
+  background: #7c3aed;
+  color: #fff;
+  margin-left: 6px;
+}

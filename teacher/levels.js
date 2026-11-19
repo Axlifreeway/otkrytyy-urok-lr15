@@ -207,19 +207,15 @@ window.LEVEL_NAMES = {
  "lr22": [
   "Пока книг 60",
   "20 000 книг",
-  "Сколько книг",
   "Запрос 1 · по ключу",
   "Запрос 2 · по названию",
-  "По началу названия",
   "Запрос 3 · диапазон",
   "По внешнему ключу",
-  "Вся таблица",
   "Запрос 4 · со справочником",
   "Таблица для отчёта",
   "Прогноз: три запроса",
   "Любые несколько",
   "Первые по порядку",
-  "Сколько стоит count(*)",
   "Книг каждого года",
   "Автор и год",
   "Десятилетие, толстые",
@@ -228,13 +224,17 @@ window.LEVEL_NAMES = {
   "Диапазон по ключу",
   "Кто что читает",
   "Прогноз по условию",
+  "Кому нужен индекс",
   "Или — или",
   "СУБД ошиблась",
   "Плодовитые авторы",
   "Страница каталога",
   "Запрос не видит индекс",
   "Самые читаемые авторы",
-  "Кому нужен индекс"
+  "Страница без OFFSET",
+  "Ни разу не выдавали",
+  "Пять самых толстых",
+  "Активные читатели"
  ],
  "lr23": [
   "Поиск без индекса",
@@ -270,4 +270,4 @@ window.LEVEL_NAMES = {
   "Убрать старую схему"
  ]
 };
-window.LEVEL_KEYS = {"lr13":["board","board2","biz","eco","first","family","meal2","nulls","badmeal","bags","heavy","row6","school","group","dupid","newbag","hunt","lookup","final"],"lr14":["kids","rest","byear","window","rename","two","light","scale","atomic","noshow","cascade","setnull","restrict","dest","loyal","gold","soft","back","hunt","final"],"lr15":["star","cols","loyal","grams","eq","noteq","cmp","ge","range","inlist","notin","noyear","like","letter","order2","paren","null","distinct","meals","oldest","top","final"],"lr16":["links","owner","mybags","dest","city","weight","sorted","disc","cardbags","cross","three","dest3","leftall","empty","noflight","nobag","final"],"lr17":["count","sum","avg","nulls","minmax1","qty","uniq","bypizza","sumcour","minmax","byday","bydist","veg","transport","avgdist","having","havsum","busy","hotdays","wherehav","aggwhere","final"],"lr18":["aboveavg","maxrow","belowavg","minrow","firstday","biggroup","inlist","incond","bytransport","nophone","notexists","notin","unsold","quiet","sub2","join2","exists","corr","final"],"lr19":["menu","month","big","letter","nophone","named","one","total","per","twice","avgp","over","never","newest","veg","fleet","pickup","cheap","district","percour","months","check"],"lr20":["ins2","upd1","aim","del","qtyfix","phone","cancel","guarded","forget","txroll","txcommit","oops","swap","parent","abort","raise","sick","repeat","leave","cheapup","late","move","dropmenu","final"],"lr21":["ins3","fkfail","noyear","aim","thick","delnew","delref","delaim","newcard","twocol","reauthor","addcol","addnull","genre","dropcol","fix","ckloan","txdel","return","txerr","final"],"lr22":["small","fill","count","pk","nonkey","like","range","byauthor","whole","join","report","guess3","limit","sort","agg","group","combo","decade","twoids","most","keyrange","join3","guess3b","orcond","estmiss","having","offset","rewrite","joinagg","final"],"lr23":["before","create","order","func","fk","list","uniq","uniqfail","pages","wide","after","size","extra","final"],"lr24":["role","grant","dp","asrole","who","deny","revoke","check","colgrant","colcheck","dump","rename","restore","again","final"]};
+window.LEVEL_KEYS = {"lr13":["board","board2","biz","eco","first","family","meal2","nulls","badmeal","bags","heavy","row6","school","group","dupid","newbag","hunt","lookup","final"],"lr14":["kids","rest","byear","window","rename","two","light","scale","atomic","noshow","cascade","setnull","restrict","dest","loyal","gold","soft","back","hunt","final"],"lr15":["star","cols","loyal","grams","eq","noteq","cmp","ge","range","inlist","notin","noyear","like","letter","order2","paren","null","distinct","meals","oldest","top","final"],"lr16":["links","owner","mybags","dest","city","weight","sorted","disc","cardbags","cross","three","dest3","leftall","empty","noflight","nobag","final"],"lr17":["count","sum","avg","nulls","minmax1","qty","uniq","bypizza","sumcour","minmax","byday","bydist","veg","transport","avgdist","having","havsum","busy","hotdays","wherehav","aggwhere","final"],"lr18":["aboveavg","maxrow","belowavg","minrow","firstday","biggroup","inlist","incond","bytransport","nophone","notexists","notin","unsold","quiet","sub2","join2","exists","corr","final"],"lr19":["menu","month","big","letter","nophone","named","one","total","per","twice","avgp","over","never","newest","veg","fleet","pickup","cheap","district","percour","months","check"],"lr20":["ins2","upd1","aim","del","qtyfix","phone","cancel","guarded","forget","txroll","txcommit","oops","swap","parent","abort","raise","sick","repeat","leave","cheapup","late","move","dropmenu","final"],"lr21":["ins3","fkfail","noyear","aim","thick","delnew","delref","delaim","newcard","twocol","reauthor","addcol","addnull","genre","dropcol","fix","ckloan","txdel","return","txerr","final"],"lr22":["small","fill","pk","nonkey","range","byauthor","join","report","guess3","limit","sort","group","combo","decade","twoids","most","keyrange","join3","guess3b","final","orcond","estmiss","having","offset","rewrite","joinagg","keyset","notloaned","topthick","readers"],"lr23":["before","create","order","func","fk","list","uniq","uniqfail","pages","wide","after","size","extra","final"],"lr24":["role","grant","dp","asrole","who","deny","revoke","check","colgrant","colcheck","dump","rename","restore","again","final"]};

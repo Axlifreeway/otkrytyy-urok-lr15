@@ -18,6 +18,16 @@ async function keysOf(lab) {
   const {makeData} = await import(new URL(data, root));
   return levels(makeData(3)).map(l => l.key);
 }
+async function supOf(lab) {
+  const n = +lab.slice(2);
+  const src = AIR[lab] || `lr${n}-3d/src/levels.js`;
+  const {levels} = await import(new URL(src, root));
+  const data = AIR[lab] ? AIR[lab] : n < 21 ? 'common/pizzadata.js' : 'common/libdata.js';
+  const {makeData} = await import(new URL(data, root));
+  return levels(makeData(3))
+    .filter(l => l.sup)
+    .map(l => l.key);
+}
 // значения из vm — из другого «мира»: deepEqual их не признаёт, пока не пересобрать
 const plain = v => (v == null ? v : JSON.parse(JSON.stringify(v)));
 // объект-литерал из исходника: «PTS = {…}» или «PTS: {…}»
@@ -64,7 +74,16 @@ test('добавленные позже уровни: одни и те же в �
     assert.deepEqual(client || undefined, ADDED[lab], `${lab}: added в лабе и ADDED на сервере`);
     if (!client) continue;
     client.forEach(k => assert.ok(keys.includes(k), `${lab}: ${k} — нет такого уровня`));
-    assert.equal(keys.at(-1), FINAL[lab] || 'final', `${lab}: последний уровень — ${keys.at(-1)}, сервер ждёт ${FINAL[lab] || 'final'}`);
-    assert.ok(!client.includes(keys.at(-1)), `${lab}: контрольный не может быть «добавленным»`);
+    // сверхсложные (sup) идут после контрольного; контрольный — последний из обычных
+    const sup = await supOf(lab),
+      reg = keys.filter(k => !sup.includes(k));
+    assert.deepEqual(keys.slice(reg.length), sup, `${lab}: сверхсложные — блоком после контрольного`);
+    assert.equal(
+      reg.at(-1),
+      FINAL[lab] || 'final',
+      `${lab}: последний обычный уровень — ${reg.at(-1)}, сервер ждёт ${FINAL[lab] || 'final'}`,
+    );
+    assert.ok(!client.includes(reg.at(-1)), `${lab}: контрольный не может быть «добавленным»`);
+    sup.forEach(k => assert.ok(!client.includes(k), `${lab}: сверхсложный ${k} не засчитывается сам — его нет в added`));
   }
 });

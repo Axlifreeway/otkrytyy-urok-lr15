@@ -207,7 +207,13 @@ const trustAll = () => {
 export const curState = () => {
   const lv = G && G.lv != null ? L[G.lv] : null,
     n = L.filter(l => !l.practice).length;
-  return {ok: !!(lv && (lv.practice || (G.P.lv[lv.key] || {}).done)), all: doneN() >= n, px: !!(lv && lv.practice)};
+  // «всё пройдено» — пройден контрольный: сверхсложные уровни после него — для тех, кто идёт на «5»
+  const fin = L.find(l => l.final);
+  return {
+    ok: !!(lv && (lv.practice || (G.P.lv[lv.key] || {}).done)),
+    all: doneN() >= n || !!(fin && (G.P.lv[fin.key] || {}).done),
+    px: !!(lv && lv.practice),
+  };
 };
 export const recOf = lv => (G.P.lv[lv.key] = G.P.lv[lv.key] || {runs: 0, fails: 0});
 const doneN = () => L.filter(l => !l.practice && (G.P.lv[l.key] || {}).done).length;
@@ -266,7 +272,7 @@ export function renderLevels() {
       if (lv.practice)
         return `<button class="lvb px${i === G.lv ? ' on' : ''}" data-i="${i}" title="Тренировка: решено ${G.P.practice || 0}">∞</button>`;
       const late = isLate(lv);
-      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${late ? ' late' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${esc(lv.title)}${late ? ' · пройден после фиксации — за половину баллов' : ''}">${unlocked(i) ? (lv.final ? cfg.finalIcon || '✈' : i + 1) : cfg.lockIcon || '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
+      return `<button class="lvb${i === G.lv ? ' on' : ''}${rec.done ? ' done' : ''}${late ? ' late' : ''}${lv.final ? ' fin' : ''}${lv.hard ? ' hard' : ''}${lv.sup ? ' sup' : ''}" data-i="${i}" ${unlocked(i) ? '' : 'disabled'} title="${lv.sup ? 'Сверхсложный · ' : ''}${esc(lv.title)}${late ? ' · пройден после фиксации — за половину баллов' : ''}">${unlocked(i) ? (lv.final ? cfg.finalIcon || '✈' : i + 1) : cfg.lockIcon || '🔒'}${rec.done ? `<i class="st">${'★'.repeat(starsOf(rec))}</i>` : ''}</button>`;
     }).join('') +
     (G.demo
       ? '<span class="demo">ДЕМО</span>'
@@ -283,7 +289,7 @@ export function renderLevels() {
 // подсказка после промахов и кнопка «Решение» в демо-режиме
 export function missionButtons(lv, rec, minFails = 2) {
   const sol = ((lv.sol || lv.ref || lv.ask) && G.demo) || (lv.practice && (lv.ref || lv.ask) && (rec.fails || 0) >= 2); // в тренировке после двух промахов можно подсмотреть
-  return `<div class="mbtn">${!lv.final && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${sol ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, lv.sel || (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
+  return `<div class="mbtn">${!lv.final && !lv.sup && lv.hint && (rec.fails || 0) >= minFails ? '<button class="btn sm" id="hintBtn">Подсказка</button>' : ''}${sol ? '<button class="btn sm" id="solBtn">Решение</button>' : ''}</div><div id="hintBox"></div>${cfg.REF ? sqlRef(cfg.REF, lv.sel || (cfg.REF_NEED || []).includes(lv.key)) : ''}`;
 }
 export function bindMissionButtons(lv, rec) {
   if ($('hintBtn'))
@@ -300,7 +306,9 @@ export function bindMissionButtons(lv, rec) {
 export const levelTag = lv =>
   lv.practice
     ? `<span class="tag">ТРЕНИРОВКА · без баллов</span><span class="tag hardt">решено: ${G.P.practice || 0}</span>`
-    : `<span class="tag">${lv.final ? 'КОНТРОЛЬНЫЙ' : 'УРОВЕНЬ ' + (G.lv + 1) + ' / ' + L.length}</span>${lv.hard ? '<span class="tag hardt">СЛОЖНЫЙ · ' + comma(cfg.PTS[lv.key]) + ' балла</span>' : ''}`;
+    : lv.sup
+      ? `<span class="tag">УРОВЕНЬ ${G.lv + 1} / ${L.length}</span><span class="tag supt">★ СВЕРХСЛОЖНЫЙ · ${comma(cfg.PTS[lv.key])} балла · без подсказок</span>`
+      : `<span class="tag">${lv.final ? 'КОНТРОЛЬНЫЙ' : 'УРОВЕНЬ ' + (G.lv + 1) + ' / ' + L.length}</span>${lv.hard ? '<span class="tag hardt">СЛОЖНЫЙ · ' + comma(cfg.PTS[lv.key]) + ' балла</span>' : ''}`;
 
 // прогнозы уровня: lv.pred — один (ключ — lv.key), lv.preds — несколько (ключи lv.key.0, lv.key.1 …)
 export const predsOf = lv => (lv.preds ? lv.preds.map((p, i) => [`${lv.key}.${i}`, p]) : lv.pred ? [[lv.key, lv.pred]] : []);
@@ -422,9 +430,10 @@ export async function success(lv, rec) {
 // например «план на 60 книгах» до наполнения таблицы), остаётся на месте и засчитывается сам.
 export function oldOrder(P = G.P) {
   const added = new Set(cfg.added || []),
-    fin = L[L.length - 1];
-  const late = l => added.has(l.key) && !l.early;
-  L = [...L.filter(l => !late(l) && l !== fin), ...L.filter(late), fin];
+    fin = L.find(l => l.final),
+    sup = L.filter(l => l.sup); // сверхсложные — всегда после контрольного
+  const late = l => added.has(l.key) && !l.early && !l.sup;
+  L = [...L.filter(l => !late(l) && l !== fin && !l.sup), ...L.filter(late), fin, ...sup];
   L.filter(l => added.has(l.key) && l.early && !(P.lv[l.key] || {}).done).forEach(l => {
     P.lv[l.key] = {
       runs: 0,
@@ -438,7 +447,7 @@ export function oldOrder(P = G.P) {
 }
 // лаба пройдена до того, как в неё добавили уровни, — новые уровни засчитываются
 function credit(P) {
-  const fin = P.lv[L[L.length - 1].key]; // последний (контрольный) уровень
+  const fin = P.lv[L.find(l => l.final).key]; // контрольный уровень
   if (!cfg.added || !(fin || {}).done) return;
   cfg.added.forEach(k => {
     if (!(P.lv[k] || {}).done)
@@ -513,10 +522,19 @@ function endScreen() {
   const preds = Object.values(G.P.pred),
     pr = preds.filter(p => p.right).length;
   const [v3, l3] = cfg.end.stat();
+  // первый непройденный сверхсложный уровень (−1 — их нет или все пройдены)
+  const supLeft = L.findIndex(l => l.sup && !(G.P.lv[l.key] || {}).done);
   m.innerHTML = `<div class="dlg panel end"><span class="tag">${esc(cfg.end.tag)}</span><h2>${esc(cfg.endTitle ? cfg.endTitle() : `Рейс ${cfg.flight()} в воздухе`)}</h2>
     <div class="end-row"><div><b>${doneN()}/${L.length}</b><span>уровней</span></div><div><b>${pr}/${preds.length}</b><span>прогнозов верно</span></div>
       <div><b>${v3}</b><span>${esc(l3)}</span></div><div><b>${score().sum}/9</b><span>баллов автоматически</span></div></div>
-    <div class="btns"><button class="nextBtn" id="protoBtn">Протокол для отчёта</button>${cfg.practice ? '<button class="btn" id="pxBtn">🔁 Тренировка без баллов</button>' : ''}<button class="btn" id="backBtn">Вернуться</button></div></div>`;
+    ${supLeft >= 0 ? `<p class="mu">Обычные уровни пройдены. Для «5» нужны сверхсложные: ${L.filter(l => l.sup).length} задач без подсказок, запрос и выводы — сами.</p>` : ''}
+    <div class="btns">${supLeft >= 0 ? '<button class="nextBtn" id="supBtn">★ Сверхсложные уровни</button>' : ''}<button class="${supLeft >= 0 ? 'btn' : 'nextBtn'}" id="protoBtn">Протокол для отчёта</button>${cfg.practice ? '<button class="btn" id="pxBtn">🔁 Тренировка без баллов</button>' : ''}<button class="btn" id="backBtn">Вернуться</button></div></div>`;
+  if ($('supBtn'))
+    $('supBtn').onclick = () => {
+      m.hidden = true;
+      W.resetRoot();
+      cfg.startLevel(supLeft);
+    };
   $('protoBtn').onclick = protocol;
   if ($('pxBtn')) $('pxBtn').onclick = startPractice;
   $('backBtn').onclick = () => {

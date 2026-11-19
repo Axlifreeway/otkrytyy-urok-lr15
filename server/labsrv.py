@@ -112,7 +112,7 @@ ADDED = {
     'lr19': ['veg', 'fleet', 'pickup', 'cheap', 'district', 'percour', 'months'],
     'lr20': ['qtyfix', 'phone', 'cancel', 'guarded', 'forget', 'txcommit', 'swap'],
     'lr21': ['newcard', 'reauthor', 'addnull', 'dropcol', 'return', 'thick', 'delaim', 'ckloan', 'txerr', 'noyear', 'twocol', 'genre'],
-    'lr22': ['small', 'like', 'byauthor', 'whole', 'sort', 'agg', 'most', 'report', 'guess3', 'limit', 'group', 'combo', 'decade', 'twoids', 'keyrange', 'join3', 'guess3b', 'orcond', 'estmiss', 'having', 'offset', 'rewrite', 'joinagg'],
+    'lr22': ['small', 'byauthor', 'sort', 'most', 'report', 'guess3', 'limit', 'group', 'combo', 'decade', 'twoids', 'keyrange', 'join3', 'guess3b'],
     'lr23': ['order', 'func', 'uniq', 'uniqfail', 'pages', 'wide', 'size', 'after'],
     'lr24': ['dp', 'who', 'colgrant', 'colcheck', 'again'],
 }
