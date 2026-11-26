@@ -7,7 +7,8 @@ const KEYWORDS = new Set(
   (
     'select from where insert into values update set delete and or not null is in like ilike between order by asc desc ' +
     'limit offset default true false count distinct as join inner left right full outer on group having union all exists any case when then ' +
-    'else end returning sum avg min max coalesce cascade begin commit rollback create table drop alter primary key references check unique'
+    'else end returning sum avg min max coalesce cascade begin commit rollback create table drop alter primary key references check unique ' +
+    'view replace materialized refresh with option over partition window rows preceding following unbounded current row grant revoke'
   ).split(' '),
 );
 const TOKEN = /(--[^\n]*)|('(?:[^']|'')*'?)|(\b\d+(?:\.\d+)?\b)|([A-Za-zА-Яа-яЁё_][\wА-Яа-яЁё]*)|([\s\S])/g;

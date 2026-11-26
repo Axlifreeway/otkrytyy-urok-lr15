@@ -197,7 +197,7 @@ function draw(state) {
   c += box(16.6, 3.25, 0, 1.0, 0.06, 1.2, '#5b3d2b', {left: '#5b3d2b'});
   c += tree(21.2, 1.4, 0.9) + tree(13.6, 4.2, 0.8);
   s += state.lib.live
-    ? `<a class="bld" href="library/" aria-label="Библиотека: ЛР-21–24"><g>${c}${badge(17, 2, 3.6, '📚 Библиотека', state.lib.text)}</g></a>`
+    ? `<a class="bld" href="library/" aria-label="Библиотека: ЛР-21–26"><g>${c}${badge(17, 2, 3.6, '📚 Библиотека', state.lib.text)}</g></a>`
     : `<g class="bld off">${c}${badge(17, 2, 3.6, '📚 Библиотека', state.lib.text, 170)}</g>`;
 
   // ── пиццерия
@@ -254,7 +254,7 @@ function render(open, prog = {}) {
   draw({
     air: `ЛР-13–16 · ${air.done}/${air.all}`,
     pizza: pz.live ? `ЛР-17–20 · ${pz.done}/${pz.all}` : 'ЛР-17–20 · скоро',
-    lib: {live: !!lib.live, text: lib.live ? `ЛР-21–24 · ${lib.done}/${lib.all}` : 'ЛР-21–24 · скоро'},
+    lib: {live: !!lib.live, text: lib.live ? `ЛР-21–26 · ${lib.done}/${lib.all}` : 'ЛР-21–26 · скоро'},
     robotAt: lib.live ? 'library' : pz.live ? 'pizza' : 'airport',
   });
   const card = (href, ico, bg, title, labs, text, st, live) =>
@@ -266,7 +266,7 @@ function render(open, prog = {}) {
   $('worlds').innerHTML =
     card('airport/', '✈', '#ffc21a', 'Аэропорт', 'ЛР-13–16', 'Рейсы, пассажиры, багаж: INSERT, UPDATE и DELETE, выборка и соединение таблиц.', bar(air), true) +
     card('pizza/', '🍕', '#d2483c', 'SQL Pizza', 'ЛР-17–20', 'Заказы, пиццы, курьеры: итоги смены — GROUP BY и HAVING, подзапросы, закрепление и касса — транзакции.', pz.live ? bar(pz) : '<span class="st later">СКОРО</span>', true) +
-    card('library/', '📚', '#2f5d46', 'Городская библиотека', 'ЛР-21–24', '20 000 книг: изменение структуры, план запроса EXPLAIN, индексы — шкафы каталога, права доступа и резервная копия.', lib.live ? bar(lib) : '<span class="st later">СКОРО</span>', true);
+    card('library/', '📚', '#2f5d46', 'Городская библиотека', 'ЛР-21–26', '20 000 книг: изменение структуры, план запроса EXPLAIN, индексы — шкафы каталога, права доступа и резервная копия, представления и оконные функции.', lib.live ? bar(lib) : '<span class="st later">СКОРО</span>', true);
 }
 let OPEN = null;
 render(OPEN);

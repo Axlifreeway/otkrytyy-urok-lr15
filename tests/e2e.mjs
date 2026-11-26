@@ -349,7 +349,7 @@ async function serverFlow() {
     labs: [...document.querySelectorAll('#labSel option')].map(o => o.value).filter(Boolean),
     names: Object.values(window.LEVEL_NAMES || {}).map(a => a.length),
   }));
-  if (panel.labs.length !== 12 || panel.names.length !== 12 || panel.names.some(n => !n))
+  if (panel.labs.length !== 14 || panel.names.length !== 14 || panel.names.some(n => !n))
     fails.push(`server-flow: в панели не все лабы: ${JSON.stringify(panel)}`);
   await t.page.click('#repBtn');
   await t.page.click('#repList tr.row');
@@ -517,14 +517,16 @@ const jobs = {
   lr22: () => lab3d('lr22', 'lr22-3d'),
   lr23: () => lab3d('lr23', 'lr23-3d'),
   lr24: () => lab3d('lr24', 'lr24-3d'),
+  lr25: () => lab3d('lr25', 'lr25-3d'),
+  lr26: () => lab3d('lr26', 'lr26-3d'),
   // те же лабы в «старом порядке» (у тех, кто начал до добавления уровней) — только по имени: old-lr14 и т. п.
-  ...Object.fromEntries(Array.from({length: 12}, (_, i) => 13 + i).map(n => ['old-lr' + n, () => lab3d('lr' + n, `lr${n}-3d`, true)])),
-  // город: пока ЛР-17–24 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии и библиотеки — по четыре лабы
+  ...Object.fromEntries(Array.from({length: 14}, (_, i) => 13 + i).map(n => ['old-lr' + n, () => lab3d('lr' + n, `lr${n}-3d`, true)])),
+  // город: пока ЛР-17–26 закрыты, «/» ведёт в аэропорт; карта — по /?map; у пиццерии — четыре лабы, у библиотеки — шесть
   city: async () => {
     const {page, errors} = await open('/');
     await page
       .waitForURL(/\/airport\/$/, {timeout: 15000})
-      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17–24 закрыты'));
+      .catch(() => fails.push('city: «/» не перевёл в аэропорт, хотя ЛР-17–26 закрыты'));
     await page.goto(BASE + '/?map');
     await page
       .waitForFunction(
@@ -550,7 +552,7 @@ const jobs = {
     await page.goto(BASE + '/library/');
     await page
       .waitForFunction(
-        () => document.querySelectorAll('#tickets .ticket').length === 4 && document.querySelectorAll('.receipt').length === 4,
+        () => document.querySelectorAll('#tickets .ticket').length === 6 && document.querySelectorAll('.receipt').length === 6,
         null,
         {timeout: 15000},
       )

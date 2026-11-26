@@ -157,7 +157,7 @@
     <label>Группа <input id="gName" placeholder="например 2.1"></label>
     <textarea id="gList" rows="10" placeholder="Иванов Иван&#10;Петрова Анна&#10;…"></textarea>
     <div><button class="btn on" id="gSave">Сохранить список</button> <button class="btn" id="gNew" hidden>Отмена</button> <span id="gMsg" class="mu"></span></div></div>
-  <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13–16 (аэропорт) открыты всегда. ЛР-17–20 (пиццерия) и ЛР-21–24 (библиотека) студенты не увидят, пока вы их не откроете; карта города появится, когда откроете хотя бы одну.</div><div id="gateList"></div>
+  <div><div class="panel gform" id="labGate"><h2>Доступ к лабораторным</h2><div class="mu">ЛР-13–16 (аэропорт) открыты всегда. ЛР-17–20 (пиццерия) и ЛР-21–26 (библиотека) студенты не увидят, пока вы их не откроете; карта города появится, когда откроете хотя бы одну.</div><div id="gateList"></div>
     <div class="gate"><button class="btn" id="trBtn" title="Обезличенная выгрузка набора по уровням (без ФИО, IP и групп) — для разбора коэффициента доверия. Файл .jsonl">⬇ Данные набора</button><span class="mu">для разбора коэффициента доверия, без ФИО</span></div></div>
   <div id="gCards"></div></div>
 </div>
@@ -183,7 +183,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&am
 // названия уровней — teacher/levels.js, его собирает tools/build.mjs из самих лаб
 const NAMES = window.LEVEL_NAMES || {};
 // лабы в фильтре и в таблице групп: номер — тема
-const LABS = {lr13: 'INSERT', lr14: 'UPDATE/DELETE', lr15: 'SELECT', lr16: 'JOIN', lr17: 'GROUP BY', lr18: 'подзапросы', lr19: 'закрепление', lr20: 'транзакции', lr21: 'изменение структуры', lr22: 'EXPLAIN', lr23: 'индексы', lr24: 'права и копия'};
+const LABS = {lr13: 'INSERT', lr14: 'UPDATE/DELETE', lr15: 'SELECT', lr16: 'JOIN', lr17: 'GROUP BY', lr18: 'подзапросы', lr19: 'закрепление', lr20: 'транзакции', lr21: 'изменение структуры', lr22: 'EXPLAIN', lr23: 'индексы', lr24: 'права и копия', lr25: 'представления', lr26: 'оконные функции'};
 $('labSel').innerHTML = '<option value="">все ЛР</option>' + Object.entries(LABS).map(([l, t]) => `<option value="${l}">ЛР-${l.slice(2)} ${t}</option>`).join('');
 let LEVELS = {};   // число уровней в лабе — с сервера
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
@@ -202,7 +202,7 @@ function range() {
   return {since: pair ? since : from, until: to, isToday, pair};
 }
 const hl = s => window.sqlHL ? window.sqlHL(s) : esc(s);
-const LABN = {lr13: 'ЛР-13', lr14: 'ЛР-14', lr15: 'ЛР-15', lr16: 'ЛР-16', lr17: 'ЛР-17', lr18: 'ЛР-18', lr19: 'ЛР-19', lr20: 'ЛР-20', lr21: 'ЛР-21', lr22: 'ЛР-22', lr23: 'ЛР-23', lr24: 'ЛР-24', lr13t: 'ЛР-13 тетрадь', lr14t: 'ЛР-14 тетрадь', lr16t: 'ЛР-16 тетрадь'};
+const LABN = {lr13: 'ЛР-13', lr14: 'ЛР-14', lr15: 'ЛР-15', lr16: 'ЛР-16', lr17: 'ЛР-17', lr18: 'ЛР-18', lr19: 'ЛР-19', lr20: 'ЛР-20', lr21: 'ЛР-21', lr22: 'ЛР-22', lr23: 'ЛР-23', lr24: 'ЛР-24', lr25: 'ЛР-25', lr26: 'ЛР-26', lr13t: 'ЛР-13 тетрадь', lr14t: 'ЛР-14 тетрадь', lr16t: 'ЛР-16 тетрадь'};
 const hm = t => new Date(t).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
 const dhm = t => new Date(t).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
 const mins = ms => ms < 60000 ? Math.round(ms / 1000) + ' с' : Math.floor(ms / 60000) + ' мин';
@@ -370,7 +370,7 @@ function renderProj(ps) {
 // Эталоны — teacher/answers.js (собирает tools/build.mjs из самих лаб), грузится при первом щелчке:
 // у каждого варианта свои данные, поэтому эталон считается по номеру варианта студента
 let ansLoad = null;
-const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=c4dc4e0fc0'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
+const loadAnswers = () => ansLoad || (ansLoad = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'answers.js?v=3edec56930'; s.onload = ok; s.onerror = () => { ansLoad = null; no(); }; document.head.appendChild(s); }));
 const sqlBlock = qs => qs.map(q => `<pre>${hl(String(q).replace(/;?\s*$/, ';'))}</pre>`).join('');
 async function showAnswer(client, lvN) {
   const p = data.people.find(x => x.client === client); if (!p) return;

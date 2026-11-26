@@ -251,6 +251,15 @@ body.pg {
   top: 7px;
   border-top: 1px solid #b5c4d5;
 }
+.ic.view,
+.ic.mview {
+  background: linear-gradient(#4f9d8f 0 4px, #fff 4px) no-repeat;
+  border: 1px dashed #4f9d8f;
+}
+.ic.mview {
+  border-style: solid;
+  background: linear-gradient(#4f9d8f 0 4px, #dff0ec 4px) no-repeat;
+}
 .ic.col {
   width: 8px;
   height: 12px;

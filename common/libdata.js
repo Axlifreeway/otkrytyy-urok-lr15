@@ -2,7 +2,7 @@
 // Таблицы — в своей схеме library (как в задании: у студента своя схема); search_path = library, public.
 // Вариант — номер студента: у соседа другие книги, читатели и выдачи.
 //   ЛР-21 меняет данные и структуру; ЛР-22 и ЛР-23 наполняют book до 20 000 строк и смотрят планы;
-//   ЛР-24 — роли, права и копия схемы library.
+//   ЛР-24 — роли, права и копия схемы library; ЛР-25 — представления (VIEW); ЛР-26 — оконные функции.
 import {rng} from './rng.js';
 export {rng};
 
@@ -129,7 +129,9 @@ export function makeData(seed) {
   }
   // автор, у которого есть книги (его нельзя удалить), и редкий год для поиска
   const busy = BK[r.int(0, BK.length - 1)].author_id;
-  return {seed, AU, BK, RD, LN, busy, role: `s${pad(seed % 100)}_reader`};
+  // роли ЛР-24 и ЛР-25: читатель, группа без входа и библиотекарь (имена — по номеру варианта)
+  const nn = pad(seed % 100);
+  return {seed, AU, BK, RD, LN, busy, role: `s${nn}_reader`, staff: `s${nn}_staff`, librarian: `s${nn}_librarian`};
 }
 
 export const SCHEMA = `
@@ -176,7 +178,7 @@ const dropRole = role =>
   `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN EXECUTE 'DROP OWNED BY ${role}'; EXECUTE 'DROP ROLE ${role}'; END IF; END $$;\n`;
 export function baseSql(D) {
   return (
-    dropRole(D.role) +
+    [D.role, D.staff, D.librarian].filter(Boolean).map(dropRole).join('') +
     SCHEMA +
     '\n' +
     rows('author', ['id', 'full_name', 'country'], D.AU) +
@@ -187,7 +189,8 @@ export function baseSql(D) {
   );
 }
 // схема library заново — то, что вернёт восстановление из копии в ЛР-24 (без DROP: старая схема переименована),
-// с правами, которые к этому моменту выданы роли
+// с правами, которые к этому моменту выданы роли-читателю (группе staff права на новую схему выдаёт уровень, которому они нужны:
+// у начавших лабу до появления группы восстановление идёт раньше, чем группа создана)
 export function restoreSql(D) {
   return (
     SCHEMA.replace(/^[\s\S]*?CREATE SCHEMA library;/, 'CREATE SCHEMA library;') +
@@ -196,7 +199,8 @@ export function restoreSql(D) {
     rows('library.book', ['id', 'title', 'author_id', 'year', 'pages', 'isbn'], D.BK) +
     rows('library.reader', ['id', 'full_name', 'card', 'phone'], D.RD) +
     rows('library.loan', ['id', 'book_id', 'reader_id', 'taken', 'returned'], D.LN) +
-    `GRANT USAGE ON SCHEMA library TO ${D.role};\nGRANT SELECT ON library.book TO ${D.role};\nGRANT SELECT (full_name, id) ON library.reader TO ${D.role};\n`
+    `GRANT USAGE ON SCHEMA library TO ${D.role};\nGRANT SELECT ON library.book TO ${D.role};\nGRANT INSERT ON library.loan TO ${D.role};\n` +
+    `GRANT SELECT (full_name, id) ON library.reader TO ${D.role};\nGRANT UPDATE (phone) ON library.reader TO ${D.role};\n`
   );
 }
 // 20 000 книг — как в образце задания ЛР-22: INSERT … SELECT … FROM generate_series

@@ -13,6 +13,8 @@ import {levels as l21} from '../lr21-3d/src/levels.js';
 import {levels as l22} from '../lr22-3d/src/levels.js';
 import {levels as l23} from '../lr23-3d/src/levels.js';
 import {levels as l24} from '../lr24-3d/src/levels.js';
+import {levels as l25} from '../lr25-3d/src/levels.js';
+import {levels as l26} from '../lr26-3d/src/levels.js';
 import {makeData as pizza} from '../common/pizzadata.js';
 import {makeData as lib} from '../common/libdata.js';
 
@@ -29,6 +31,8 @@ const LABS = {
   lr22: [lib, l22],
   lr23: [lib, l23],
   lr24: [lib, l24],
+  lr25: [lib, l25],
+  lr26: [lib, l26],
 };
 const cache = new Map();
 window.labAnswers = (lab, seed) => {

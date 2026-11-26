@@ -155,6 +155,12 @@ export const ROLE_REF = [
   ['Подключиться под ролью и вернуться (psql)', '\\c crewdb crew_reader\n\\c crewdb postgres'],
   ['Отобрать право', 'REVOKE SELECT ON crewdb.base FROM crew_reader;'],
   ['Кто что может (psql)', '\\dp\n\\du'],
+  ['Права на часть столбцов', 'GRANT SELECT (id, name) ON crewdb.crew TO crew_reader;\nGRANT UPDATE (city) ON crewdb.crew TO crew_reader;'],
+  [
+    'Групповая роль: права — группе, люди — её члены',
+    'CREATE ROLE crew_staff NOLOGIN;\nGRANT SELECT ON crewdb.base TO crew_staff;\nGRANT crew_staff TO crew_reader;',
+  ],
+  ['Закрыть и открыть вход', 'ALTER ROLE crew_reader NOLOGIN;\nALTER ROLE crew_reader LOGIN;'],
 ];
 export const DUMP_REF = [
   ['Копия схемы в файл (командная строка)', 'pg_dump -U postgres -d crewdb -n crewdb -f kopiya.sql'],
@@ -164,6 +170,52 @@ export const DUMP_REF = [
     'Сравнить и удалить старую',
     'SELECT count(*) FROM crewdb.crew;\nSELECT count(*) FROM crewdb_old.crew;\nDROP SCHEMA crewdb_old CASCADE;',
   ],
+];
+
+export const VIEW_REF = [
+  [
+    'Представление — сохранённый запрос',
+    "CREATE VIEW v_crew_city AS\nSELECT c.name, b.city\nFROM crew c JOIN base b ON b.id = c.base_id;\n\nSELECT * FROM v_crew_city WHERE city = 'Омск';",
+  ],
+  [
+    'Дописать столбец в конец',
+    'CREATE OR REPLACE VIEW v_crew_city AS\nSELECT c.name, b.city, c.age\nFROM crew c JOIN base b ON b.id = c.base_id;',
+  ],
+  ['Список и определение (psql)', '\\dv\n\\d v_crew_city'],
+  ['Удалить', 'DROP VIEW v_crew_city;          -- если от него ничего не зависит\nDROP VIEW v_crew_city CASCADE;  -- вместе с зависимыми'],
+  [
+    'Не выпустить строку за условие',
+    'CREATE VIEW v_young AS\nSELECT id, name, age FROM crew WHERE age < 30\nWITH CHECK OPTION;   -- INSERT/UPDATE с age >= 30 через него — отказ',
+  ],
+  ['Право только на представление', 'GRANT SELECT ON crewdb.v_crew_city TO crew_reader;   -- на crew права нет'],
+  [
+    'Материализованное — хранит ответ',
+    'CREATE MATERIALIZED VIEW mv_city AS\nSELECT city, count(*) AS n FROM crew GROUP BY city;\nREFRESH MATERIALIZED VIEW mv_city;   -- пересчитать',
+  ],
+];
+export const WINDOW_REF = [
+  ['Номер строки по порядку', 'SELECT name, age,\n  row_number() OVER (ORDER BY age, id) AS n\nFROM crew;'],
+  [
+    'Итог рядом с каждой строкой',
+    'SELECT name, age,\n  avg(age) OVER () AS avg_all,\n  count(*) OVER (PARTITION BY city) AS in_city\nFROM crew;   -- строк столько же, сколько в crew',
+  ],
+  ['Места: rank и dense_rank', 'rank()       OVER (ORDER BY age DESC)  -- 1, 1, 3\ndense_rank() OVER (ORDER BY age DESC)  -- 1, 1, 2'],
+  ['Накопительный итог', 'SELECT id, age,\n  sum(age) OVER (ORDER BY id) AS so_far\nFROM crew;'],
+  [
+    'Соседняя строка: lag и lead',
+    'SELECT name, age,\n  lag(age)  OVER (ORDER BY age) AS prev,\n  lead(age) OVER (ORDER BY age) AS next\nFROM crew;',
+  ],
+  [
+    'first_value и рамка окна',
+    'first_value(name) OVER (PARTITION BY city ORDER BY age)\navg(age) OVER (ORDER BY id ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)',
+  ],
+  ['ntile — на равные группы', 'ntile(4) OVER (ORDER BY age)   -- 1, 1, 2, 2, 3, 3, 4, 4'],
+  ['Окно с именем', 'SELECT name, row_number() OVER w, sum(age) OVER w\nFROM crew\nWINDOW w AS (PARTITION BY city ORDER BY age);'],
+  [
+    'Первые N в каждой группе — через подзапрос',
+    'SELECT city, name FROM (\n  SELECT city, name,\n    row_number() OVER (PARTITION BY city ORDER BY age DESC) AS n\n  FROM crew\n) t\nWHERE n <= 2;   -- в WHERE самого запроса окна ещё нет',
+  ],
+  ['Порядок вычисления', 'FROM → WHERE → GROUP BY → HAVING → окна (OVER) → SELECT → ORDER BY'],
 ];
 
 export function sqlRef(groups, need = false) {
