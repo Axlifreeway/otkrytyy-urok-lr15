@@ -478,7 +478,7 @@ export function levels(D) {
       key: 'lastval',
       title: 'Ловушка last_value',
       lab: 'сверхсложный · рамка до конца окна',
-      text: `Книги автора № ${AZ.id} по году (при равном годе — по id): year, title и newest — название его самой новой книги, в каждой строке одно и то же. Посчитайте newest именно функцией last_value — и проверьте, что в каждой строке стоит действительно последняя книга.`,
+      text: `Книги автора № ${AZ.id} по году (при равном годе — по id): year, title и newest — название его самой новой книги, в каждой строке одно и то же. Посчитайте newest именно функцией last_value — и проверьте, что в каждой строке стоит действительно последняя книга. Если нет — дело в рамке окна (в справочнике есть рамка до конца окна).`,
       q: 'Почему last_value «не видит» последнюю строку?',
       goals: ['Столбцы: year, title, newest', 'newest — last_value(title), одинаковый во всех строках', 'Порядок: год, id'],
       ask: `SELECT year, title, last_value(title) OVER (ORDER BY year, id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS newest FROM book WHERE author_id = ${AZ.id} ORDER BY year, id`,

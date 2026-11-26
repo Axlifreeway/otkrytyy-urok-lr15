@@ -382,6 +382,7 @@ ${share != null ? `<rect x="-45" y="66" width="90" height="4" rx="2" class="pgx-
 
 // ═══════════════════════════ окно результата: Data Output / Messages / Explain ══
 // common/qlab.js пишет ответ в #result (таблица .rtab, сообщения, план pre.plan) — раскладываем по вкладкам
+let showTab = null; // переключить вкладку результата (вкладку «Приложение» ЛР-25 добавляет common/appscreen.js)
 function outputTabs() {
   const out = $('pgOut'),
     res = $('result'),
@@ -390,8 +391,9 @@ function outputTabs() {
   const tabs = [...out.querySelectorAll('[data-tab]')];
   const show = t => {
     out.dataset.tab = t;
-    tabs.forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+    out.querySelectorAll('.pg-tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   };
+  showTab = show;
   tabs.forEach(b => (b.onclick = () => !b.disabled && show(b.dataset.tab)));
   let t0 = 0,
     lastPlan = '';
@@ -571,6 +573,7 @@ export function createPgWorld(el, {db: dbName = 'library'} = {}) {
     },
     async sync() {},
     refresh: () => T.refresh(),
+    tab: t => showTab && showTab(t),
     confetti: () => confetti(false),
     clearConfetti,
     // контрольный пройден: большой залп вместо взлёта самолёта

@@ -8,6 +8,7 @@ import {makeData, baseSql, TABLES, COLS, sel} from './libdata.js';
 import {$} from './util.js';
 import {initShell, boot, G} from './shell.js';
 import {queryLab} from './qlab.js';
+import {appScreen} from './appscreen.js';
 
 // значения в примерах справочника — по-английски, как и данные этих лаб (сам справочник общий с ЛР-13–20)
 const EN = {
@@ -26,8 +27,30 @@ const EN = {
 const enRef = groups => groups.map(g => g.map(([t, ex]) => [t, ex.replace(/'([^']*)'/g, (m, v) => (v in EN ? `'${EN[v]}'` : m))]));
 
 // base — своя исходная база (ЛР-23 начинает с таблицы на 20 000 строк)
-export function libLab({lab, title, intro, about, levels, PTS, REF, REF_NEED = [], questions, practice, added, base = baseSql}) {
+// app — вкладка «Приложение»: представления как окна программы (ЛР-25, common/appscreen.js)
+export function libLab({
+  lab,
+  title,
+  intro,
+  about,
+  levels,
+  PTS,
+  REF,
+  REF_NEED = [],
+  questions,
+  practice,
+  added,
+  base = baseSql,
+  app = false,
+}) {
   const W = createPgWorld($('stage'), {db: 'library'});
+  if (app) {
+    const A = appScreen(W),
+      cat = W.catalog,
+      build = W.build;
+    W.catalog = info => (cat(info), A.later());
+    W.build = (...a) => (A.reset(), build(...a));
+  }
   sound.muted = true; // без звуков: рабочая среда, а не игра
   const Q = queryLab({
     W,
