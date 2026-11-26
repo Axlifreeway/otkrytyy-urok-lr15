@@ -95,7 +95,8 @@ export function parseSelect(sql) {
   const star = cols.some(c => c === '*' || /^\w+\.\*$/.test(c));
   // таблицы и псевдонимы: FROM a x JOIN b y ON … LEFT JOIN c z ON … / FROM a, b
   const tables = [];
-  const re = /(^|,|\b(?:(left|right|full|inner|cross)\s+(?:outer\s+)?)?join\b)\s*(\w+)(?:\s+(?:as\s+)?(\w+))?/gi;
+  // имя таблицы может быть со схемой: library.author — таблица author
+  const re = /(^|,|\b(?:(left|right|full|inner|cross)\s+(?:outer\s+)?)?join\b)\s*(?:\w+\.)?(\w+)(?:\s+(?:as\s+)?(\w+))?/gi;
   let m;
   const depth0 = i => {
     let d = 0;

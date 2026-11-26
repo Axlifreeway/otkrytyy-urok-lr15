@@ -152,3 +152,14 @@ test('compareResult: строки, столбцы, порядок', () => {
   assert.equal(compareResult({fields: ['a'], rows: [[null], [5]]}, {fields: ['a'], rows: [[5], [null]]}).ok, true);
   assert.equal(compareResult({fields: ['a'], rows: [[null]]}, {fields: ['a'], rows: [['NULL']]}).ok, false);
 });
+
+test('таблица со схемой: library.author — это author', () => {
+  assert.deepEqual(parseSelect('SELECT count(*) FROM library.author').tables, [{t: 'author', alias: 'author', kind: 'from'}]);
+  assert.deepEqual(
+    parseSelect('SELECT b.title FROM library.book b JOIN library.author a ON a.id = b.author_id').tables.map(x => [x.t, x.alias]),
+    [
+      ['book', 'b'],
+      ['author', 'a'],
+    ],
+  );
+});
