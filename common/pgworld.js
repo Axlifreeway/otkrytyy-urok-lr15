@@ -1,4 +1,4 @@
-// Рабочее место «как в pgAdmin» для лаб по структуре базы (ЛР-21–24): вместо 3D-сцены — дерево объектов
+// Рабочее место «как в pgAdmin» для лаб по структуре базы (ЛР-21–26): вместо 3D-сцены — дерево объектов
 // (Object Explorer), окно запросов с вкладками Data Output / Messages / Explain и графический план EXPLAIN.
 // Ход лабы (common/qlab.js) и каркас (common/shell.js) те же, что у 3D-лаб: им отдаётся «мир» с тем же набором
 // методов, только без анимаций. Дерево перечитывается из каталога после каждой команды — новый индекс,
@@ -15,6 +15,9 @@ const IC = {
   schema: 'sch',
   tables: 'grp',
   table: 'tbl',
+  views: 'grp',
+  view: 'view',
+  mview: 'mview',
   cols: 'grp',
   col: 'col',
   cons: 'grp',
@@ -39,9 +42,12 @@ async function readCatalog() {
     schemas: (await q(`SELECT nspname AS s FROM pg_namespace WHERE ${SYS} ORDER BY 1`)).map(r => r.s),
     cols: await q(`SELECT n.nspname AS s, c.relname AS t, a.attname AS c, format_type(a.atttypid, a.atttypmod) AS ty, a.attnotnull AS nn
       FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped AND ${SYS} ORDER BY 1, 2, a.attnum`),
+      WHERE c.relkind IN ('r', 'v', 'm') AND a.attnum > 0 AND NOT a.attisdropped AND ${SYS} ORDER BY 1, 2, a.attnum`),
     tabs: await q(`SELECT n.nspname AS s, c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE c.relkind = 'r' AND ${SYS} ORDER BY 1, 2`),
+    // представления (ЛР-25): обычные и материализованные
+    views: await q(`SELECT n.nspname AS s, c.relname AS t, c.relkind AS k FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind IN ('v', 'm') AND ${SYS} ORDER BY 1, 2`),
     cons: await q(`SELECT n.nspname AS s, t.relname AS t, c.conname AS n, c.contype AS k FROM pg_constraint c
       JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace
       WHERE c.contype IN ('p', 'f', 'u', 'c') AND ${SYS} ORDER BY 1, 2, c.contype, 3`),
@@ -79,7 +85,24 @@ function model(C, dbName) {
           ),
         ]);
       });
-    return n(`s:${s}`, s, 'schema', [grp(`s:${s}/tables`, 'Tables', tabs)]);
+    const cols = (t, id) =>
+      grp(
+        id + '/cols',
+        'Columns',
+        C.cols.filter(c => c.s === s && c.t === t).map(c => n(`${id}/cols/c:${c.c}`, c.c, 'col', null, c.ty)),
+      );
+    const views = k =>
+      C.views
+        .filter(v => v.s === s && v.k === k)
+        .map(({t}) => {
+          const id = `v:${s}.${t}`;
+          return n(id, t, k === 'm' ? 'mview' : 'view', [cols(t, id)]);
+        });
+    const kids = [grp(`s:${s}/tables`, 'Tables', tabs)];
+    // как в pgAdmin: раздел Views — всегда, материализованные — когда они есть
+    kids.push(grp(`s:${s}/views`, 'Views', views('v')));
+    if (views('m').length) kids.push(grp(`s:${s}/mviews`, 'Materialized Views', views('m')));
+    return n(`s:${s}`, s, 'schema', kids);
   });
   return [
     n('srv', `PostgreSQL ${C.ver}`, 'server', [
@@ -148,8 +171,10 @@ function tree(el, dbName) {
         fresh.forEach(id => {
           const parts = id.split('/');
           for (let i = 1; i < parts.length; i++) open.add(parts.slice(0, i).join('/'));
-          const m = /^t:(\w+)\./.exec(id);
+          const m = /^t:(\w+)\./.exec(id),
+            v = /^v:(\w+)\./.exec(id);
           if (m) ['srv', 'dbs', 'db', 'schemas', `s:${m[1]}`, `s:${m[1]}/tables`].forEach(x => open.add(x));
+          if (v) ['srv', 'dbs', 'db', 'schemas', `s:${v[1]}`, `s:${v[1]}/views`, `s:${v[1]}/mviews`].forEach(x => open.add(x));
           if (id.startsWith('r:')) ['srv', 'roles'].forEach(x => open.add(x));
         });
         known = new Set(now);
@@ -357,6 +382,7 @@ ${share != null ? `<rect x="-45" y="66" width="90" height="4" rx="2" class="pgx-
 
 // ═══════════════════════════ окно результата: Data Output / Messages / Explain ══
 // common/qlab.js пишет ответ в #result (таблица .rtab, сообщения, план pre.plan) — раскладываем по вкладкам
+let showTab = null; // переключить вкладку результата (вкладку «Приложение» ЛР-25 добавляет common/appscreen.js)
 function outputTabs() {
   const out = $('pgOut'),
     res = $('result'),
@@ -365,8 +391,9 @@ function outputTabs() {
   const tabs = [...out.querySelectorAll('[data-tab]')];
   const show = t => {
     out.dataset.tab = t;
-    tabs.forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+    out.querySelectorAll('.pg-tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   };
+  showTab = show;
   tabs.forEach(b => (b.onclick = () => !b.disabled && show(b.dataset.tab)));
   let t0 = 0,
     lastPlan = '';
@@ -546,6 +573,7 @@ export function createPgWorld(el, {db: dbName = 'library'} = {}) {
     },
     async sync() {},
     refresh: () => T.refresh(),
+    tab: t => showTab && showTab(t),
     confetti: () => confetti(false),
     clearConfetti,
     // контрольный пройден: большой залп вместо взлёта самолёта

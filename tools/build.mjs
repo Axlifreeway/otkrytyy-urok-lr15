@@ -22,6 +22,8 @@ const LABS = [
   'lr22-3d',
   'lr23-3d',
   'lr24-3d',
+  'lr25-3d',
+  'lr26-3d',
 ].filter(l => existsSync(join(ROOT, l, 'src/main.js')));
 const check = process.argv.includes('--check');
 let stale = 0;
@@ -51,7 +53,7 @@ for (const lab of LABS) {
       /href="\.\.\/common\/lab3d\.css(\?v=\w+)?"/,
       `href="../common/lab3d.css?v=${ver(readFileSync(join(ROOT, 'common/lab3d.css')))}"`,
     )
-    // ЛР-21–24 — вид как в pgAdmin, свои стили
+    // ЛР-21–26 — вид как в pgAdmin, свои стили
     .replace(/href="\.\.\/common\/pg\.css(\?v=\w+)?"/, `href="../common/pg.css?v=${ver(readFileSync(join(ROOT, 'common/pg.css')))}"`);
   if (check) {
     if (next !== html) {

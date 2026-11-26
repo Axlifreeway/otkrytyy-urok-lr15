@@ -30,14 +30,14 @@ DB = os.environ.get('LABS_DB', os.path.join(os.path.dirname(os.path.abspath(__fi
 STATIC = os.environ.get('LABS_STATIC', '')  # только для проверки без nginx: раздавать файлы лаб самому
 
 TYPES = {'hello', 'level', 'run', 'lint', 'rollback', 'done', 'paste', 'away', 'submit', 'hb', 'shot', 'practice', 'trace', 'form', 'sayfb'}   # 'report' пишет сам сервер
-LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 21, 'lr22': 30, 'lr23': 30, 'lr24': 15}   # число уровней в лабе — для панели преподавателя
-GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24')   # пиццерия и библиотека: открывает преподаватель
+LEVELS = {'lr13': 19, 'lr14': 20, 'lr15': 22, 'lr16': 17, 'lr17': 22, 'lr18': 19, 'lr19': 22, 'lr20': 24, 'lr21': 21, 'lr22': 30, 'lr23': 30, 'lr24': 30, 'lr25': 30, 'lr26': 30}   # число уровней в лабе — для панели преподавателя
+GATED = ('lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24', 'lr25', 'lr26')   # пиццерия и библиотека: открывает преподаватель
 MAX_BODY = 400000
 MAX_AGE = 12 * 3600 * 1000                  # насколько в прошлое можно дослать событие после обрыва связи
 MAX_REPORT = 350000                         # снимок протокола (HTML) — обычно 30–80 КБ
 SAY_FB = ('👍', '👌', '🤔', '🙋')   # отклик студента на объявление робота: понятно, сделаю, непонятно, подойдите
 REPORT_VERSIONS = 10                        # сколько последних отправок одного отчёта хранить
-REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
+REPORT_LABS = {'lr13', 'lr14', 'lr15', 'lr16', 'lr17', 'lr18', 'lr19', 'lr20', 'lr21', 'lr22', 'lr23', 'lr24', 'lr25', 'lr26', 'lr13t', 'lr14t', 'lr16t'}   # 3D-лабы и тетради (…t)
 RATE_PER_SEC = 200                          # вся группа может сидеть за одним IP колледжа
 PIN_TRIES = 8
 # защита от «захвата» чужих аккаунтов: первый вход задаёт PIN, поэтому с одного устройства
@@ -114,7 +114,7 @@ ADDED = {
     'lr21': ['newcard', 'reauthor', 'addnull', 'dropcol', 'return', 'thick', 'delaim', 'ckloan', 'txerr', 'noyear', 'twocol', 'genre'],
     'lr22': ['small', 'byauthor', 'sort', 'most', 'report', 'guess3', 'limit', 'group', 'combo', 'decade', 'twoids', 'keyrange', 'join3', 'guess3b'],
     'lr23': ['order', 'func', 'uniq', 'uniqfail', 'pages', 'wide', 'size', 'after', 'likeidx', 'onlyidx', 'exprix', 'multi', 'multiord', 'bitmapor'],
-    'lr24': ['dp', 'who', 'colgrant', 'colcheck', 'again'],
+    'lr24': ['dp', 'who', 'colgrant', 'colcheck', 'again', 'updcol', 'insgrant', 'group', 'member', 'lock'],
 }
 
 

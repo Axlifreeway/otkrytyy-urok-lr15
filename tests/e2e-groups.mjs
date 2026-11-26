@@ -8,7 +8,7 @@ const range = (a, b) => Array.from({length: b - a + 1}, (_, i) => 'lr' + (a + i)
 export const GROUPS = {
   airport: [...range(13, 16), ...range(13, 16).map(l => l + '-practice'), 'labs-lr13', 'labs-lr14', 'labs-lr16', 'mvp', 'hub'],
   pizza: [...range(17, 20), ...range(17, 19).map(l => l + '-practice')],
-  library: [...range(21, 24), 'lr21-practice', 'lr22-practice'],
+  library: [...range(21, 26), 'lr21-practice', 'lr22-practice'],
   other: null, // всё остальное: город, главная, телефон, доступ к лабам, сервер, пульт
 };
 
@@ -24,7 +24,7 @@ export function jobsOf(group, jobs) {
 const RULES = [
   [/^lr1[3-6]-3d\/|^airport\/|^labs\/|^mvp\//, ['airport', 'other']],
   [/^lr(1[7-9]|20)-3d\/|^pizza\//, ['pizza', 'other']],
-  [/^lr2[1-4]-3d\/|^library\//, ['library', 'other']],
+  [/^lr2[1-6]-3d\/|^library\//, ['library', 'other']],
   [/^teacher\/|^server\/|^index\.html$/, ['other']],
   [/\.md$|^_архив\/|^\.claude\/|^tests\/(?!e2e)/, []], // описания, архив и юнит-тесты браузером не проверяются
 ];

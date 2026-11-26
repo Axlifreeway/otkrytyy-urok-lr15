@@ -1,5 +1,6 @@
-// Библиотека (ЛР-21–24): эталоны уровней выполняются по цепочке, ошибки — только там, где задуманы,
-// планы на 20 000 книг дают ожидаемые способы чтения, копия ЛР-24 восстанавливается. Запросы — в настоящем PostgreSQL (PGlite).
+// Библиотека (ЛР-21–26): эталоны уровней выполняются по цепочке, ошибки — только там, где задуманы,
+// планы на 20 000 книг дают ожидаемые способы чтения, копия ЛР-24 восстанавливается, у представлений ЛР-25 и
+// оконных запросов ЛР-26 ответ не пуст ни у одного варианта. Запросы — в настоящем PostgreSQL (PGlite).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {makeData, baseSql, FILL} from '../common/libdata.js';
@@ -8,6 +9,8 @@ import {levels as L21} from '../lr21-3d/src/levels.js';
 import {levels as L22} from '../lr22-3d/src/levels.js';
 import {levels as L23} from '../lr23-3d/src/levels.js';
 import {levels as L24} from '../lr24-3d/src/levels.js';
+import {levels as L25} from '../lr25-3d/src/levels.js';
+import {levels as L26} from '../lr26-3d/src/levels.js';
 
 const {PGlite} = await import('../vendor/pglite/index.js');
 const db = new PGlite();
@@ -435,4 +438,119 @@ test('ЛР-22: больше половины уровней — таблица �
     }
   }
   for (const [k, v] of Object.entries(facts)) assert.ok(v.size > 1, `${k}: у вариантов 0, 7 и 23 одинаковая таблица`);
+});
+
+// эталон уровня по цепочке, как в пульте: \c — смена роли (SET ROLE / RESET ROLE), pg_dump и psql -f пульт
+// выполняет сам — здесь вместо них эталон восстановления (ref). Ошибки — только с кодами allow.
+async function chain(D, L, allow = []) {
+  const got = {};
+  await reset(baseSql(D));
+  for (const lv of L) {
+    for (const q of lv.pre || []) await db.query(q);
+    const cmds = lv.sol || lv.ref || [lv.ask];
+    got[lv.key] = {errs: []};
+    for (const q of cmds) {
+      if (/^\s*\\c\b/.test(q)) {
+        const role = q.trim().split(/\s+/)[2];
+        await db.query(role === 'postgres' ? 'RESET ROLE' : `SET ROLE ${role}`);
+        continue;
+      }
+      if (/^\s*\\/.test(q) || /^\s*pg_dump\b/.test(q)) continue;
+      if (/^\s*psql\b/.test(q)) {
+        for (const r of lv.ref) await db.query(r);
+        continue;
+      }
+      try {
+        const r = await db.query(q);
+        if (q === lv.ask) got[lv.key].rows = r.rows;
+      } catch (e) {
+        got[lv.key].errs.push(e.code);
+        assert.ok([lv.code, ...allow].includes(e.code), `${D.seed} ${lv.key}: ${q} → ${e.code} ${e.message}`);
+      }
+    }
+    await db.query('RESET ROLE');
+    // дальше — как в каноне пульта: эталон (ref) уровня, если решение его не повторяет
+    if (lv.ref && lv.sol && !lv.sol.some(q => /^\s*psql\b/.test(q))) for (const r of lv.ref) if (!lv.sol.includes(r)) await db.query(r);
+    if (lv.check === 'error') assert.deepEqual(got[lv.key].errs, [lv.code], `${D.seed} ${lv.key}: нужен отказ ${lv.code}`);
+  }
+  return got;
+}
+const many = Array.from({length: 61}, (_, i) => i).concat([101, 147, 203]);
+
+test('ЛР-24: 20 обычных и 10 сверхсложных — цепочка эталонов у разных вариантов', async () => {
+  for (const s of [0, 7, 40, 147]) {
+    const D = makeData(s),
+      L = L24(D);
+    assert.equal(L.length, 30);
+    assert.equal(L.filter(l => l.sup).length, 10);
+    const got = await chain(D, L, ['42501', '28000']);
+    // отказы под ролью — там, где задуманы
+    for (const k of ['deny', 'updcol', 'insgrant', 'libcheck']) assert.ok(got[k].errs.includes('42501'), `${s} ${k}: нужен отказ прав`);
+    assert.deepEqual(
+      got.canread.rows.map(r => [r.tablename, r.can_read]),
+      [
+        ['author', false],
+        ['book', true],
+        ['loan', true],
+        ['reader', false],
+      ],
+      `${s}: loan — через группу, reader — только столбцы`,
+    );
+    assert.deepEqual(
+      got.whoreads.rows.map(r => r.grantee),
+      [D.librarian, D.role],
+    );
+    assert.deepEqual(
+      got.summary.rows.map(r => `${r.table_name}: ${r.privileges}`),
+      ['book: SELECT', 'genre: SELECT', 'loan: INSERT'],
+    );
+  }
+  // база снова собирается, когда роли и права по умолчанию уже есть (уровень заново)
+  await db.exec(baseSql(makeData(147)));
+});
+
+test('ЛР-25: представления по цепочке; ответы не пусты ни у одного варианта', async () => {
+  for (const s of many) {
+    const D = makeData(s),
+      L = L25(D);
+    assert.equal(L.length, 30);
+    assert.equal(L.filter(l => l.sup).length, 10);
+    const got = await chain(D, L, ['42501', '44000']);
+    for (const l of L.filter(l => l.ask)) assert.ok(got[l.key].rows.length > 0, `${s} ${l.key}: пустой ответ`);
+    for (const k of ['checkopt', 'recent']) assert.deepEqual(got[k].errs, ['44000'], `${s} ${k}: CHECK OPTION`);
+    assert.deepEqual(got.asrole.errs, ['42501']);
+    assert.deepEqual(got.phone.errs, ['42501']);
+    const n = async v => (await db.query(`SELECT count(*)::int AS n FROM library.${v}`)).rows[0].n;
+    for (const v of [
+      'v_catalog',
+      'v_on_loan',
+      'v_thick',
+      'v_desk',
+      'v_never_loaned',
+      'v_reader_stats',
+      'v_busy_readers',
+      'v_recent',
+      'v_top_books',
+    ])
+      assert.ok((await n(v)) > 0, `${s}: ${v} пусто`);
+    assert.equal(await n('v_author_books'), 40);
+    assert.equal(await n('v_top_books'), 5);
+  }
+});
+
+test('ЛР-26: оконные запросы — ответ не пуст, эталон проходит свою проверку, ответы у вариантов разные', async () => {
+  const seen = {};
+  for (const s of many) {
+    const D = makeData(s),
+      L = L26(D);
+    assert.equal(L.length, 30);
+    assert.equal(L.filter(l => l.sup).length, 10);
+    const got = await chain(D, L);
+    for (const l of L.filter(l => l.ask)) {
+      assert.ok(got[l.key].rows.length > 0, `${s} ${l.key}: пустой ответ`);
+      for (const m of l.must || []) assert.ok(m.re.test(l.ask), `${l.key}: эталон не проходит must`);
+      (seen[l.key] = seen[l.key] || new Set()).add(JSON.stringify(got[l.key].rows));
+    }
+  }
+  for (const [k, v] of Object.entries(seen)) assert.ok(v.size > 5, `${k}: у вариантов почти одинаковый ответ`);
 });

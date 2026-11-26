@@ -8,7 +8,8 @@
 // lv.check 'tx' — команды в транзакции: lv.verify(ctx) смотрит на ход команд (G.trail) и состояние базы
 //   (может быть async: ctx.q(sql) — запрос от имени владельца базы, ctx.files — файлы pg_dump).
 // Кроме SQL пульт понимает EXPLAIN [ANALYZE], метакоманды psql (\d, \di, \dp, \dn, \c) и, если уровень разрешает,
-// pg_dump -n схема -f файл и psql -f файл — копия схемы строится по каталогу самой базы (ЛР-24).
+// pg_dump -n схема -f файл и psql -f файл — копия схемы строится по каталогу самой базы (ЛР-24);
+// \dv и \d представление — список представлений и их определение (ЛР-25).
 import {$, esc, plural} from './util.js';
 import {statements} from './sql.js';
 import {SFX} from './sfx.js';
@@ -86,7 +87,23 @@ export function explain(e) {
           ? 'Такого индекса нет — список индексов: \\di.'
           : 'Такого ограничения нет — проверьте имя в «Структуре базы».';
     case '42P16':
-      return 'У таблицы уже есть первичный ключ — второй объявить нельзя.';
+      return /view/.test(m)
+        ? 'CREATE OR REPLACE VIEW может только дописать столбцы в конец: убрать, переставить или переименовать столбец так нельзя. Для этого представление удаляют (DROP VIEW) и создают заново.'
+        : 'У таблицы уже есть первичный ключ — второй объявить нельзя.';
+    case '55000':
+      return /cannot (update|insert into|delete from) view/.test(m)
+        ? 'Менять данные можно только через простое представление — одна таблица, без соединений, группировки, DISTINCT и LIMIT. Это представление СУБД сама изменить не может: меняйте таблицы.'
+        : '';
+    case '44000':
+      return 'Строка не прошла условие представления, а у него WITH CHECK OPTION: через представление нельзя записать строку, которую оно потом не покажет.';
+    case '2BP01':
+      return /role/.test(m)
+        ? 'У роли остались права на объекты (или она владеет ими): сначала REVOKE (или DROP OWNED BY роль), потом DROP ROLE.'
+        : 'От объекта зависят другие (например, представление построено на этом): удалите сначала их — или всё вместе через CASCADE, если зависимые действительно не нужны.';
+    case '42P20':
+      return 'Оконная функция считается после WHERE и GROUP BY — в WHERE её ещё нет. Посчитайте её в подзапросе, а условие поставьте снаружи: SELECT … FROM (SELECT …, row_number() OVER (…) AS n FROM …) t WHERE n <= 3.';
+    case '42809':
+      return /window function/.test(m) ? 'Это оконная функция: после неё нужно OVER (…).' : '';
     case '42703':
       return 'Такого столбца нет — проверьте имя (и псевдоним таблицы перед точкой).';
     case '42P01':
@@ -420,7 +437,9 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
     try {
       if (G.tx === '!') throw new Error('транзакция прервана');
       G.subs = await showSubs(p);
-      if (known(p) && (p.group || p.agg)) info.groups = await showGroup(p);
+      if (/\bover\s*(\(|\w)/i.test(p.sql)) {
+        /* оконная функция: строки не схлопываются — показывать группы нечего */
+      } else if (known(p) && (p.group || p.agg)) info.groups = await showGroup(p);
       else if (known(p) && p.tables.length === 1) yes = await showScan(p);
       else if (known(p)) claims = await showJoin(p);
     } catch (e) {
@@ -733,7 +752,11 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
       .trim()
       .split(/\s+/)
       .map(x => x.toUpperCase());
-    if (['CREATE', 'DROP', 'ALTER'].includes(kind)) return `${kind} ${w[1] === 'UNIQUE' ? 'INDEX' : w[1]}`;
+    if (['CREATE', 'DROP', 'ALTER'].includes(kind)) {
+      const v = w[1] === 'OR' ? w.slice(3) : w.slice(1); // CREATE OR REPLACE VIEW → CREATE VIEW
+      return `${kind} ${v[0] === 'UNIQUE' ? 'INDEX' : v[0] === 'MATERIALIZED' || v[0] === 'DEFAULT' ? v[0] + ' ' + v[1] : v[0]}`;
+    }
+    if (kind === 'REFRESH') return 'REFRESH MATERIALIZED VIEW';
     return kind;
   };
   async function runChange(sql, kind) {
@@ -822,9 +845,34 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
   }
 
   // ═════════════════════════════════════════════ метакоманды psql ══
+  const VIEWS_SQL = `SELECT n.nspname AS s, c.relname AS t, CASE c.relkind WHEN 'v' THEN 'представление' ELSE 'материализованное' END AS k
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('v', 'm') AND n.nspname = ANY (current_schemas(false)) ORDER BY 1, 2`;
   const pre = t => `<pre class="plan">${esc(t)}</pre>`;
   async function metaDescribe(t) {
     return asAdmin(async () => {
+      // представление: столбцы и сохранённый запрос
+      const v = (
+        await q(
+          `SELECT c.relkind AS k, pg_get_viewdef(c.oid, true) AS def FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = '${t}' AND c.relkind IN ('v', 'm') AND n.nspname = ANY (current_schemas(false))`,
+        )
+      ).rows[0];
+      if (v) {
+        const cs = (
+          await q(`SELECT a.attname AS c, format_type(a.atttypid, a.atttypmod) AS ty FROM pg_attribute a
+            WHERE a.attrelid = '${t}'::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`)
+        ).rows;
+        const opt = (
+          await q(
+            `SELECT check_option AS o FROM information_schema.views WHERE table_name = '${t}' AND table_schema = ANY (current_schemas(false))`,
+          )
+        ).rows[0];
+        return (
+          `${v.k === 'm' ? 'Материализованное представление' : 'Представление'} "${t}"\n` +
+          cs.map(c => `  ${c.c.padEnd(12)} ${c.ty}`).join('\n') +
+          `\nОпределение:\n${v.def.replace(/^/gm, '  ')}` +
+          (opt && opt.o !== 'NONE' ? `\nПараметры: check_option=${opt.o.toLowerCase()}` : '')
+        );
+      }
       const cols = (
         await q(`SELECT column_name AS c, format_type(a.atttypid, a.atttypmod) AS ty, NOT a.attnotnull AS nul, pg_get_expr(d.adbin, d.adrelid) AS def
           FROM information_schema.columns ic JOIN pg_attribute a ON a.attrelid = (quote_ident(ic.table_schema) || '.' || quote_ident(ic.table_name))::regclass AND a.attname = ic.column_name
@@ -877,7 +925,15 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
         const r = await asAdmin(() =>
           q(`SELECT schemaname, tablename FROM pg_tables WHERE schemaname = ANY (current_schemas(false)) ORDER BY 1, 2`),
         );
-        out = 'Список отношений\n' + r.rows.map(x => `  ${x.schemaname} | ${x.tablename} | таблица`).join('\n');
+        const vs = cmd === '\\d' ? (await asAdmin(() => q(VIEWS_SQL))).rows : [];
+        out =
+          'Список отношений\n' +
+          [...r.rows.map(x => `  ${x.schemaname} | ${x.tablename} | таблица`), ...vs.map(x => `  ${x.s} | ${x.t} | ${x.k}`)].join('\n');
+      } else if (cmd === '\\dv' || cmd === '\\dm') {
+        const r = (await asAdmin(() => q(VIEWS_SQL))).rows.filter(x => (cmd === '\\dm') === (x.k !== 'представление'));
+        out =
+          (cmd === '\\dm' ? 'Список материализованных представлений\n' : 'Список представлений\n') +
+          (r.map(x => `  ${x.s} | ${x.t}`).join('\n') || '  (представлений нет)');
       } else if (cmd === '\\di') {
         const r = await asAdmin(() =>
           q(
@@ -898,9 +954,12 @@ export function queryLab({W, TABLES, COLS, sleep, tablesHint, practiceRef, maxRo
         const r = await asAdmin(() => q(`SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY 1`));
         out = 'Список ролей\n' + r.rows.map(x => `  ${x.rolname}${x.rolcanlogin ? '' : ' (без входа)'}`).join('\n');
       } else
-        throw Object.assign(new Error(`неизвестная команда ${cmd}: здесь работают \\d, \\d таблица, \\di, \\dp, \\dn, \\du, \\c`), {
-          code: 'META',
-        });
+        throw Object.assign(
+          new Error(`неизвестная команда ${cmd}: здесь работают \\d, \\d таблица, \\dv, \\dm, \\di, \\dp, \\dn, \\du, \\c`),
+          {
+            code: 'META',
+          },
+        );
     } catch (e) {
       robotErr();
       info.err = e;
